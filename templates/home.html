@@ -1,0 +1,144 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Inicio{% endblock %}
+{% block content %}
+
+<div class="d-flex align-items-center gap-3 mb-4">
+  <span class="m5-avatar" style="width:48px;height:48px;font-size:1.15rem;">{{ user.username|first|upper }}</span>
+  <div>
+    <h1 class="h4 mb-0 fw-bold">Bienvenido, {{ user.get_full_name|default:user.username }}</h1>
+    <p class="text-muted mb-0 small">Constructora M5 SpA · <span class="badge bg-primary">{{ user.get_rol_display }}</span></p>
+  </div>
+</div>
+
+{# ─── Métricas globales ─── #}
+<div class="row g-3 mb-4">
+  {% if user.rol == 'ADMIN' %}
+  <div class="col-6 col-md-3">
+    <div class="card h-100">
+      <div class="card-body d-flex align-items-center gap-3">
+        <div class="stat-icon is-blue"><i class="bi bi-people-fill"></i></div>
+        <div>
+          <div class="text-muted small">Usuarios</div>
+          <div class="fw-bold fs-4">{{ stats.usuarios }}</div>
+          {% if stats.pendientes %}<div class="small text-primary"><i class="bi bi-clock"></i> {{ stats.pendientes }} pendiente{{ stats.pendientes|pluralize:"s" }}</div>{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
+  <div class="col-6 col-md-3">
+    <div class="card h-100">
+      <div class="card-body d-flex align-items-center gap-3">
+        <div class="stat-icon is-orange"><i class="bi bi-truck"></i></div>
+        <div>
+          <div class="text-muted small">Proveedores</div>
+          <div class="fw-bold fs-4">{{ stats.proveedores }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
+  <div class="col-6 col-md-3">
+    <div class="card h-100">
+      <div class="card-body d-flex align-items-center gap-3">
+        <div class="stat-icon is-ink"><i class="bi bi-building"></i></div>
+        <div>
+          <div class="text-muted small">Proyectos activos</div>
+          <div class="fw-bold fs-4">{{ stats.proyectos }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'JEFE_PROYECTO' or user.rol == 'ADMIN' %}
+  <div class="col-6 col-md-3">
+    <div class="card h-100">
+      <div class="card-body d-flex align-items-center gap-3">
+        <div class="stat-icon is-blue"><i class="bi bi-card-checklist"></i></div>
+        <div>
+          <div class="text-muted small">Solicitudes pendientes</div>
+          <div class="fw-bold fs-4">{{ stats.solicitudes_pendientes }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{# ─── Accesos rápidos ─── #}
+<h2 class="h6 text-muted text-uppercase fw-semibold mb-3" style="letter-spacing:.06em;">Módulos disponibles</h2>
+<div class="row g-3">
+  {% if user.rol == 'ADMIN' %}
+  <div class="col-md-4 col-lg-3">
+    <a href="{% url 'usuarios:lista' %}" class="module-card p-3 h-100">
+      <div class="icon text-info"><i class="bi bi-people-fill"></i></div>
+      <div class="fw-semibold">Usuarios</div>
+      <div class="small text-muted mt-1">Gestión de cuentas y roles</div>
+      {% if stats.pendientes %}<div class="mt-2"><span class="badge bg-warning text-dark">{{ stats.pendientes }} pendiente{{ stats.pendientes|pluralize:"s" }}</span></div>{% endif %}
+    </a>
+  </div>
+  {% endif %}
+  {% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
+  <div class="col-md-4 col-lg-3">
+    <a href="{% url 'proveedores:lista' %}" class="module-card p-3 h-100">
+      <div class="icon text-primary"><i class="bi bi-truck"></i></div>
+      <div class="fw-semibold">Proveedores</div>
+      <div class="small text-muted mt-1">Registro y administración</div>
+    </a>
+  </div>
+  {% endif %}
+  {% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
+  <div class="col-md-4 col-lg-3">
+    <a href="{% url 'proyectos:lista' %}" class="module-card p-3 h-100">
+      <div class="icon" style="color:#2b2f36;"><i class="bi bi-building"></i></div>
+      <div class="fw-semibold">Proyectos</div>
+      <div class="small text-muted mt-1">Proyectos e itemizado</div>
+    </a>
+  </div>
+  {% endif %}
+  {% if user.rol == 'BODEGUERO' or user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
+  <div class="col-md-4 col-lg-3">
+    <a href="{% url 'inventario:bodega_panel' %}" class="module-card p-3 h-100">
+      <div class="icon text-info"><i class="bi bi-boxes"></i></div>
+      <div class="fw-semibold">Bodega</div>
+      <div class="small text-muted mt-1">Movimientos, préstamos y catálogo</div>
+      {% if stats.materiales_criticos %}<div class="mt-2"><span class="badge bg-danger">{{ stats.materiales_criticos }} bajo stock mínimo</span></div>{% endif %}
+    </a>
+  </div>
+  {% endif %}
+  {% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'JEFE_PROYECTO' or user.rol == 'ADMIN' %}
+  <div class="col-md-4 col-lg-3">
+    <a href="{% url 'solicitudes:lista' %}" class="module-card p-3 h-100">
+      <div class="icon text-primary"><i class="bi bi-card-checklist"></i></div>
+      <div class="fw-semibold">Solicitudes</div>
+      <div class="small text-muted mt-1">Solicitudes de material</div>
+      {% if stats.solicitudes_pendientes %}<div class="mt-2"><span class="badge bg-danger">{{ stats.solicitudes_pendientes }} pendiente{{ stats.solicitudes_pendientes|pluralize:"s" }}</span></div>{% endif %}
+    </a>
+  </div>
+  {% endif %}
+  {% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'JEFE_PROYECTO' or user.rol == 'ADMIN' %}
+  <div class="col-md-4 col-lg-3">
+    <a href="{% url 'adquisiciones:orden_lista' %}" class="module-card p-3 h-100">
+      <div class="icon text-primary"><i class="bi bi-receipt"></i></div>
+      <div class="fw-semibold">Adquisiciones</div>
+      <div class="small text-muted mt-1">Cotizaciones y órdenes de compra</div>
+      {% if user.rol != 'JEFE_PROYECTO' and stats.cotizar %}<div class="mt-2"><span class="badge bg-info text-dark">{{ stats.cotizar }} por cotizar</span></div>{% endif %}
+      {% if user.rol != 'ENCARGADO_ADQUISICIONES' and stats.oc_borrador %}<div class="mt-2"><span class="badge bg-warning text-dark">{{ stats.oc_borrador }} OC por aprobar</span></div>{% endif %}
+    </a>
+  </div>
+  {% endif %}
+  {% if user.rol == 'CONTABILIDAD' or user.rol == 'ADMIN' %}
+  <div class="col-md-4 col-lg-3">
+    <a href="{% url 'facturacion:lista' %}" class="module-card p-3 h-100">
+      <div class="icon text-success"><i class="bi bi-cash-coin"></i></div>
+      <div class="fw-semibold">Facturación</div>
+      <div class="small text-muted mt-1">Facturas y cuentas por pagar</div>
+      {% if stats.facturas_bloqueadas %}<div class="mt-2"><span class="badge bg-danger">{{ stats.facturas_bloqueadas }} bloqueada{{ stats.facturas_bloqueadas|pluralize:"s" }}</span></div>{% endif %}
+    </a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

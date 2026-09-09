@@ -1,0 +1,145 @@
+{% extends 'base.html' %}
+{% block title %}Cotización {{ solicitud.correlativo }}{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h1 class="h3 mb-0">Cotización · {{ solicitud.correlativo }}</h1>
+    <small class="text-muted">{{ solicitud.proyecto.nombre }} · {{ solicitud.get_estado_display }}</small>
+  </div>
+  <a href="{% url 'solicitudes:detalle' solicitud.pk %}" class="btn btn-outline-secondary btn-sm">← Ver solicitud</a>
+</div>
+
+{# --- Comparativo por material (RF-22) --- #}
+<div class="card shadow-sm mb-3">
+  <div class="card-header py-2 fw-semibold">Materiales de la solicitud</div>
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead class="table-light"><tr><th>Material</th><th class="text-end">Cantidad</th><th>Línea aprobada</th></tr></thead>
+      <tbody>
+      {% for d in detalles %}
+        <tr>
+          <td>{{ d.material.nombre }}</td>
+          <td class="text-end">{{ d.cantidad_solicitada }} {{ d.unidad_medida }}</td>
+          <td>
+            {% if d.pk in detalle_ids_aprobados %}
+              <span class="badge bg-success">Aprobada</span>
+            {% else %}
+              <span class="badge bg-secondary">Pendiente</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# --- Cotizaciones registradas --- #}
+{% for c in cotizaciones %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <span class="fw-semibold">{{ c.proveedor.nombre }}</span>
+    <span class="small text-muted">Despacho ${{ c.costo_despacho|floatformat:0 }} · {{ c.tiempo_entrega_dias }} días hábiles</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead class="table-light">
+        <tr><th>Material</th><th class="text-end">V. unitario</th><th class="text-end">V. total</th>
+            <th class="text-center">Estado</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for l in c.lineas.all %}
+        <tr>
+          <td>{{ l.solicitud_detalle.material.nombre }}</td>
+          <td class="text-end">${{ l.valor_unitario|floatformat:0 }}</td>
+          <td class="text-end">${{ l.valor_total|floatformat:0 }}</td>
+          <td class="text-center">
+            {% if l.estado == 'APROBADA' %}<span class="badge bg-success">Aprobada</span>
+            {% elif l.estado == 'DESCARTADA' %}<span class="badge bg-secondary">Descartada</span>
+            {% else %}<span class="badge bg-light text-dark border">Pendiente</span>{% endif %}
+          </td>
+          <td class="text-end">
+            {% if l.estado != 'APROBADA' %}
+            <form method="post" class="d-inline">
+              {% csrf_token %}
+              <input type="hidden" name="accion" value="aprobar_linea">
+              <input type="hidden" name="linea_id" value="{{ l.pk }}">
+              <button class="btn btn-sm btn-outline-success">Aprobar</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      <tr class="table-light">
+        <td colspan="2" class="text-end fw-semibold">Valor total (RF-21)</td>
+        <td class="text-end fw-bold">${{ c.valor_total|floatformat:0 }}</td>
+        <td colspan="2"></td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% empty %}
+<p class="text-muted">Aún no hay cotizaciones registradas para esta solicitud.</p>
+{% endfor %}
+
+{# --- Generar Orden(es) de Compra (RF-23) --- #}
+<div class="card shadow-sm mb-3">
+  <div class="card-body d-flex justify-content-between align-items-center">
+    <span class="{% if puede_generar_oc %}text-success{% else %}text-muted{% endif %}">
+      {% if puede_generar_oc %}
+        <i class="bi bi-check-circle-fill me-1"></i>Todos los materiales tienen una línea de cotización aprobada.
+      {% else %}
+        Aún faltan materiales por aprobar una línea de cotización.
+      {% endif %}
+    </span>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="accion" value="generar_oc">
+      <button class="btn btn-primary" {% if not puede_generar_oc %}disabled{% endif %}>
+        Generar Orden(es) de Compra
+      </button>
+    </form>
+  </div>
+</div>
+
+{# --- Registrar nueva cotización (RF-20) --- #}
+<div class="card shadow-sm">
+  <div class="card-header py-2 fw-semibold">Registrar cotización de un proveedor</div>
+  <div class="card-body">
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="accion" value="agregar_cotizacion">
+      <div class="row g-2 mb-3">
+        <div class="col-md-5">
+          <label class="form-label small mb-1">Proveedor</label>
+          {{ cot_form.proveedor }}
+          {% if cot_form.proveedor.errors %}<div class="text-danger small">{{ cot_form.proveedor.errors|striptags }}</div>{% endif %}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small mb-1">Costo de despacho (CLP)</label>
+          {{ cot_form.costo_despacho }}
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small mb-1">Entrega (días hábiles)</label>
+          {{ cot_form.tiempo_entrega_dias }}
+        </div>
+      </div>
+      <table class="table table-sm align-middle">
+        <thead class="table-light"><tr><th>Material</th><th class="text-end">Cantidad</th><th style="width:180px">Valor unitario</th></tr></thead>
+        <tbody>
+        {% for d in detalles %}
+          <tr>
+            <td>{{ d.material.nombre }}</td>
+            <td class="text-end">{{ d.cantidad_solicitada }} {{ d.unidad_medida }}</td>
+            <td><input type="number" min="0" step="1" name="vu_{{ d.pk }}" class="form-control form-control-sm" placeholder="$"></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <button class="btn btn-primary btn-sm">Guardar cotización</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

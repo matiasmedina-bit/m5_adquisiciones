@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block title %}Editar {{ orden.correlativo }}{% endblock %}
+{% block content %}
+<h1 class="h4 mb-1">Editar {{ orden.correlativo }}</h1>
+<p class="text-muted small">Corrige las líneas rechazadas. Al guardar, la OC vuelve a estado borrador para nueva aprobación (RF-25).</p>
+
+<div class="card shadow-sm"><div class="card-body">
+<form method="post">
+  {% csrf_token %}
+  {{ formset.management_form }}
+  <table class="table align-middle">
+    <thead class="table-light"><tr><th>Material</th><th style="width:160px">Cantidad</th><th style="width:180px">Valor unitario</th></tr></thead>
+    <tbody>
+    {% for f in formset %}
+      <tr>
+        <td>{{ f.instance.descripcion }} {{ f.id }}</td>
+        <td>{{ f.cantidad }}{% if f.cantidad.errors %}<div class="text-danger small">{{ f.cantidad.errors|striptags }}</div>{% endif %}</td>
+        <td>{{ f.valor_unitario }}{% if f.valor_unitario.errors %}<div class="text-danger small">{{ f.valor_unitario.errors|striptags }}</div>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <button type="submit" class="btn btn-primary">Guardar y reenviar a aprobación</button>
+  <a href="{% url 'adquisiciones:orden_detalle' orden.pk %}" class="btn btn-outline-secondary">Cancelar</a>
+</form>
+</div></div>
+{% endblock %}

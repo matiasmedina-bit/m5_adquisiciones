@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}Movimientos de bodega{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">Movimientos de inventario</h1>
+  <a href="{% url 'inventario:bodega_panel' %}" class="btn btn-outline-secondary">← Bodega</a>
+</div>
+
+<div class="mb-3 d-flex gap-2 flex-wrap">
+  <a href="?" class="btn btn-sm {% if not tipo_filtro %}btn-secondary{% else %}btn-outline-secondary{% endif %}">Todos</a>
+  {% for val, lbl in tipos %}
+    <a href="?tipo={{ val }}" class="btn btn-sm {% if tipo_filtro == val %}btn-secondary{% else %}btn-outline-secondary{% endif %}">{{ lbl }}</a>
+  {% endfor %}
+</div>
+
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Fecha</th><th>Tipo</th><th>Material</th><th class="text-end">Cantidad</th>
+          <th>Origen / Destino</th><th>Guía</th><th>Motivo</th><th>Registró</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for mv in movimientos %}
+        <tr>
+          <td class="text-muted small">{{ mv.fecha|date:"d-m-Y H:i" }}</td>
+          <td><span class="badge bg-secondary">{{ mv.get_tipo_display }}</span></td>
+          <td class="fw-semibold">{{ mv.material.nombre }}</td>
+          <td class="text-end">{{ mv.cantidad|floatformat:"-2" }}</td>
+          <td class="small">
+            {% if mv.orden_compra %}OC {{ mv.orden_compra.correlativo }}{% endif %}
+            {% if mv.proyecto %}{{ mv.proyecto.nombre }}{% endif %}
+            {% if mv.ubicacion %}<span class="text-muted d-block">Ubic.: {{ mv.ubicacion }}</span>{% endif %}
+          </td>
+          <td class="small text-muted">{{ mv.guia_despacho|default:"—" }}</td>
+          <td class="small text-muted">{{ mv.motivo|default:"—" }}</td>
+          <td class="small text-muted">{{ mv.registrado_por.get_full_name|default:mv.registrado_por.username }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8" class="text-center text-muted py-4">Sin movimientos.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

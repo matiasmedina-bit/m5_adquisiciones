@@ -1,0 +1,286 @@
+{% extends 'base.html' %}
+{% block title %}{{ solicitud.correlativo }}{% endblock %}
+{% block content %}
+
+{# --- Encabezado --- #}
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h1 class="h3 mb-0">{{ solicitud.correlativo }}</h1>
+    <small class="text-muted">{{ solicitud.proyecto.nombre }} · {{ solicitud.fecha|date:"d-m-Y H:i" }}</small>
+  </div>
+  <div class="d-flex gap-2 align-items-center">
+    <span class="badge fs-6
+      {% if solicitud.estado == 'APROBADA' or solicitud.estado == 'RECIBIDA' %}bg-success
+      {% elif solicitud.estado == 'RECHAZADA' %}bg-danger
+      {% elif solicitud.estado == 'ENVIADA' %}bg-warning text-dark
+      {% elif solicitud.estado == 'EN_COTIZACION' or solicitud.estado == 'OC_GENERADA' or solicitud.estado == 'RECEPCION_PARCIAL' %}bg-info text-dark
+      {% else %}bg-secondary{% endif %}">
+      {{ solicitud.get_estado_display }}
+    </span>
+  </div>
+</div>
+
+{# --- Progreso de estados --- #}
+<div class="card shadow-sm mb-3">
+  <div class="card-body py-3">
+    <div class="d-flex align-items-center justify-content-between position-relative">
+      <div style="position:absolute;top:50%;left:8%;right:8%;height:3px;background:#dee2e6;z-index:0;transform:translateY(-50%);"></div>
+      {% for label, icon, active, done in estados_progreso %}
+      <div class="text-center position-relative" style="z-index:1;flex:1">
+        <div class="mx-auto rounded-circle d-flex align-items-center justify-content-center fw-bold"
+             style="width:34px;height:34px;background:{% if done %}#198754{% elif active %}var(--m5-blue,#0d6efd){% else %}#dee2e6{% endif %};color:{% if done or active %}#fff{% else %}#6c757d{% endif %}">
+          {{ icon }}
+        </div>
+        <div class="small mt-1 {% if active %}fw-semibold text-info{% elif done %}text-success{% else %}text-muted{% endif %}">{{ label }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  {# --- Columna principal --- #}
+  <div class="col-lg-8">
+
+    {# Materiales --- #}
+    <div class="card shadow-sm mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center py-2">
+        <span class="fw-semibold">Materiales solicitados</span>
+        <span class="badge bg-secondary">{{ solicitud.total_items }} ítem{{ solicitud.total_items|pluralize:"s" }}</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table align-middle mb-0">
+          <thead class="table-light">
+            <tr><th>Material</th><th>Partida</th><th class="text-end">Cantidad</th><th>Unidad</th><th></th></tr>
+          </thead>
+          <tbody>
+          {% for d in solicitud.detalles.all %}
+            <tr>
+              <td>
+                {{ d.material.nombre }}
+                {% if d.excede_itemizado %}
+                  <span class="badge bg-warning text-dark ms-1" title="{{ d.justificacion }}">Excede itemizado</span>
+                {% endif %}
+                {% if d.justificacion %}
+                  <div class="small text-muted fst-italic">Justificación: {{ d.justificacion }}</div>
+                {% endif %}
+              </td>
+              <td class="small text-muted">{% if d.partida %}{{ d.partida.codigo_partida }}{% else %}—{% endif %}</td>
+              <td class="text-end fw-semibold">{{ d.cantidad_solicitada }}</td>
+              <td class="text-muted">{{ d.unidad_medida }}</td>
+              <td class="text-end">
+                {% if solicitud.editable and user.rol == 'ENCARGADO_ADQUISICIONES' %}
+                  <a href="{% url 'solicitudes:detalle_eliminar' d.pk %}"
+                     class="btn btn-sm btn-outline-danger"
+                     onclick="return confirm('¿Quitar este material?')">✕</a>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" class="text-center text-muted py-3">Sin materiales aún.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {# Agregar material (borrador + encargado) — RF-16 --- #}
+    {% if solicitud.editable and user.rol == 'ENCARGADO_ADQUISICIONES' %}
+    <div class="card shadow-sm mb-3">
+      <div class="card-header py-2 fw-semibold">Agregar material</div>
+      <div class="card-body">
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="accion" value="agregar_material">
+          <div class="row g-2">
+            <div class="col-md-4">
+              <label class="form-label small mb-1">Del catálogo</label>
+              {{ form.material }}
+              {% if form.material.errors %}<div class="text-danger small">{{ form.material.errors|striptags }}</div>{% endif %}
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small mb-1">O escribir nombre</label>
+              {{ form.nombre_libre }}
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small mb-1">Cantidad</label>
+              {{ form.cantidad_solicitada }}
+              {% if form.cantidad_solicitada.errors %}<div class="text-danger small">{{ form.cantidad_solicitada.errors|striptags }}</div>{% endif %}
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small mb-1">Unidad</label>
+              {{ form.unidad_medida }}
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small mb-1">Partida del itemizado</label>
+              {{ form.partida }}
+            </div>
+            <div class="col-md-8">
+              <label class="form-label small mb-1">Justificación <span class="text-muted">(si supera el saldo del itemizado — RF-16)</span></label>
+              {{ form.justificacion }}
+              {% if form.justificacion.errors %}<div class="text-danger small">{{ form.justificacion.errors|striptags }}</div>{% endif %}
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm mt-2">+ Agregar</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+    {# RF-17: adjuntos de respaldo --- #}
+    <div class="card shadow-sm mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center py-2">
+        <span class="fw-semibold">Archivos de respaldo</span>
+        <span class="badge bg-secondary">{{ solicitud.total_adjuntos }} / {{ max_adjuntos }}</span>
+      </div>
+      <div class="card-body">
+        <ul class="list-group list-group-flush mb-3">
+          {% for a in solicitud.adjuntos.all %}
+          <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+            <span>
+              <i class="bi bi-paperclip me-1"></i>
+              <a href="{{ a.archivo.url }}" target="_blank">{{ a.nombre|default:a }}</a>
+              <span class="text-muted small ms-2">{{ a.subido_por.get_full_name|default:a.subido_por.username }} · {{ a.fecha|date:"d-m-Y H:i" }}</span>
+            </span>
+            {% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'JEFE_PROYECTO' or user.rol == 'ADMIN' %}
+            <a href="{% url 'solicitudes:adjunto_eliminar' a.pk %}" class="btn btn-sm btn-outline-danger"
+               onclick="return confirm('¿Eliminar este archivo?')">✕</a>
+            {% endif %}
+          </li>
+          {% empty %}
+          <li class="list-group-item text-muted px-0">Sin archivos adjuntos.</li>
+          {% endfor %}
+        </ul>
+        {% if solicitud.total_adjuntos < max_adjuntos %}
+        <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
+          {% csrf_token %}
+          <input type="hidden" name="accion" value="adjuntar">
+          <div class="col-md-5">
+            <label class="form-label small mb-1">Archivo (PDF o JPG, máx 5 MB)</label>
+            {{ adjunto_form.archivo }}
+            {% if adjunto_form.archivo.errors %}<div class="text-danger small">{{ adjunto_form.archivo.errors|striptags }}</div>{% endif %}
+          </div>
+          <div class="col-md-5">
+            <label class="form-label small mb-1">Descripción</label>
+            {{ adjunto_form.nombre }}
+          </div>
+          <div class="col-md-2">
+            <button type="submit" class="btn btn-outline-primary btn-sm w-100">Subir</button>
+          </div>
+        </form>
+        {% else %}
+        <p class="text-muted small mb-0">Se alcanzó el máximo de {{ max_adjuntos }} archivos.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    {# RF-39: órdenes de compra asociadas y su estado de recepción --- #}
+    {% if ordenes_compra %}
+    <div class="card shadow-sm mb-3">
+      <div class="card-header py-2 fw-semibold">Órdenes de compra y recepción (RF-39)</div>
+      <div class="table-responsive">
+        <table class="table align-middle mb-0">
+          <thead class="table-light">
+            <tr><th>OC</th><th>Proveedor</th><th class="text-center">Estado</th><th></th></tr>
+          </thead>
+          <tbody>
+          {% for oc in ordenes_compra %}
+            <tr>
+              <td class="fw-semibold">{{ oc.correlativo }}</td>
+              <td>{{ oc.proveedor.nombre }}</td>
+              <td class="text-center"><span class="badge bg-secondary">{{ oc.get_estado_display }}</span></td>
+              <td class="text-end"><a href="{% url 'adquisiciones:orden_detalle' oc.pk %}" class="btn btn-sm btn-outline-primary">Ver OC</a></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    {# Editar cabecera (borrador + encargado) --- #}
+    {% if solicitud.editable and user.rol == 'ENCARGADO_ADQUISICIONES' %}
+    <div class="card shadow-sm mb-3">
+      <div class="card-header py-2 fw-semibold" role="button" data-bs-toggle="collapse" data-bs-target="#cab-collapse">
+        ✏️ Editar datos de la solicitud <small class="text-muted">(clic para expandir)</small>
+      </div>
+      <div class="collapse" id="cab-collapse">
+        <div class="card-body">
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="accion" value="editar_cabecera">
+            {% for field in cab_form %}
+              <div class="mb-3">
+                <label class="form-label">{{ field.label }}</label>
+                {{ field }}
+                {% if field.errors %}<div class="text-danger small">{{ field.errors|striptags }}</div>{% endif %}
+              </div>
+            {% endfor %}
+            <button type="submit" class="btn btn-primary">Guardar cambios</button>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>{# fin col-lg-8 #}
+
+  {# --- Panel lateral de acciones --- #}
+  <div class="col-lg-4">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header py-2 fw-semibold">Información</div>
+      <div class="card-body small">
+        <dl class="row mb-0">
+          <dt class="col-5 text-muted">Proyecto</dt>
+          <dd class="col-7">{{ solicitud.proyecto.nombre }}</dd>
+          <dt class="col-5 text-muted">Emisor</dt>
+          <dd class="col-7">{{ solicitud.emisor.get_full_name|default:solicitud.emisor.username }}</dd>
+          <dt class="col-5 text-muted">Fecha</dt>
+          <dd class="col-7">{{ solicitud.fecha|date:"d-m-Y H:i" }}</dd>
+          <dt class="col-5 text-muted">Estado</dt>
+          <dd class="col-7">{{ solicitud.get_estado_display }}</dd>
+          {% if solicitud.observaciones %}
+          <dt class="col-5 text-muted">Notas</dt>
+          <dd class="col-7">{{ solicitud.observaciones }}</dd>
+          {% endif %}
+        </dl>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-header py-2 fw-semibold">Acciones</div>
+      <div class="card-body d-grid gap-2">
+        {% if solicitud.editable and user.rol == 'ENCARGADO_ADQUISICIONES' %}
+          {% if solicitud.total_items > 0 %}
+            <a href="{% url 'solicitudes:enviar' solicitud.pk %}"
+               class="btn btn-success"
+               onclick="return confirm('¿Enviar esta solicitud para aprobación?')">
+              📤 Enviar para aprobación
+            </a>
+          {% else %}
+            <button class="btn btn-success" disabled title="Agrega al menos un material">📤 Enviar para aprobación</button>
+          {% endif %}
+        {% endif %}
+
+        {% if solicitud.estado == 'ENVIADA' and user.rol == 'JEFE_PROYECTO' or solicitud.estado == 'ENVIADA' and user.rol == 'ADMIN' %}
+          <a href="{% url 'solicitudes:resolver' solicitud.pk 'aprobar' %}"
+             class="btn btn-success"
+             onclick="return confirm('¿Aprobar esta solicitud?')">✅ Aprobar</a>
+          <a href="{% url 'solicitudes:resolver' solicitud.pk 'rechazar' %}"
+             class="btn btn-danger"
+             onclick="return confirm('¿Rechazar esta solicitud?')">✗ Rechazar</a>
+        {% endif %}
+
+        {% if solicitud.puede_cotizarse and user.rol == 'ENCARGADO_ADQUISICIONES' %}
+          <a href="{% url 'adquisiciones:cotizacion_sm' solicitud.pk %}" class="btn btn-primary">
+            💲 Ir a cotización
+          </a>
+        {% endif %}
+
+        <a href="{% url 'solicitudes:lista' %}" class="btn btn-outline-secondary">← Volver al listado</a>
+      </div>
+    </div>
+  </div>
+
+</div>{# fin row #}
+{% endblock %}

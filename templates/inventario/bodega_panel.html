@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}Bodega{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h3 mb-0">Bodega</h1>
+    <small class="text-muted">Movimientos de inventario, préstamos y alertas de stock</small>
+  </div>
+  <a href="{% url 'inventario:lista' %}" class="btn btn-outline-secondary">Catálogo</a>
+</div>
+
+{# --- Acciones rápidas --- #}
+<div class="row g-2 mb-4">
+  <div class="col-6 col-md-3"><a href="{% url 'inventario:entrada_crear' %}" class="btn btn-primary w-100"><i class="bi bi-box-arrow-in-down me-1"></i>Entrada</a></div>
+  <div class="col-6 col-md-3"><a href="{% url 'inventario:salida_crear' %}" class="btn btn-primary w-100"><i class="bi bi-box-arrow-up me-1"></i>Salida a obra</a></div>
+  <div class="col-6 col-md-3"><a href="{% url 'inventario:merma_crear' %}" class="btn btn-outline-danger w-100"><i class="bi bi-exclamation-octagon me-1"></i>Merma / pérdida</a></div>
+  <div class="col-6 col-md-3"><a href="{% url 'inventario:devolucion_proveedor_crear' %}" class="btn btn-outline-secondary w-100"><i class="bi bi-arrow-return-left me-1"></i>Devolución a proveedor</a></div>
+  <div class="col-6 col-md-3"><a href="{% url 'inventario:prestamo_crear' %}" class="btn btn-outline-primary w-100"><i class="bi bi-tools me-1"></i>Préstamo herramienta</a></div>
+  <div class="col-6 col-md-3"><a href="{% url 'inventario:prestamo_lista' %}" class="btn btn-outline-secondary w-100">Préstamos ({{ prestamos_activos.count }})</a></div>
+  <div class="col-6 col-md-3"><a href="{% url 'inventario:movimiento_lista' %}" class="btn btn-outline-secondary w-100">Historial de movimientos</a></div>
+</div>
+
+{# --- RF-37: alertas de stock mínimo --- #}
+<div class="card shadow-sm mb-3">
+  <div class="card-header py-2 fw-semibold">
+    <i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>Materiales en o bajo su stock mínimo (RF-37)
+  </div>
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead class="table-light"><tr><th>Material</th><th>Ubicación</th><th class="text-end">Stock actual</th><th class="text-end">Stock mínimo</th></tr></thead>
+      <tbody>
+      {% for m in criticos %}
+        <tr class="table-warning">
+          <td class="fw-semibold">{{ m.nombre }}</td>
+          <td class="text-muted small">{{ m.ubicacion|default:"—" }}</td>
+          <td class="text-end fw-semibold text-danger">{{ m.stock_actual|floatformat:"-2" }}</td>
+          <td class="text-end text-muted">{{ m.stock_minimo|floatformat:"-2" }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4" class="text-center text-muted py-3">Ningún material está bajo su stock mínimo.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# --- Últimos movimientos --- #}
+<div class="card shadow-sm">
+  <div class="card-header py-2 fw-semibold">Últimos movimientos</div>
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead class="table-light"><tr><th>Fecha</th><th>Tipo</th><th>Material</th><th class="text-end">Cantidad</th><th>Registró</th></tr></thead>
+      <tbody>
+      {% for mv in ultimos %}
+        <tr>
+          <td class="text-muted small">{{ mv.fecha|date:"d-m-Y H:i" }}</td>
+          <td><span class="badge bg-secondary">{{ mv.get_tipo_display }}</span></td>
+          <td>{{ mv.material.nombre }}</td>
+          <td class="text-end">{{ mv.cantidad|floatformat:"-2" }}</td>
+          <td class="text-muted small">{{ mv.registrado_por.get_full_name|default:mv.registrado_por.username }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5" class="text-center text-muted py-3">Sin movimientos registrados.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h1 class="h3 mb-0">{{ proyecto.nombre }}</h1>
+  {% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ADMIN' %}
+  <a href="{% url 'proyectos:editar' proyecto.pk %}" class="btn btn-outline-primary btn-sm">Editar proyecto</a>
+  {% endif %}
+</div>
+<p class="text-muted">Mandante: {{ proyecto.mandante }} · Centro de costo: {{ proyecto.centro_costo|default:"—" }} · Estado: {{ proyecto.get_estado_display }} · Presupuesto: ${{ proyecto.presupuesto_total }}</p>
+<p class="text-muted">Jefe de proyecto: {% if proyecto.jefe_proyecto %}{{ proyecto.jefe_proyecto.get_full_name|default:proyecto.jefe_proyecto.username }}{% else %}<span class="fst-italic">sin asignar</span>{% endif %}</p>
+
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+  <h2 class="h5 mb-0">Itemizado (partidas)</h2>
+  {% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ADMIN' %}
+  <a href="{% url 'proyectos:itemizado_crear' proyecto.pk %}" class="btn btn-primary btn-sm">+ Agregar partida</a>
+  {% endif %}
+</div>
+<div class="card shadow-sm"><div class="table-responsive">
+<table class="table mb-0">
+  <thead class="table-light"><tr>
+    <th>Código</th><th>Descripción</th><th>Unidad</th><th>Presupuestada</th><th>Ejecutada</th><th>Saldo</th><th></th>
+  </tr></thead>
+  <tbody>
+  {% for item in proyecto.itemizados.all %}
+    <tr>
+      <td>{{ item.codigo_partida }}</td>
+      <td>{{ item.descripcion }}</td>
+      <td>{{ item.unidad_medida }}</td>
+      <td>{{ item.cant_presupuestada }}</td>
+      <td>{{ item.cant_ejecutada }}</td>
+      <td>{{ item.saldo_disponible }}</td>
+      <td class="text-end">{% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ADMIN' %}<a href="{% url 'proyectos:itemizado_editar' item.pk %}" class="btn btn-sm btn-outline-primary">Editar</a>{% endif %}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="7" class="text-center text-muted py-3">Sin partidas aún.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div></div>
+<a href="{% url 'proyectos:lista' %}" class="btn btn-outline-secondary mt-3">Volver</a>
+{% endblock %}

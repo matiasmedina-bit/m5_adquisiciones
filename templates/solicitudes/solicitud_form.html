@@ -1,0 +1,107 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1 class="h3 mb-3">{% if form.instance.pk %}Editar solicitud{% else %}Nueva solicitud de material{% endif %}</h1>
+
+<form method="post">
+  {% csrf_token %}
+
+  {# --- Cabecera --- #}
+  <div class="card shadow-sm mb-3">
+    <div class="card-header fw-semibold">Datos generales</div>
+    <div class="card-body">
+      {% for field in form %}
+        <div class="mb-3">
+          <label class="form-label">{{ field.label }}</label>
+          {{ field }}
+          {% if field.errors %}<div class="text-danger small">{{ field.errors|striptags }}</div>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# --- Materiales (CU-12) --- #}
+  {% if formset %}
+  <div class="card shadow-sm mb-3">
+    <div class="card-header fw-semibold">Materiales a solicitar</div>
+    <div class="card-body p-0">
+      {{ formset.management_form }}
+      <div class="table-responsive">
+        <table class="table mb-0" id="formset-table">
+          <thead class="table-light">
+            <tr>
+              <th style="min-width:200px">Del catálogo</th>
+              <th style="min-width:180px">O escribir nombre</th>
+              <th style="min-width:100px">Cantidad</th>
+              <th style="min-width:100px">Unidad</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="formset-body">
+            {% for detalle_form in formset %}
+              <tr class="formset-row">
+                <td>{{ detalle_form.material }}{{ detalle_form.id }}
+                  {% if detalle_form.material.errors %}<div class="text-danger small">{{ detalle_form.material.errors|striptags }}</div>{% endif %}
+                </td>
+                <td>{{ detalle_form.nombre_libre }}</td>
+                <td>{{ detalle_form.cantidad_solicitada }}
+                  {% if detalle_form.cantidad_solicitada.errors %}<div class="text-danger small">{{ detalle_form.cantidad_solicitada.errors|striptags }}</div>{% endif %}
+                </td>
+                <td>{{ detalle_form.unidad_medida }}</td>
+                <td class="text-center">
+                  {% if detalle_form.instance.pk %}{{ detalle_form.DELETE }}{% endif %}
+                  <button type="button" class="btn btn-sm btn-outline-danger remove-row">✕</button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="p-3">
+        <button type="button" id="add-row" class="btn btn-outline-secondary btn-sm">+ Agregar material</button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <button type="submit" class="btn btn-primary">Guardar</button>
+  <a href="{% url 'solicitudes:lista' %}" class="btn btn-outline-secondary">Cancelar</a>
+</form>
+
+{% if formset %}
+<script>
+  const totalForms = document.getElementById('id_detalles-TOTAL_FORMS');
+  const formsetBody = document.getElementById('formset-body');
+  const emptyRow = formsetBody.querySelector('.formset-row:last-child');
+
+  document.getElementById('add-row').addEventListener('click', function () {
+    const idx = parseInt(totalForms.value);
+    const newRow = emptyRow.cloneNode(true);
+    newRow.querySelectorAll('input, select').forEach(el => {
+      el.name = el.name.replace(/-\d+-/, `-${idx}-`);
+      el.id = el.id.replace(/-\d+-/, `-${idx}-`);
+      if (el.tagName === 'SELECT') el.selectedIndex = 0;
+      else el.value = '';
+    });
+    newRow.querySelectorAll('.text-danger').forEach(e => e.remove());
+    formsetBody.appendChild(newRow);
+    totalForms.value = idx + 1;
+  });
+
+  formsetBody.addEventListener('click', function (e) {
+    if (e.target.classList.contains('remove-row')) {
+      const rows = formsetBody.querySelectorAll('.formset-row');
+      if (rows.length > 1) {
+        e.target.closest('tr').remove();
+        totalForms.value = formsetBody.querySelectorAll('.formset-row').length;
+      } else {
+        const row = e.target.closest('tr');
+        row.querySelectorAll('input, select').forEach(el => {
+          if (el.tagName === 'SELECT') el.selectedIndex = 0;
+          else el.value = '';
+        });
+      }
+    }
+  });
+</script>
+{% endif %}
+{% endblock %}

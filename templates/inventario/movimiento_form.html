@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block title %}{{ titulo }}{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">{{ titulo }}</h1>
+
+<div class="card shadow-sm" style="max-width:720px;"><div class="card-body">
+<form method="post">
+  {% csrf_token %}
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+  {% endif %}
+  {% for field in form %}
+    {% if field.name != 'orden_compra' and field.name != 'proyecto' or tipo != 'ENTRADA' %}
+      <div class="mb-3">
+        <label class="form-label">{{ field.label }}</label>
+        {{ field }}
+        {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+        {% if field.errors %}<div class="text-danger small">{{ field.errors|striptags }}</div>{% endif %}
+      </div>
+    {% endif %}
+  {% endfor %}
+
+  {% if tipo == 'ENTRADA' %}
+  <div class="mb-3" data-origen="OC">
+    <label class="form-label">{{ form.orden_compra.label }}</label>
+    {{ form.orden_compra }}
+    {% if form.orden_compra.errors %}<div class="text-danger small">{{ form.orden_compra.errors|striptags }}</div>{% endif %}
+  </div>
+  <div class="mb-3" data-origen="PROYECTO">
+    <label class="form-label">{{ form.proyecto.label }}</label>
+    {{ form.proyecto }}
+    {% if form.proyecto.errors %}<div class="text-danger small">{{ form.proyecto.errors|striptags }}</div>{% endif %}
+  </div>
+  {% endif %}
+
+  <button type="submit" class="btn btn-primary">Registrar</button>
+  <a href="{% url 'inventario:bodega_panel' %}" class="btn btn-outline-secondary">Cancelar</a>
+</form>
+</div></div>
+
+{% if tipo == 'ENTRADA' %}
+<script>
+  (function () {
+    var sel = document.getElementById('id_origen');
+    function toggle() {
+      var v = sel.value;
+      document.querySelectorAll('[data-origen]').forEach(function (el) {
+        el.style.display = (el.getAttribute('data-origen') === v) ? '' : 'none';
+      });
+    }
+    if (sel) { sel.addEventListener('change', toggle); toggle(); }
+  })();
+</script>
+{% endif %}
+{% endblock %}

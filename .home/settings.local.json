@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($env:PGPASSWORD = \"matias12345\"; & \"C:\\\\Program Files\\\\PostgreSQL\\\\18\\\\bin\\\\psql.exe\" -U postgres -h 127.0.0.1 -p 5432 -c \"SELECT version\\(\\);\" 2>&1)",
+      "PowerShell($env:PGPASSWORD = \"matias1234\"; & \"C:\\\\Program Files\\\\PostgreSQL\\\\18\\\\bin\\\\psql.exe\" -U postgres -h 127.0.0.1 -p 5432 -c \"SELECT version\\(\\);\" 2>&1)",
+      "PowerShell($env:PGPASSWORD = \"matias1234\"; & \"C:\\\\Program Files\\\\PostgreSQL\\\\18\\\\bin\\\\psql.exe\" -U postgres -h 127.0.0.1 -p 5432 -c \"SELECT datname FROM pg_database WHERE datname = 'm5_adquisiciones';\" 2>&1)",
+      "PowerShell($env:PGPASSWORD = \"matias1234\"; & \"C:\\\\Program Files\\\\PostgreSQL\\\\18\\\\bin\\\\psql.exe\" -U postgres -h 127.0.0.1 -p 5432 -d m5_adquisiciones -c \"SELECT app, name FROM django_migrations ORDER BY app, id;\" 2>&1)",
+      "PowerShell($env:PGPASSWORD = \"matias1234\"; & \"C:\\\\Program Files\\\\PostgreSQL\\\\18\\\\bin\\\\psql.exe\" -U postgres -h 127.0.0.1 -p 5432 -d m5_adquisiciones -c \"\\\\d proyectos_proyecto\" 2>&1)",
+      "PowerShell($env:PGPASSWORD = \"matias1234\"; & \"C:\\\\Program Files\\\\PostgreSQL\\\\18\\\\bin\\\\psql.exe\" -U postgres -h 127.0.0.1 -p 5432 -d m5_adquisiciones -c \"\\\\d proyectos_itemizado\" 2>&1)"
+    ]
+  }
+}

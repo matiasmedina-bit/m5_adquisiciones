@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}Cuentas por pagar{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h1 class="h3 mb-0">Cuentas por pagar</h1>
+    <small class="text-muted">Facturas registradas, ordenadas por vencimiento (RF-43)</small>
+  </div>
+  <a href="{% url 'facturacion:export_csv' %}" class="btn btn-outline-secondary">Exportar CSV</a>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-header py-2 d-flex justify-content-between">
+    <span class="fw-semibold">Al {{ hoy|date:"d-m-Y" }}</span>
+    <span class="fw-semibold">Total: ${{ total|floatformat:0 }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr><th>Vencimiento</th><th>Proveedor</th><th>N° factura</th>
+            <th class="text-end">Monto</th><th class="text-center">Días restantes</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for row in filas %}
+        <tr class="{% if row.vencida %}table-danger{% elif row.por_vencer %}table-warning{% endif %}">
+          <td>{{ row.factura.fecha_vencimiento|date:"d-m-Y" }}</td>
+          <td>{{ row.factura.proveedor.nombre }}</td>
+          <td class="fw-semibold">{{ row.factura.numero }}</td>
+          <td class="text-end">${{ row.factura.monto_total|floatformat:0 }}</td>
+          <td class="text-center">
+            {% if row.vencida %}<span class="badge bg-danger">Vencida</span>
+            {% elif row.por_vencer %}<span class="badge bg-warning text-dark">{{ row.dias_restantes }} d</span>
+            {% else %}{{ row.dias_restantes }} d{% endif %}
+          </td>
+          <td class="text-end"><a href="{% url 'facturacion:detalle' row.factura.pk %}" class="btn btn-sm btn-outline-primary">Ver</a></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" class="text-center text-muted py-4">No hay facturas pendientes de pago.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

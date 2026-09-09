@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+{% block title %}Factura {{ factura.numero }}{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h1 class="h3 mb-0">Factura {{ factura.numero }}</h1>
+    <small class="text-muted">{{ factura.proveedor.nombre }} · {{ factura.proveedor.rut_formateado }}</small>
+  </div>
+  {% if factura.esta_bloqueada %}<span class="badge fs-6 bg-danger">Bloqueada</span>
+  {% else %}<span class="badge fs-6 bg-success">Registrada</span>{% endif %}
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-sm-4 text-muted">Emisión</dt><dd class="col-sm-8">{{ factura.fecha_emision|date:"d-m-Y" }}</dd>
+          <dt class="col-sm-4 text-muted">Vencimiento</dt><dd class="col-sm-8">{{ factura.fecha_vencimiento|date:"d-m-Y" }}</dd>
+          <dt class="col-sm-4 text-muted">Monto factura</dt><dd class="col-sm-8 fw-semibold">${{ factura.monto_total|floatformat:0 }}</dd>
+          <dt class="col-sm-4 text-muted">Total OC vinculadas</dt><dd class="col-sm-8">${{ factura.total_ordenes|floatformat:0 }}</dd>
+          <dt class="col-sm-4 text-muted">Diferencia</dt>
+          <dd class="col-sm-8 {% if factura.esta_bloqueada %}text-danger fw-semibold{% endif %}">{{ factura.diferencia_pct }}% (tolerancia {{ tolerancia }}%)</dd>
+          <dt class="col-sm-4 text-muted">Registró</dt><dd class="col-sm-8">{{ factura.registrado_por.get_full_name|default:factura.registrado_por.username }} · {{ factura.creada|date:"d-m-Y H:i" }}</dd>
+          {% if factura.archivo %}<dt class="col-sm-4 text-muted">Archivo</dt><dd class="col-sm-8"><a href="{{ factura.archivo.url }}" target="_blank">Ver documento</a></dd>{% endif %}
+          {% if factura.desbloqueada_por %}<dt class="col-sm-4 text-muted">Desbloqueó</dt><dd class="col-sm-8">{{ factura.desbloqueada_por.get_full_name|default:factura.desbloqueada_por.username }} · {{ factura.fecha_desbloqueo|date:"d-m-Y H:i" }}</dd>{% endif %}
+          {% if factura.observacion %}<dt class="col-sm-4 text-muted">Observación</dt><dd class="col-sm-8" style="white-space:pre-line">{{ factura.observacion }}</dd>{% endif %}
+        </dl>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-header py-2 fw-semibold">Órdenes de compra vinculadas</div>
+      <ul class="list-group list-group-flush">
+        {% for oc in factura.ordenes.all %}
+        <li class="list-group-item d-flex justify-content-between">
+          <a href="{% url 'adquisiciones:orden_detalle' oc.pk %}">{{ oc.correlativo }}</a>
+          <span>${{ oc.total|floatformat:0 }} · {% if oc.facturada %}<span class="badge bg-success">Facturada</span>{% else %}<span class="badge bg-secondary">Pendiente</span>{% endif %}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    {% if factura.esta_bloqueada and user.rol == 'ADMIN' %}
+    <div class="card shadow-sm border-danger">
+      <div class="card-header py-2 fw-semibold text-danger">Desbloquear factura (RF-42)</div>
+      <div class="card-body">
+        <form method="post" action="{% url 'facturacion:desbloquear' factura.pk %}">
+          {% csrf_token %}
+          {{ desbloqueo_form.justificacion }}
+          {% if desbloqueo_form.justificacion.errors %}<div class="text-danger small">{{ desbloqueo_form.justificacion.errors|striptags }}</div>{% endif %}
+          <button class="btn btn-danger w-100 mt-2">Desbloquear y registrar</button>
+        </form>
+      </div>
+    </div>
+    {% elif factura.esta_bloqueada %}
+    <div class="alert alert-warning">Solo Administración puede desbloquear esta factura.</div>
+    {% endif %}
+    <a href="{% url 'facturacion:lista' %}" class="btn btn-outline-secondary mt-2">← Volver</a>
+  </div>
+</div>
+{% endblock %}

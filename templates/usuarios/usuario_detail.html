@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1 class="h3">{{ usuario_obj.get_full_name|default:usuario_obj.username }}</h1>
+<ul class="list-group">
+  <li class="list-group-item"><strong>Usuario:</strong> {{ usuario_obj.username }}</li>
+  <li class="list-group-item"><strong>Correo:</strong> {{ usuario_obj.email }}</li>
+  <li class="list-group-item"><strong>Rol:</strong> {{ usuario_obj.get_rol_display }}</li>
+  <li class="list-group-item"><strong>Estado:</strong> {% if usuario_obj.estado %}Activo{% else %}Inactivo{% endif %}</li>
+</ul>
+<a href="{% url 'usuarios:lista' %}" class="btn btn-outline-secondary mt-3">Volver</a>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solicitar acceso · M5 SpA</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link rel="icon" href="{% static 'img/favicon-32.png' %}?v=2" sizes="32x32">
+  <link href="{% static 'css/style.css' %}?v=3" rel="stylesheet">
+</head>
+<body>
+<div class="login-wrapper">
+  <div class="login-card card" style="max-width:480px;">
+    <div class="login-header">
+      <img src="{% static 'img/Logo-M5.png' %}?v=2" alt="M5 SpA">
+      <h1 class="h5 mb-0 fw-bold mt-2">Solicitar acceso</h1>
+      <p class="mb-0 small opacity-75 mt-1">Tu cuenta quedará pendiente de aprobación por el administrador</p>
+    </div>
+    <div class="login-body">
+      <form method="post">
+        {% csrf_token %}
+        {% for field in form %}
+          <div class="mb-3">
+            <label class="form-label fw-medium small">{{ field.label }}</label>
+            {{ field }}
+            {% if field.errors %}<div class="text-danger small mt-1">{{ field.errors|striptags }}</div>{% endif %}
+          </div>
+        {% endfor %}
+        <button type="submit" class="btn btn-primary w-100 py-2 fw-semibold mt-1">
+          <i class="bi bi-send me-1"></i> Enviar solicitud
+        </button>
+      </form>
+      <hr class="my-3">
+      <p class="text-center small text-muted mb-0">
+        <a href="{% url 'login' %}" class="text-decoration-none"><i class="bi bi-arrow-left me-1"></i>Volver al login</a>
+      </p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

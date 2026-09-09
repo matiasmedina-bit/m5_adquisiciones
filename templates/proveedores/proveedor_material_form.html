@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block title %}Material del proveedor{% endblock %}
+{% block content %}
+<h1 class="h4 mb-1">
+  {% if material %}Editar material{% else %}Agregar material{% endif %}
+</h1>
+<p class="text-muted small mb-3">Proveedor: {{ proveedor.nombre }}</p>
+
+<div class="card shadow-sm" style="max-width:640px;"><div class="card-body">
+<form method="post">
+  {% csrf_token %}
+  {% for field in form %}
+    <div class="mb-3 {% if field.name == 'disponible' %}form-check{% endif %}">
+      <label class="{% if field.name == 'disponible' %}form-check-label{% else %}form-label{% endif %}">{{ field.label }}</label>
+      {{ field }}
+      {% if field.errors %}<div class="text-danger small">{{ field.errors|striptags }}</div>{% endif %}
+    </div>
+  {% endfor %}
+  <button type="submit" class="btn btn-primary">Guardar</button>
+  <a href="{% url 'proveedores:detalle' proveedor.pk %}" class="btn btn-outline-secondary">Cancelar</a>
+</form>
+</div></div>
+{% endblock %}

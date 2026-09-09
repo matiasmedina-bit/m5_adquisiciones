@@ -1,0 +1,198 @@
+{% extends 'base.html' %}
+{% block title %}Usuarios{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h3 mb-0">Usuarios del sistema</h1>
+    <small class="text-muted">Gestión de cuentas y roles · {{ total_general }} cuenta{{ total_general|pluralize:"s" }} registrada{{ total_general|pluralize:"s" }}</small>
+  </div>
+  <a href="{% url 'usuarios:crear' %}" class="btn btn-primary"><i class="bi bi-person-plus me-1"></i>Nueva cuenta</a>
+</div>
+
+{# ─── Solicitudes de registro pendientes ─── #}
+{% if pendientes %}
+<div class="card border-warning shadow-sm mb-4">
+  <div class="card-header d-flex align-items-center gap-2 py-2" style="background:#fff8e1;border-color:#ffe082;">
+    <i class="bi bi-clock-history text-warning fs-5"></i>
+    <span class="fw-semibold">Solicitudes de acceso pendientes</span>
+    <span class="badge bg-warning text-dark ms-1">{{ pendientes|length }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead class="table-light">
+        <tr><th>Usuario</th><th>Nombre</th><th>Correo</th><th>Rol solicitado</th><th class="text-center">Acción</th></tr>
+      </thead>
+      <tbody>
+      {% for u in pendientes %}
+        <tr>
+          <td class="fw-semibold">{{ u.username }}</td>
+          <td>{{ u.get_full_name }}</td>
+          <td class="text-muted">{{ u.email }}</td>
+          <td><span class="badge bg-info text-dark">{{ u.get_rol_display }}</span></td>
+          <td class="text-center">
+            <a href="{% url 'usuarios:aprobar' u.pk %}"
+               class="btn btn-sm btn-success me-1"
+               onclick="return confirm('¿Aprobar acceso a {{ u.username }}?')">
+              <i class="bi bi-check-lg"></i> Aprobar
+            </a>
+            <a href="{% url 'usuarios:rechazar' u.pk %}"
+               class="btn btn-sm btn-danger"
+               onclick="return confirm('¿Rechazar y eliminar solicitud de {{ u.username }}?')">
+              <i class="bi bi-x-lg"></i> Rechazar
+            </a>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ─── Resumen por rol (clic = filtrar) ─── #}
+<div class="row g-2 mb-3">
+  <div class="col-6 col-md">
+    <a href="{% url 'usuarios:lista' %}"
+       class="card shadow-sm text-decoration-none h-100 {% if not f_rol and not f_estado %}border-primary{% endif %}">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small text-uppercase" style="font-size:.7rem;letter-spacing:.03em;">Todos</div>
+        <div class="h4 mb-0 text-body">{{ total_general }}</div>
+      </div>
+    </a>
+  </div>
+  {% for r in resumen_roles %}
+  <div class="col-6 col-md">
+    <a href="?rol={{ r.valor }}"
+       class="card shadow-sm text-decoration-none h-100 {% if f_rol == r.valor %}border-primary{% endif %}">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small text-uppercase d-flex align-items-center gap-1" style="font-size:.7rem;letter-spacing:.03em;">
+          {% if r.valor == 'ADMIN' %}<i class="bi bi-shield-lock"></i>
+          {% elif r.valor == 'JEFE_PROYECTO' %}<i class="bi bi-clipboard-check"></i>
+          {% elif r.valor == 'ENCARGADO_ADQUISICIONES' %}<i class="bi bi-cart4"></i>
+          {% else %}<i class="bi bi-box-seam"></i>{% endif %}
+          {{ r.etiqueta }}
+        </div>
+        <div class="h4 mb-0 text-body">{{ r.total }}</div>
+      </div>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+
+{# ─── Barra de búsqueda y filtros ─── #}
+<form method="get" class="card shadow-sm mb-3">
+  <div class="card-body py-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-12 col-md-5">
+        <label class="form-label small text-muted mb-1">Buscar</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="text" name="q" value="{{ f_q }}" class="form-control"
+                 placeholder="Usuario, nombre, correo o teléfono">
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label small text-muted mb-1">Rol</label>
+        <select name="rol" class="form-select">
+          <option value="">Todos los roles</option>
+          {% for valor, etiqueta in roles %}
+            <option value="{{ valor }}" {% if f_rol == valor %}selected{% endif %}>{{ etiqueta }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small text-muted mb-1">Estado</label>
+        <select name="estado" class="form-select">
+          <option value="">Todos</option>
+          <option value="activo" {% if f_estado == 'activo' %}selected{% endif %}>Activos</option>
+          <option value="inactivo" {% if f_estado == 'inactivo' %}selected{% endif %}>Inactivos</option>
+        </select>
+      </div>
+      <div class="col-12 col-md-2 d-grid d-md-flex gap-2">
+        <button type="submit" class="btn btn-primary flex-fill"><i class="bi bi-funnel me-1"></i>Filtrar</button>
+        {% if hay_filtros %}
+          <a href="{% url 'usuarios:lista' %}" class="btn btn-outline-secondary" title="Limpiar filtros"><i class="bi bi-x-lg"></i></a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</form>
+
+{% if hay_filtros %}
+<p class="text-muted small mb-2">
+  <i class="bi bi-info-circle me-1"></i>{{ total_filtrado }} resultado{{ total_filtrado|pluralize:"s" }} para el filtro aplicado.
+</p>
+{% endif %}
+
+{# ─── Usuarios seccionados por rol ─── #}
+{% for g in grupos %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center py-2" role="button"
+       data-bs-toggle="collapse" data-bs-target="#grupo-{{ g.valor }}" aria-expanded="true">
+    <span class="fw-semibold d-flex align-items-center gap-2">
+      {% if g.valor == 'ADMIN' %}<span class="badge bg-dark"><i class="bi bi-shield-lock me-1"></i>{{ g.etiqueta }}</span>
+      {% elif g.valor == 'JEFE_PROYECTO' %}<span class="badge bg-warning text-dark"><i class="bi bi-clipboard-check me-1"></i>{{ g.etiqueta }}</span>
+      {% elif g.valor == 'ENCARGADO_ADQUISICIONES' %}<span class="badge bg-primary"><i class="bi bi-cart4 me-1"></i>{{ g.etiqueta }}</span>
+      {% else %}<span class="badge bg-secondary"><i class="bi bi-box-seam me-1"></i>{{ g.etiqueta }}</span>{% endif %}
+      <span class="text-muted small">{{ g.usuarios|length }} usuario{{ g.usuarios|length|pluralize:"s" }}</span>
+    </span>
+    <i class="bi bi-chevron-down text-muted"></i>
+  </div>
+  <div class="collapse show" id="grupo-{{ g.valor }}">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Usuario</th><th>Nombre completo</th><th>Correo</th><th>Teléfono</th><th class="text-center">Estado</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for u in g.usuarios %}
+          <tr>
+            <td>
+              <div class="d-flex align-items-center gap-2">
+                <span class="m5-avatar">{{ u.username|first|upper }}</span>
+                <span class="fw-semibold">{{ u.username }}</span>
+              </div>
+            </td>
+            <td>{{ u.get_full_name|default:"—" }}</td>
+            <td class="text-muted small">{{ u.email }}</td>
+            <td class="text-muted small">{{ u.telefono|default:"—" }}</td>
+            <td class="text-center">
+              {% if u.estado %}<span class="badge bg-success">Activo</span>
+              {% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}
+            </td>
+            <td class="text-end text-nowrap">
+              <a href="{% url 'usuarios:editar' u.pk %}" class="btn btn-sm btn-outline-primary me-1" title="Editar">
+                <i class="bi bi-pencil"></i>
+              </a>
+              <a href="{% url 'usuarios:cambiar_estado' u.pk %}"
+                 class="btn btn-sm {% if u.estado %}btn-outline-warning{% else %}btn-outline-success{% endif %}"
+                 title="{% if u.estado %}Inactivar{% else %}Activar{% endif %}"
+                 onclick="return confirm('¿{% if u.estado %}Inactivar{% else %}Activar{% endif %} la cuenta de {{ u.username }}?')">
+                {% if u.estado %}<i class="bi bi-person-x"></i>{% else %}<i class="bi bi-person-check"></i>{% endif %}
+              </a>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% empty %}
+<div class="card shadow-sm">
+  <div class="card-body text-center text-muted py-5">
+    <i class="bi bi-people fs-1 d-block mb-2 opacity-50"></i>
+    {% if hay_filtros %}
+      No hay usuarios que coincidan con el filtro.
+      <a href="{% url 'usuarios:lista' %}" class="d-block mt-2">Ver todos los usuarios</a>
+    {% else %}
+      No hay usuarios registrados.
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+
+{% endblock %}

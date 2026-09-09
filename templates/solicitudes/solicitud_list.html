@@ -1,0 +1,133 @@
+{% extends 'base.html' %}
+{% block title %}Solicitudes{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h3 mb-0">Solicitudes de material</h1>
+    <small class="text-muted">Gestión y seguimiento de solicitudes</small>
+  </div>
+  {% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
+  <a href="{% url 'solicitudes:crear' %}" class="btn btn-primary">+ Nueva solicitud</a>
+  {% endif %}
+</div>
+
+{# --- Métricas --- #}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <a href="?estado=" class="text-decoration-none">
+      <div class="card border-0 shadow-sm h-100 {% if not estado_filtro %}border-primary border-2{% endif %}">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-3">
+            <div class="rounded-3 p-2 bg-secondary bg-opacity-10 text-secondary fs-4">📋</div>
+            <div>
+              <div class="text-muted small">Total</div>
+              <div class="fw-bold fs-4">{{ metricas.total }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3">
+    <a href="?estado=BORRADOR" class="text-decoration-none">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-3">
+            <div class="rounded-3 p-2 bg-secondary bg-opacity-10 text-secondary fs-4">✏️</div>
+            <div>
+              <div class="text-muted small">Borrador</div>
+              <div class="fw-bold fs-4">{{ metricas.borradores }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3">
+    <a href="?estado=ENVIADA" class="text-decoration-none">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-3">
+            <div class="rounded-3 p-2 bg-warning bg-opacity-10 text-warning fs-4">📤</div>
+            <div>
+              <div class="text-muted small">Pendientes</div>
+              <div class="fw-bold fs-4">{{ metricas.enviadas }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3">
+    <a href="?estado=APROBADA" class="text-decoration-none">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-3">
+            <div class="rounded-3 p-2 bg-success bg-opacity-10 text-success fs-4">✅</div>
+            <div>
+              <div class="text-muted small">Aprobadas / Rechazadas</div>
+              <div class="fw-bold fs-4">{{ metricas.aprobadas }} / {{ metricas.rechazadas }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
+</div>
+
+{# --- Filtro por estado --- #}
+<div class="mb-3 d-flex gap-2 flex-wrap">
+  <a href="?" class="btn btn-sm {% if not estado_filtro %}btn-secondary{% else %}btn-outline-secondary{% endif %}">Todas</a>
+  <a href="?estado=BORRADOR" class="btn btn-sm {% if estado_filtro == 'BORRADOR' %}btn-secondary{% else %}btn-outline-secondary{% endif %}">Borrador</a>
+  <a href="?estado=ENVIADA" class="btn btn-sm {% if estado_filtro == 'ENVIADA' %}btn-warning{% else %}btn-outline-warning{% endif %}">Enviadas</a>
+  <a href="?estado=APROBADA" class="btn btn-sm {% if estado_filtro == 'APROBADA' %}btn-success{% else %}btn-outline-success{% endif %}">Aprobadas</a>
+  <a href="?estado=RECHAZADA" class="btn btn-sm {% if estado_filtro == 'RECHAZADA' %}btn-danger{% else %}btn-outline-danger{% endif %}">Rechazadas</a>
+</div>
+
+{# --- Tabla --- #}
+<div class="card shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <span class="fw-semibold">Listado{% if estado_filtro %} — {{ estado_filtro|capfirst }}{% endif %}</span>
+    <span class="badge bg-secondary">{{ solicitudes|length }} registro{{ solicitudes|length|pluralize:"s" }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Correlativo</th>
+          <th>Proyecto</th>
+          <th>Emisor</th>
+          <th class="text-center">Estado</th>
+          <th>Fecha</th>
+          <th class="text-center">Ítems</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for s in solicitudes %}
+        <tr>
+          <td class="fw-semibold">{{ s.correlativo }}</td>
+          <td>{{ s.proyecto.nombre }}</td>
+          <td class="text-muted">{{ s.emisor.get_full_name|default:s.emisor.username }}</td>
+          <td class="text-center">
+            {% if s.estado == 'APROBADA' or s.estado == 'RECIBIDA' %}<span class="badge bg-success">{{ s.get_estado_display }}</span>
+            {% elif s.estado == 'RECHAZADA' %}<span class="badge bg-danger">Rechazada</span>
+            {% elif s.estado == 'ENVIADA' %}<span class="badge bg-warning text-dark">Pendiente</span>
+            {% elif s.estado == 'BORRADOR' %}<span class="badge bg-secondary">Borrador</span>
+            {% else %}<span class="badge bg-info text-dark">{{ s.get_estado_display }}</span>{% endif %}
+          </td>
+          <td class="text-muted small">{{ s.fecha|date:"d-m-Y H:i" }}</td>
+          <td class="text-center">{{ s.total_items }}</td>
+          <td class="text-end">
+            <a href="{% url 'solicitudes:detalle' s.pk %}" class="btn btn-sm btn-outline-primary">Ver detalle</a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No hay solicitudes{% if estado_filtro %} con estado "{{ estado_filtro }}"{% endif %}.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

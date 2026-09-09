@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+build/
+dist/
+
+# Entorno virtual
+venv/
+.venv/
+env/
+
+# Variables de entorno (NUNCA subir credenciales)
+.env
+
+# Django
+*.log
+db.sqlite3
+/staticfiles/
+/media/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+.DS_Store
