@@ -11,10 +11,14 @@ from django.contrib import messages
 from django.db.models import Q
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
+from django.views.decorators.http import require_POST
 from django.views.generic import ListView, CreateView, UpdateView, DetailView
 
 from .models import Usuario
-from .forms import UsuarioCreateForm, UsuarioUpdateForm, RegistroSolicitudForm
+from .forms import (
+    UsuarioCreateForm, UsuarioUpdateForm, RegistroSolicitudForm,
+    RevisionSolicitudForm,
+)
 from .permisos import RolRequeridoMixin, rol_requerido
 
 
@@ -38,6 +42,7 @@ def registro_solicitud(request):
 
 
 @rol_requerido("ADMIN")
+@require_POST
 def aprobar_registro(request, pk):
     """Aprueba la solicitud de registro de un usuario pendiente."""
     usuario = get_object_or_404(Usuario, pk=pk, pendiente_aprobacion=True)
@@ -49,6 +54,7 @@ def aprobar_registro(request, pk):
 
 
 @rol_requerido("ADMIN")
+@require_POST
 def rechazar_registro(request, pk):
     """Rechaza y elimina la solicitud de registro."""
     usuario = get_object_or_404(Usuario, pk=pk, pendiente_aprobacion=True)
@@ -56,6 +62,59 @@ def rechazar_registro(request, pk):
     usuario.delete()
     messages.warning(request, f"Solicitud de {nombre} rechazada y eliminada.")
     return redirect("usuarios:lista")
+
+
+@rol_requerido("ADMIN")
+def revisar_solicitud(request, pk):
+    """
+    CU-52: ficha de una solicitud de acceso pendiente.
+
+    Muestra todo lo que declaró el solicitante y permite corregirlo antes de
+    decidir: el rol mal elegido, un correo con un typo, el nombre incompleto.
+    Desde la misma pantalla se guarda, se aprueba (guardando los cambios) o
+    se rechaza.
+    """
+    usuario = get_object_or_404(Usuario, pk=pk, pendiente_aprobacion=True)
+    accion = request.POST.get("accion", "")
+
+    if request.method == "POST" and accion == "rechazar":
+        nombre = usuario.username
+        usuario.delete()
+        messages.warning(request, f"Solicitud de {nombre} rechazada y eliminada.")
+        return redirect("usuarios:lista")
+
+    if request.method == "POST":
+        form = RevisionSolicitudForm(request.POST, instance=usuario)
+        if form.is_valid():
+            rol_original = Usuario.objects.get(pk=usuario.pk).get_rol_display()
+            rol_cambiado = form.rol_cambiado
+            usuario = form.save(commit=False)
+
+            if accion == "aprobar":
+                usuario.estado = True
+                usuario.pendiente_aprobacion = False
+                usuario.save()
+                if rol_cambiado:
+                    messages.success(
+                        request,
+                        f"Cuenta de {usuario.username} aprobada como "
+                        f"{usuario.get_rol_display()} (había solicitado {rol_original}).",
+                    )
+                else:
+                    messages.success(request, f"Cuenta de {usuario.username} aprobada.")
+                return redirect("usuarios:lista")
+
+            usuario.save()
+            messages.success(
+                request,
+                f"Cambios guardados. La solicitud de {usuario.username} sigue pendiente.",
+            )
+            return redirect("usuarios:revisar", pk=usuario.pk)
+    else:
+        form = RevisionSolicitudForm(instance=usuario)
+
+    return render(request, "usuarios/usuario_revisar.html",
+                  {"form": form, "solicitante": usuario})
 
 
 @login_required

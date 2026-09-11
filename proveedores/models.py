@@ -65,6 +65,29 @@ class ProveedorMaterial(models.Model):
     codigo = models.CharField("Código del proveedor", max_length=40)
     descripcion = models.CharField("Descripción", max_length=200)
     unidad_medida = models.CharField("Unidad de medida", max_length=20)
+    # Precio unitario ofertado por el proveedor para este material. Sirve para
+    # precargar el valor al cotizar y para que el Jefe de Proyecto vea el monto
+    # estimado antes de aprobar una solicitud.
+    precio = models.DecimalField(
+        "Precio unitario (CLP)", max_digits=12, decimal_places=0, default=0
+    )
+    # La condición de pago se negocia por producto, no por proveedor: un mismo
+    # proveedor puede vender cemento a 30 días y arriendo de maquinaria al
+    # contado. Si queda en blanco, la orden de compra usa la del proveedor.
+    condicion_pago = models.CharField(
+        "Condición de pago", max_length=10,
+        choices=Proveedor.CondicionPago.choices, blank=True,
+        help_text="Si se deja vacía, se usa la condición por defecto del proveedor.",
+    )
+    # Puente hacia el catálogo general de materiales. Se deja vacío al cargar
+    # el Excel y se completa la primera vez que este ítem se usa en una
+    # solicitud: así el catálogo del proveedor y el de la constructora se van
+    # amarrando solos, sin tener que mapearlos a mano ni duplicar materiales.
+    material = models.ForeignKey(
+        "inventario.Material", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="ofertas",
+        verbose_name="Material del catálogo",
+    )
     disponible = models.BooleanField("Disponible", default=True)
     creado = models.DateTimeField("Fecha de alta", auto_now_add=True)
     modificado = models.DateTimeField("Última modificación", auto_now=True)
@@ -78,3 +101,36 @@ class ProveedorMaterial(models.Model):
 
     def __str__(self):
         return f"{self.codigo} · {self.descripcion}"
+
+    @property
+    def condicion_pago_efectiva(self):
+        """Condición propia del material; si no tiene, la del proveedor."""
+        if self.condicion_pago:
+            return self.get_condicion_pago_display()
+        return self.proveedor.get_condicion_pago_display()
+
+    def resolver_material(self):
+        """
+        Devuelve el Material del catálogo general que corresponde a esta oferta,
+        creándolo la primera vez a partir de la descripción del proveedor.
+
+        Sin esto, cada solicitud que usara un ítem del catálogo de un proveedor
+        crearía un Material nuevo y el catálogo de la constructora se llenaría
+        de duplicados ("Cemento 25kg", "Cemento Portland 25 kg", ...).
+        """
+        from inventario.models import Material
+
+        if self.material_id:
+            return self.material
+
+        nombre = self.descripcion.strip()
+        material = Material.objects.filter(nombre__iexact=nombre).first()
+        if material is None:
+            material = Material.objects.create(
+                nombre=nombre,
+                unidad_medida=self.unidad_medida or "un",
+                precio_referencia=self.precio or 0,
+            )
+        self.material = material
+        self.save(update_fields=["material", "modificado"])
+        return material

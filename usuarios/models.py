@@ -87,3 +87,33 @@ class PerfilBodeguero(models.Model):
 
     def __str__(self):
         return f"Bod: {self.usuario.username} - {self.get_turno_display()}"
+
+
+def usuarios_asignables(rol=None):
+    """
+    Usuarios a los que se les puede asignar trabajo: activos y ya aprobados.
+
+    Un usuario que se registró solo (CU-52) queda con pendiente_aprobacion=True
+    hasta que un administrador lo acepte. Hasta entonces no debe aparecer en
+    ningún selector de asignación: asignarle una obra o una herramienta a
+    alguien que todavía no existe formalmente en la empresa deja registros
+    apuntando a una cuenta que puede terminar rechazada.
+    """
+    qs = Usuario.objects.filter(estado=True, pendiente_aprobacion=False)
+    if rol:
+        qs = qs.filter(rol=rol)
+    return qs
+
+
+def con_seleccion_actual(queryset, instancia, campo):
+    """
+    Agrega al queryset el valor que ya tenía el registro, aunque hoy no
+    cumpla el filtro. Evita que al editar un proyecto antiguo desaparezca
+    su jefe asignado (y el formulario lo borre sin querer).
+    """
+    actual_id = getattr(instancia, f"{campo}_id", None) if instancia else None
+    if actual_id and not queryset.filter(pk=actual_id).exists():
+        return Usuario.objects.filter(
+            models.Q(pk__in=queryset.values("pk")) | models.Q(pk=actual_id)
+        )
+    return queryset

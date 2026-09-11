@@ -1,9 +1,12 @@
 from django.urls import path
-from . import views
+from . import api, views
 
 app_name = "solicitudes"
 
 urlpatterns = [
+    # Búsqueda del buscador de materiales (CU-12)
+    path("api/materiales/", api.buscar_materiales, name="api_materiales"),
+    path("api/proveedores/", api.proveedores_de, name="api_proveedores"),
     path("", views.SolicitudListView.as_view(), name="lista"),
     path("nueva/", views.solicitud_crear, name="crear"),
     path("<int:pk>/", views.solicitud_detalle, name="detalle"),

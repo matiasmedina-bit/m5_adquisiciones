@@ -82,3 +82,26 @@ def itemizado_editar(request, pk):
     else:
         form = ItemizadoForm(instance=item)
     return render(request, "proyectos/itemizado_form.html", {"form": form, "proyecto": item.proyecto})
+
+
+# --------------------------------------------------------------------------
+# Exportación de la ficha del proyecto a PDF (para compartir con el mandante)
+# --------------------------------------------------------------------------
+@rol_requerido("JEFE_PROYECTO", "ENCARGADO_ADQUISICIONES", "ADMIN")
+def proyecto_pdf(request, pk):
+    """Descarga la ficha completa del proyecto: datos, itemizado y solicitudes."""
+    from django.http import HttpResponse
+    from django.utils.text import slugify
+    from .pdf import ReportlabNoInstalado, generar_pdf_proyecto
+
+    proyecto = get_object_or_404(Proyecto, pk=pk)
+    try:
+        contenido = generar_pdf_proyecto(proyecto)
+    except ReportlabNoInstalado as exc:
+        messages.error(request, str(exc))
+        return redirect("proyectos:detalle", pk=proyecto.pk)
+
+    nombre = slugify(proyecto.nombre) or f"proyecto-{proyecto.pk}"
+    respuesta = HttpResponse(contenido, content_type="application/pdf")
+    respuesta["Content-Disposition"] = f'inline; filename="ficha-{nombre}.pdf"'
+    return respuesta

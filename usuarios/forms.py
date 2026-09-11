@@ -30,6 +30,44 @@ class RegistroSolicitudForm(UserCreationForm):
         ]
 
 
+class RevisionSolicitudForm(forms.ModelForm):
+    """
+    CU-52: revisión de una solicitud de acceso antes de aprobarla.
+
+    Quien se registra escribe sus propios datos y elige su rol, y se equivoca:
+    pide «Bodeguero» cuando es jefe de obra, o escribe mal el correo. El
+    administrador corrige aquí y aprueba en el mismo paso, en vez de aprobar
+    primero y tener que ir a editar la cuenta después.
+
+    A diferencia del formulario público, sí permite asignar el rol
+    Administrador: quien revisa ya es administrador, y concederlo es una
+    decisión deliberada suya, no algo que el solicitante pueda pedir.
+    """
+
+    class Meta:
+        model = Usuario
+        fields = ["username", "first_name", "last_name", "email", "telefono", "rol"]
+        widgets = {
+            "username":   forms.TextInput(attrs={"class": "form-control"}),
+            "first_name": forms.TextInput(attrs={"class": "form-control"}),
+            "last_name":  forms.TextInput(attrs={"class": "form-control"}),
+            "email":      forms.EmailInput(attrs={"class": "form-control"}),
+            "telefono":   forms.TextInput(attrs={"class": "form-control", "placeholder": "+56 9 xxxxxxxx"}),
+            "rol":        forms.Select(attrs={"class": "form-select"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["first_name"].required = True
+        self.fields["last_name"].required = True
+        self.fields["email"].required = True
+
+    @property
+    def rol_cambiado(self):
+        """True si el administrador modificó el rol que había pedido el usuario."""
+        return "rol" in self.changed_data
+
+
 class UsuarioCreateForm(UserCreationForm):
     """Formulario para crear cuentas de usuario (CU-51)."""
 

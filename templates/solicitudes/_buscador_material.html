@@ -1,0 +1,247 @@
+{# Buscador de materiales de la solicitud (CU-12).
+   Se usa igual en la pantalla de creación (varias filas en una tabla) y en la
+   de detalle (una sola fila para agregar). Por eso delega en document y
+   trata como opcional todo lo que sólo existe en una de las dos. #}
+<script>
+(function () {
+  "use strict";
+
+  const URL_MATERIALES  = "{% url 'solicitudes:api_materiales' %}";
+  const URL_PROVEEDORES = "{% url 'solicitudes:api_proveedores' %}";
+
+  const totalForms = document.getElementById('id_detalles-TOTAL_FORMS');
+  const cuerpo     = document.getElementById('formset-body');
+  const totalTxt   = document.getElementById('total-estimado');
+  const botonAgregar = document.getElementById('add-row');
+  const filaModelo = cuerpo ? cuerpo.querySelector('.formset-row').cloneNode(true) : null;
+
+  const pesos = n => '$' + (Math.round(n) || 0).toLocaleString('es-CL');
+  const escapar = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  function partes(fila) {
+    return {
+      proveedor:    fila.querySelector('.selector-proveedor'),
+      buscador:     fila.querySelector('.buscador-material'),
+      material:     fila.querySelector('.campo-material'),
+      oferta:       fila.querySelector('.campo-oferta'),
+      unidad:       fila.querySelector('.campo-unidad'),
+      cantidad:     fila.querySelector('.campo-cantidad'),
+      valor:        fila.querySelector('.campo-valor'),
+      badge:        fila.querySelector('.unidad-badge'),
+      sugerencias:  fila.querySelector('.sugerencias'),
+      alternativas: fila.querySelector('.alternativas'),
+      elegido:      fila.querySelector('.elegido'),
+      subtotal:     fila.querySelector('.subtotal')
+    };
+  }
+
+  function recalcular() {
+    let total = 0;
+    document.querySelectorAll('.formset-row').forEach(fila => {
+      const p = partes(fila);
+      if (!p.cantidad || !p.valor) return;
+      const sub = (parseFloat(p.cantidad.value) || 0) * (parseFloat(p.valor.value) || 0);
+      if (p.subtotal) p.subtotal.textContent = sub > 0 ? pesos(sub) : '';
+      total += sub;
+    });
+    if (totalTxt) totalTxt.textContent = pesos(total);
+  }
+
+  // ------------------------------------------------- buscador de materiales
+  function pintarSugerencias(fila, filas) {
+    const p = partes(fila);
+    if (!p.sugerencias) return;
+    if (!filas.length) {
+      p.sugerencias.innerHTML =
+        '<div class="list-group-item small text-muted">' +
+        'Sin resultados. Puedes dejar el texto tal cual y se agrega como material nuevo.' +
+        '</div>';
+      p.sugerencias.style.display = 'block';
+      return;
+    }
+    p.sugerencias.innerHTML = filas.map(r => `
+      <button type="button" class="list-group-item list-group-item-action py-2 sugerencia"
+              data-pm="${r.pm || ''}" data-material="${r.material || ''}"
+              data-unidad="${escapar(r.unidad)}" data-precio="${r.precio}"
+              data-proveedor="${r.proveedor || ''}"
+              data-proveedor-nombre="${escapar(r.proveedor_nombre)}"
+              data-descripcion="${escapar(r.descripcion)}">
+        <div class="d-flex justify-content-between gap-2">
+          <span>
+            ${r.codigo ? '<span class="badge bg-light text-dark border me-1">' + escapar(r.codigo) + '</span>' : ''}
+            ${escapar(r.descripcion)}
+          </span>
+          <span class="text-nowrap">${r.precio_txt || ''}</span>
+        </div>
+        <div class="small text-muted">
+          ${escapar(r.proveedor_nombre || 'Catálogo general')} · ${escapar(r.unidad)}${r.condicion ? ' · ' + escapar(r.condicion) : ''}
+        </div>
+      </button>`).join('');
+    p.sugerencias.style.display = 'block';
+  }
+
+  function buscar(fila) {
+    const p = partes(fila);
+    const texto = p.buscador.value.trim();
+    if (texto.length < 2) { if (p.sugerencias) p.sugerencias.style.display = 'none'; return; }
+    const params = new URLSearchParams({ q: texto });
+    if (p.proveedor && p.proveedor.value) params.set('proveedor', p.proveedor.value);
+    fetch(URL_MATERIALES + '?' + params.toString())
+      .then(r => r.ok ? r.json() : { resultados: [] })
+      .then(d => pintarSugerencias(fila, d.resultados || []))
+      .catch(() => { if (p.sugerencias) p.sugerencias.style.display = 'none'; });
+  }
+
+  // ------------------------------ quién más ofrece lo que se está escribiendo
+  function buscarProveedores(fila) {
+    const p = partes(fila);
+    if (!p.alternativas) return;
+    const texto = p.buscador.value.trim();
+    if (texto.length < 2) { p.alternativas.innerHTML = ''; return; }
+    fetch(URL_PROVEEDORES + '?' + new URLSearchParams({ q: texto }).toString())
+      .then(r => r.ok ? r.json() : { proveedores: [] })
+      .then(d => {
+        const lista = d.proveedores || [];
+        if (!lista.length) { p.alternativas.innerHTML = ''; return; }
+        p.alternativas.innerHTML =
+          '<div class="text-muted mb-1">Lo ofrecen:</div>' +
+          lista.map(v => `
+            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 me-1 mb-1 alternativa"
+                    data-pm="${v.pm}" data-material="" data-unidad="${escapar(v.unidad)}"
+                    data-precio="${v.precio}" data-proveedor="${v.id}"
+                    data-proveedor-nombre="${escapar(v.nombre)}"
+                    data-descripcion="${escapar(v.descripcion)}"
+                    style="font-size:.72rem;">
+              ${escapar(v.nombre)}${v.precio_txt ? ' · ' + v.precio_txt : ''}
+            </button>`).join('');
+      })
+      .catch(() => { p.alternativas.innerHTML = ''; });
+  }
+
+  // ------------------------------------------------------- aplicar elección
+  function elegir(fila, d) {
+    const p = partes(fila);
+    p.buscador.value = d.descripcion;
+    if (p.material) p.material.value = d.material || '';
+    if (p.oferta)   p.oferta.value   = d.pm || '';
+    if (p.unidad)   p.unidad.value   = d.unidad || '';
+    if (p.badge)    p.badge.textContent = d.unidad || 'un';
+
+    if (d.proveedor && p.proveedor) {
+      if (!p.proveedor.querySelector('option[value="' + d.proveedor + '"]')) {
+        p.proveedor.add(new Option(d.proveedorNombre, d.proveedor));
+      }
+      p.proveedor.value = d.proveedor;
+    }
+    const precio = parseInt(d.precio || 0, 10);
+    if (precio > 0 && p.valor && !parseFloat(p.valor.value)) p.valor.value = precio;
+
+    if (p.elegido) {
+      p.elegido.textContent = d.proveedorNombre ? '✓ ' + d.proveedorNombre : '✓ del catálogo general';
+      p.elegido.style.display = 'block';
+    }
+    if (p.sugerencias) p.sugerencias.style.display = 'none';
+    if (p.cantidad && !p.cantidad.value) p.cantidad.focus();
+    recalcular();
+  }
+
+  const datosDe = b => ({
+    pm: b.dataset.pm, material: b.dataset.material, unidad: b.dataset.unidad,
+    precio: b.dataset.precio, proveedor: b.dataset.proveedor,
+    proveedorNombre: b.dataset.proveedorNombre, descripcion: b.dataset.descripcion
+  });
+
+  // --------------------------------------------------------------- eventos
+  let temporizador = null;
+
+  document.addEventListener('input', function (e) {
+    const fila = e.target.closest('.formset-row');
+    if (!fila) return;
+    if (e.target.classList.contains('buscador-material')) {
+      const p = partes(fila);
+      if (p.material) p.material.value = '';
+      if (p.oferta)   p.oferta.value   = '';
+      if (p.elegido)  p.elegido.style.display = 'none';
+      clearTimeout(temporizador);
+      temporizador = setTimeout(function () { buscar(fila); buscarProveedores(fila); }, 220);
+    }
+    if (e.target.classList.contains('campo-cantidad') ||
+        e.target.classList.contains('campo-valor')) recalcular();
+  });
+
+  document.addEventListener('change', function (e) {
+    const fila = e.target.closest('.formset-row');
+    if (!fila || !e.target.classList.contains('selector-proveedor')) return;
+    const p = partes(fila);
+    if (p.oferta)   p.oferta.value = '';
+    if (p.material) p.material.value = '';
+    if (p.elegido)  p.elegido.style.display = 'none';
+    if (p.buscador.value.trim().length >= 2) buscar(fila);
+  });
+
+  document.addEventListener('click', function (e) {
+    const sugerencia = e.target.closest('.sugerencia');
+    if (sugerencia) { elegir(sugerencia.closest('.formset-row'), datosDe(sugerencia)); return; }
+
+    const alternativa = e.target.closest('.alternativa');
+    if (alternativa) { elegir(alternativa.closest('.formset-row'), datosDe(alternativa)); return; }
+
+    if (e.target.classList.contains('remove-row') && cuerpo) {
+      const filas = cuerpo.querySelectorAll('.formset-row');
+      if (filas.length > 1) {
+        e.target.closest('tr').remove();
+        totalForms.value = cuerpo.querySelectorAll('.formset-row').length;
+      } else {
+        limpiar(e.target.closest('tr'));
+      }
+      recalcular();
+      return;
+    }
+
+    // Cerrar los desplegables abiertos fuera de su fila
+    document.querySelectorAll('.formset-row').forEach(fila => {
+      if (!fila.contains(e.target)) {
+        const s = fila.querySelector('.sugerencias');
+        if (s) s.style.display = 'none';
+      }
+    });
+  });
+
+  function limpiar(fila) {
+    fila.querySelectorAll('input, select').forEach(el => {
+      if (el.type === 'hidden' && el.name && el.name.endsWith('-id')) return;
+      if (el.tagName === 'SELECT') el.selectedIndex = 0; else el.value = '';
+    });
+    const p = partes(fila);
+    if (p.badge) p.badge.textContent = 'un';
+    if (p.elegido) p.elegido.style.display = 'none';
+    if (p.alternativas) p.alternativas.innerHTML = '';
+    if (p.sugerencias) p.sugerencias.style.display = 'none';
+    if (p.subtotal) p.subtotal.textContent = '';
+  }
+
+  if (botonAgregar && cuerpo && filaModelo) {
+    botonAgregar.addEventListener('click', function () {
+      const idx = parseInt(totalForms.value, 10);
+      const nueva = filaModelo.cloneNode(true);
+      nueva.querySelectorAll('input, select').forEach(el => {
+        if (el.name) el.name = el.name.replace(/-\d+-/, '-' + idx + '-');
+        if (el.id)   el.id   = el.id.replace(/-\d+-/, '-' + idx + '-');
+      });
+      nueva.querySelectorAll('.text-danger').forEach(x => x.remove());
+      cuerpo.appendChild(nueva);
+      limpiar(nueva);
+      totalForms.value = idx + 1;
+      nueva.querySelector('.buscador-material').focus();
+    });
+  }
+
+  // Estado inicial: al editar, las filas ya vienen con datos
+  document.querySelectorAll('.formset-row').forEach(fila => {
+    const p = partes(fila);
+    if (p.unidad && p.unidad.value && p.badge) p.badge.textContent = p.unidad.value;
+  });
+  recalcular();
+})();
+</script>

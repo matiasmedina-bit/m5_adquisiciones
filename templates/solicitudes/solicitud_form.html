@@ -1,8 +1,10 @@
 {% extends 'base.html' %}
-{% block content %}
-<h1 class="h3 mb-3">{% if form.instance.pk %}Editar solicitud{% else %}Nueva solicitud de material{% endif %}</h1>
+{% block title %}Nueva solicitud{% endblock %}
 
-<form method="post">
+{% block content %}
+<h1 class="h3 mb-3">{% if solicitud %}Editar solicitud {{ solicitud.correlativo }}{% else %}Nueva solicitud de material{% endif %}</h1>
+
+<form method="post" id="form-solicitud">
   {% csrf_token %}
 
   {# --- Cabecera --- #}
@@ -11,7 +13,7 @@
     <div class="card-body">
       {% for field in form %}
         <div class="mb-3">
-          <label class="form-label">{{ field.label }}</label>
+          <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
           {{ field }}
           {% if field.errors %}<div class="text-danger small">{{ field.errors|striptags }}</div>{% endif %}
         </div>
@@ -22,38 +24,68 @@
   {# --- Materiales (CU-12) --- #}
   {% if formset %}
   <div class="card shadow-sm mb-3">
-    <div class="card-header fw-semibold">Materiales a solicitar</div>
+    <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+      <span>Materiales a solicitar</span>
+      <small class="text-muted fw-normal">
+        Elige proveedor y busca en su catálogo, o escribe el material y mira quién lo tiene
+      </small>
+    </div>
     <div class="card-body p-0">
       {{ formset.management_form }}
       <div class="table-responsive">
-        <table class="table mb-0" id="formset-table">
+        <table class="table mb-0 align-top" id="formset-table">
           <thead class="table-light">
             <tr>
-              <th style="min-width:200px">Del catálogo</th>
-              <th style="min-width:180px">O escribir nombre</th>
-              <th style="min-width:100px">Cantidad</th>
-              <th style="min-width:100px">Unidad</th>
-              <th></th>
+              <th style="min-width:190px">Proveedor</th>
+              <th style="min-width:260px">Material</th>
+              <th style="min-width:130px">Cantidad</th>
+              <th style="min-width:120px">Valor unitario</th>
+              <th style="min-width:190px">Detalle <span class="text-muted fw-normal">(opcional)</span></th>
+              <th style="width:44px"></th>
             </tr>
           </thead>
           <tbody id="formset-body">
             {% for detalle_form in formset %}
               <tr class="formset-row">
-                <td>{{ detalle_form.material }}{{ detalle_form.id }}
+                <td>
+                  {{ detalle_form.proveedor }}
+                  <div class="alternativas small mt-1"></div>
+                </td>
+                <td class="position-relative">
+                  {{ detalle_form.nombre_libre }}
+                  {{ detalle_form.material }}{{ detalle_form.proveedor_material }}{{ detalle_form.unidad_medida }}{{ detalle_form.id }}
+                  <div class="sugerencias list-group position-absolute w-100 shadow" style="z-index:1050;display:none;max-height:280px;overflow-y:auto;"></div>
+                  <div class="elegido small text-success mt-1" style="display:none;"></div>
                   {% if detalle_form.material.errors %}<div class="text-danger small">{{ detalle_form.material.errors|striptags }}</div>{% endif %}
                 </td>
-                <td>{{ detalle_form.nombre_libre }}</td>
-                <td>{{ detalle_form.cantidad_solicitada }}
+                <td>
+                  <div class="input-group input-group-sm">
+                    {{ detalle_form.cantidad_solicitada }}
+                    <span class="input-group-text unidad-badge text-muted" style="min-width:52px;">un</span>
+                  </div>
                   {% if detalle_form.cantidad_solicitada.errors %}<div class="text-danger small">{{ detalle_form.cantidad_solicitada.errors|striptags }}</div>{% endif %}
                 </td>
-                <td>{{ detalle_form.unidad_medida }}</td>
+                <td>
+                  <div class="input-group input-group-sm">
+                    <span class="input-group-text">$</span>
+                    {{ detalle_form.valor_unitario }}
+                  </div>
+                  <div class="subtotal small text-muted mt-1"></div>
+                </td>
+                <td>{{ detalle_form.detalle }}</td>
                 <td class="text-center">
                   {% if detalle_form.instance.pk %}{{ detalle_form.DELETE }}{% endif %}
-                  <button type="button" class="btn btn-sm btn-outline-danger remove-row">✕</button>
+                  <button type="button" class="btn btn-sm btn-outline-danger remove-row" title="Quitar">✕</button>
                 </td>
               </tr>
             {% endfor %}
           </tbody>
+          <tfoot class="table-light">
+            <tr>
+              <td colspan="3" class="text-end fw-semibold">Total estimado</td>
+              <td colspan="3" class="fw-semibold" id="total-estimado">$0</td>
+            </tr>
+          </tfoot>
         </table>
       </div>
       <div class="p-3">
@@ -63,45 +95,13 @@
   </div>
   {% endif %}
 
-  <button type="submit" class="btn btn-primary">Guardar</button>
+  <button type="submit" class="btn btn-primary">Siguiente →</button>
   <a href="{% url 'solicitudes:lista' %}" class="btn btn-outline-secondary">Cancelar</a>
+  <div class="form-text mt-2">
+    La solicitud queda en <strong>borrador</strong>. En la pantalla siguiente puedes revisarla,
+    editarla y recién ahí enviarla para aprobación.
+  </div>
 </form>
 
-{% if formset %}
-<script>
-  const totalForms = document.getElementById('id_detalles-TOTAL_FORMS');
-  const formsetBody = document.getElementById('formset-body');
-  const emptyRow = formsetBody.querySelector('.formset-row:last-child');
-
-  document.getElementById('add-row').addEventListener('click', function () {
-    const idx = parseInt(totalForms.value);
-    const newRow = emptyRow.cloneNode(true);
-    newRow.querySelectorAll('input, select').forEach(el => {
-      el.name = el.name.replace(/-\d+-/, `-${idx}-`);
-      el.id = el.id.replace(/-\d+-/, `-${idx}-`);
-      if (el.tagName === 'SELECT') el.selectedIndex = 0;
-      else el.value = '';
-    });
-    newRow.querySelectorAll('.text-danger').forEach(e => e.remove());
-    formsetBody.appendChild(newRow);
-    totalForms.value = idx + 1;
-  });
-
-  formsetBody.addEventListener('click', function (e) {
-    if (e.target.classList.contains('remove-row')) {
-      const rows = formsetBody.querySelectorAll('.formset-row');
-      if (rows.length > 1) {
-        e.target.closest('tr').remove();
-        totalForms.value = formsetBody.querySelectorAll('.formset-row').length;
-      } else {
-        const row = e.target.closest('tr');
-        row.querySelectorAll('input, select').forEach(el => {
-          if (el.tagName === 'SELECT') el.selectedIndex = 0;
-          else el.value = '';
-        });
-      }
-    }
-  });
-</script>
-{% endif %}
+{% if formset %}{% include 'solicitudes/_buscador_material.html' %}{% endif %}
 {% endblock %}

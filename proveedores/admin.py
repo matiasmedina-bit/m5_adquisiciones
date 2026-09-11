@@ -5,10 +5,13 @@ from .models import Proveedor, ProveedorMaterial
 class ProveedorMaterialInline(admin.TabularInline):
     model = ProveedorMaterial
     extra = 1
+    fields = ("codigo", "descripcion", "unidad_medida", "precio", "condicion_pago", "disponible")
 
 
 @admin.register(Proveedor)
 class ProveedorAdmin(admin.ModelAdmin):
+    # condicion_pago sigue existiendo como valor por defecto del proveedor:
+    # la condición real se define por material, en el catálogo.
     list_display = ("nombre", "rut_formateado", "correo", "condicion_pago", "estado")
     list_filter = ("estado", "condicion_pago")
     search_fields = ("nombre", "rut")
@@ -17,6 +20,7 @@ class ProveedorAdmin(admin.ModelAdmin):
 
 @admin.register(ProveedorMaterial)
 class ProveedorMaterialAdmin(admin.ModelAdmin):
-    list_display = ("codigo", "descripcion", "proveedor", "unidad_medida", "disponible", "modificado")
-    list_filter = ("disponible", "proveedor")
+    list_display = ("codigo", "descripcion", "proveedor", "unidad_medida",
+                    "precio", "condicion_pago", "disponible", "modificado")
+    list_filter = ("disponible", "condicion_pago", "proveedor")
     search_fields = ("codigo", "descripcion")

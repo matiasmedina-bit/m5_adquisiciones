@@ -26,21 +26,31 @@
       <tbody>
       {% for u in pendientes %}
         <tr>
-          <td class="fw-semibold">{{ u.username }}</td>
-          <td>{{ u.get_full_name }}</td>
+          <td class="fw-semibold">
+            <a href="{% url 'usuarios:revisar' u.pk %}" class="text-decoration-none">{{ u.username }}</a>
+            <div class="text-muted fw-normal" style="font-size:.75rem;">{{ u.date_joined|date:"d-m-Y H:i" }}</div>
+          </td>
+          <td>{{ u.get_full_name|default:"—" }}</td>
           <td class="text-muted">{{ u.email }}</td>
           <td><span class="badge bg-info text-dark">{{ u.get_rol_display }}</span></td>
-          <td class="text-center">
-            <a href="{% url 'usuarios:aprobar' u.pk %}"
-               class="btn btn-sm btn-success me-1"
-               onclick="return confirm('¿Aprobar acceso a {{ u.username }}?')">
-              <i class="bi bi-check-lg"></i> Aprobar
+          <td class="text-center text-nowrap">
+            <a href="{% url 'usuarios:revisar' u.pk %}" class="btn btn-sm btn-outline-secondary me-1">
+              <i class="bi bi-search"></i> Revisar
             </a>
-            <a href="{% url 'usuarios:rechazar' u.pk %}"
-               class="btn btn-sm btn-danger"
-               onclick="return confirm('¿Rechazar y eliminar solicitud de {{ u.username }}?')">
-              <i class="bi bi-x-lg"></i> Rechazar
-            </a>
+            <form method="post" action="{% url 'usuarios:aprobar' u.pk %}" class="d-inline">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-success me-1"
+                      onclick="return confirm('¿Aprobar acceso a {{ u.username }} como {{ u.get_rol_display }}?')">
+                <i class="bi bi-check-lg"></i> Aprobar
+              </button>
+            </form>
+            <form method="post" action="{% url 'usuarios:rechazar' u.pk %}" class="d-inline">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-danger"
+                      onclick="return confirm('Rechazar elimina la solicitud de {{ u.username }} y no se puede deshacer. ¿Continuar?')">
+                <i class="bi bi-x-lg"></i> Rechazar
+              </button>
+            </form>
           </td>
         </tr>
       {% endfor %}

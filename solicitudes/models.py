@@ -77,6 +77,25 @@ class SolicitudMaterial(models.Model):
     def total_adjuntos(self):
         return self.adjuntos.count()
 
+    @property
+    def total_estimado(self):
+        """
+        Suma de cantidad × valor de todas las líneas. Es una estimación: el
+        precio definitivo lo fija la cotización. Sirve para que el Jefe de
+        Proyecto sepa qué monto está aprobando.
+        """
+        return sum((d.valor_total for d in self.detalles.all()), 0)
+
+    @property
+    def proveedores_sugeridos(self):
+        """Proveedores distintos propuestos en las líneas, sin repetir."""
+        vistos, resultado = set(), []
+        for detalle in self.detalles.select_related("proveedor"):
+            if detalle.proveedor_id and detalle.proveedor_id not in vistos:
+                vistos.add(detalle.proveedor_id)
+                resultado.append(detalle.proveedor)
+        return resultado
+
 
 class SolicitudDetalle(models.Model):
     """
@@ -86,7 +105,30 @@ class SolicitudDetalle(models.Model):
     solicitud = models.ForeignKey(SolicitudMaterial, on_delete=models.CASCADE, related_name="detalles")
     material = models.ForeignKey(Material, on_delete=models.PROTECT, related_name="solicitudes_detalle")
     cantidad_solicitada = models.DecimalField("Cantidad solicitada", max_digits=12, decimal_places=2)
-    unidad_medida = models.CharField("Unidad de medida", max_length=20)
+    # La unidad ya no se escribe a mano: se hereda del catálogo del proveedor o
+    # del material. Se conserva como campo porque la orden de compra la imprime.
+    unidad_medida = models.CharField("Unidad de medida", max_length=20, blank=True)
+    # --- Proveedor sugerido y valor de referencia ---
+    # Quien pide el material normalmente ya sabe a quién comprarle. Registrarlo
+    # aquí permite que el Jefe de Proyecto apruebe sabiendo el monto, y que la
+    # cotización llegue precargada en vez de en blanco.
+    proveedor = models.ForeignKey(
+        "proveedores.Proveedor", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="lineas_solicitud",
+        verbose_name="Proveedor sugerido",
+    )
+    proveedor_material = models.ForeignKey(
+        "proveedores.ProveedorMaterial", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="lineas_solicitud",
+        verbose_name="Ítem del catálogo del proveedor",
+    )
+    valor_unitario = models.DecimalField(
+        "Valor unitario estimado (CLP)", max_digits=12, decimal_places=0, default=0,
+    )
+    detalle = models.CharField(
+        "Detalle", max_length=200, blank=True,
+        help_text="Opcional: para qué es, dónde va, alguna precisión para el proveedor.",
+    )
     # RF-16: vínculo con la partida del itemizado y justificación si se excede el saldo
     partida = models.ForeignKey(
         Itemizado, on_delete=models.SET_NULL, null=True, blank=True,
@@ -109,10 +151,34 @@ class SolicitudDetalle(models.Model):
             return False
         return self.cantidad_solicitada > self.partida.saldo_disponible
 
+    @property
+    def valor_total(self):
+        """Cantidad × valor unitario. 0 si todavía no se conoce el precio."""
+        return (self.cantidad_solicitada or 0) * (self.valor_unitario or 0)
+
+    @property
+    def condicion_pago(self):
+        """Condición de pago del ítem del catálogo, si la línea trae proveedor."""
+        if self.proveedor_material_id:
+            return self.proveedor_material.condicion_pago_efectiva
+        if self.proveedor_id:
+            return self.proveedor.get_condicion_pago_display()
+        return ""
+
     def save(self, *args, **kwargs):
-        # Si no se especifica unidad, hereda la del material
+        # La unidad se hereda: primero del ítem del catálogo del proveedor
+        # (es el que se va a comprar), y si no, del material.
         if not self.unidad_medida:
-            self.unidad_medida = self.material.unidad_medida
+            if self.proveedor_material_id and self.proveedor_material.unidad_medida:
+                self.unidad_medida = self.proveedor_material.unidad_medida
+            elif self.material_id:
+                self.unidad_medida = self.material.unidad_medida
+        # Si vino del catálogo de un proveedor y no se tocó el valor, usar el suyo
+        if not self.valor_unitario and self.proveedor_material_id:
+            self.valor_unitario = self.proveedor_material.precio or 0
+        # El proveedor se deduce del ítem del catálogo
+        if self.proveedor_material_id and not self.proveedor_id:
+            self.proveedor_id = self.proveedor_material.proveedor_id
         super().save(*args, **kwargs)
 
 

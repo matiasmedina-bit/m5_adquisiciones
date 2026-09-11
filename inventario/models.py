@@ -94,7 +94,8 @@ class MovimientoInventario(models.Model):
     jefe_proyecto = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
         related_name="movimientos_como_jefe", verbose_name="Jefe de proyecto",
-        limit_choices_to={"rol": "JEFE_PROYECTO"},
+        limit_choices_to={"rol": "JEFE_PROYECTO", "estado": True,
+                          "pendiente_aprobacion": False},
     )
     ubicacion = models.CharField("Ubicación física", max_length=80, blank=True)
     guia_despacho = models.CharField("N° guía de despacho", max_length=40, blank=True)
@@ -143,7 +144,9 @@ class PrestamoHerramienta(models.Model):
     )
     jefe_proyecto = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="prestamos_recibidos",
-        limit_choices_to={"rol": "JEFE_PROYECTO"}, verbose_name="Jefe de proyecto",
+        limit_choices_to={"rol": "JEFE_PROYECTO", "estado": True,
+                          "pendiente_aprobacion": False},
+        verbose_name="Jefe de proyecto",
     )
     proyecto = models.ForeignKey(
         "proyectos.Proyecto", on_delete=models.PROTECT, related_name="prestamos_herramienta",

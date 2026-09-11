@@ -9,6 +9,7 @@ urlpatterns = [
     path("<int:pk>/", views.UsuarioDetailView.as_view(), name="detalle"),
     path("<int:pk>/editar/", views.UsuarioUpdateView.as_view(), name="editar"),
     path("<int:pk>/estado/", views.usuario_cambiar_estado, name="cambiar_estado"),
+    path("<int:pk>/revisar/", views.revisar_solicitud, name="revisar"),
     path("<int:pk>/aprobar/", views.aprobar_registro, name="aprobar"),
     path("<int:pk>/rechazar/", views.rechazar_registro, name="rechazar"),
 ]

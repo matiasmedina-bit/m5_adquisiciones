@@ -27,7 +27,9 @@ class Proyecto(models.Model):
         related_name="proyectos_a_cargo",
         verbose_name="Jefe de proyecto",
         null=True, blank=True,
-        limit_choices_to={"rol": "JEFE_PROYECTO"},
+        # Sólo jefes activos y ya aprobados por un administrador (CU-52)
+        limit_choices_to={"rol": "JEFE_PROYECTO", "estado": True,
+                          "pendiente_aprobacion": False},
     )
     fecha_inicio = models.DateField("Fecha de inicio")
     fecha_termino = models.DateField("Fecha de término", null=True, blank=True)

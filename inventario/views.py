@@ -298,10 +298,9 @@ def prestamo_devolver(request, pk):
 
 
 def _avisar_administracion(prestamo):
-    from usuarios.models import Usuario
+    from usuarios.models import usuarios_asignables
     correos = list(
-        Usuario.objects.filter(rol="ADMIN", estado=True)
-        .exclude(email="").values_list("email", flat=True)
+        usuarios_asignables("ADMIN").exclude(email="").values_list("email", flat=True)
     )
     if not correos:
         return

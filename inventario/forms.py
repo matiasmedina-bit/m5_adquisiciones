@@ -104,9 +104,10 @@ class SalidaForm(forms.Form):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        from usuarios.models import Usuario
-        self.fields["jefe_proyecto"].queryset = Usuario.objects.filter(
-            rol="JEFE_PROYECTO", estado=True)
+        from usuarios.models import usuarios_asignables
+        # Activos y ya aprobados: no se despacha material a una cuenta que
+        # todavía está esperando la aprobación de un administrador (CU-52).
+        self.fields["jefe_proyecto"].queryset = usuarios_asignables("JEFE_PROYECTO")
 
     def clean(self):
         cleaned = super().clean()

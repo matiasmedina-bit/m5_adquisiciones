@@ -6,6 +6,7 @@ from django.forms import inlineformset_factory
 from .models import SolicitudMaterial, SolicitudDetalle, SolicitudAdjunto
 from inventario.models import Material
 from proyectos.models import Itemizado
+from proveedores.models import Proveedor, ProveedorMaterial
 
 
 class SolicitudForm(forms.ModelForm):
@@ -35,25 +36,50 @@ class SolicitudForm(forms.ModelForm):
 
 
 class SolicitudDetalleForm(forms.ModelForm):
-    """CU-12 Agregando ítems (líneas) a la solicitud.
-    RF-16: si la cantidad supera el saldo de la partida del itemizado, exige justificación."""
+    """
+    CU-12 Agregando ítems (líneas) a la solicitud.
+
+    La línea parte por el proveedor y sigue por el material: quien pide sabe a
+    quién comprarle, y el catálogo de ese proveedor ya trae la unidad y el
+    precio. El buscador funciona en los dos sentidos — con proveedor elegido
+    busca sólo en su catálogo; si se escribe el material primero, el selector
+    de proveedor se reduce a los que lo ofrecen. Ese cruce lo resuelve la API
+    (solicitudes/api.py); este formulario recibe el resultado ya elegido.
+
+    La unidad de medida dejó de escribirse a mano: se hereda del catálogo y se
+    muestra junto a la cantidad. Ese espacio lo ocupa ahora «detalle».
+
+    RF-16: si la cantidad supera el saldo de la partida, exige justificación.
+    """
 
     nombre_libre = forms.CharField(
-        label="O escribir nombre del material",
+        label="Material",
         required=False,
         widget=forms.TextInput(attrs={
-            "class": "form-control form-control-sm",
-            "placeholder": "Ej: Tornillo 1/2 pulgada",
+            "class": "form-control form-control-sm buscador-material",
+            "placeholder": "Escribe para buscar\u2026",
+            "autocomplete": "off",
         }),
     )
 
     class Meta:
         model = SolicitudDetalle
-        fields = ["material", "cantidad_solicitada", "unidad_medida", "partida", "justificacion"]
+        fields = ["proveedor", "proveedor_material", "material", "cantidad_solicitada",
+                  "unidad_medida", "valor_unitario", "detalle", "partida", "justificacion"]
         widgets = {
-            "material": forms.Select(attrs={"class": "form-select form-select-sm"}),
-            "cantidad_solicitada": forms.NumberInput(attrs={"class": "form-control form-control-sm", "min": "0.01", "step": "0.01"}),
-            "unidad_medida": forms.TextInput(attrs={"class": "form-control form-control-sm", "placeholder": "unidad (ej: kg, m2)"}),
+            "proveedor": forms.Select(attrs={"class": "form-select form-select-sm selector-proveedor"}),
+            "proveedor_material": forms.HiddenInput(attrs={"class": "campo-oferta"}),
+            "material": forms.HiddenInput(attrs={"class": "campo-material"}),
+            "cantidad_solicitada": forms.NumberInput(attrs={
+                "class": "form-control form-control-sm campo-cantidad",
+                "min": "0.01", "step": "0.01", "placeholder": "0"}),
+            "unidad_medida": forms.HiddenInput(attrs={"class": "campo-unidad"}),
+            "valor_unitario": forms.NumberInput(attrs={
+                "class": "form-control form-control-sm campo-valor",
+                "min": "0", "step": "1", "placeholder": "0"}),
+            "detalle": forms.TextInput(attrs={
+                "class": "form-control form-control-sm",
+                "placeholder": "Ej: para la losa del 3er piso"}),
             "partida": forms.Select(attrs={"class": "form-select form-select-sm"}),
             "justificacion": forms.Textarea(attrs={"class": "form-control form-control-sm", "rows": 2,
                                                    "placeholder": "Requerida si la cantidad supera el saldo del itemizado"}),
@@ -64,19 +90,29 @@ class SolicitudDetalleForm(forms.ModelForm):
         self._solicitud = solicitud
         if self._solicitud is None and getattr(self.instance, "solicitud_id", None):
             self._solicitud = self.instance.solicitud
+
         self.fields["material"].queryset = Material.objects.filter(activo=True)
-        self.fields["material"].empty_label = "— Seleccionar del catálogo —"
-        self.fields["material"].required = False
-        self.fields["unidad_medida"].required = False
-        self.fields["partida"].required = False
-        self.fields["justificacion"].required = False
+        self.fields["proveedor"].queryset = Proveedor.objects.filter(estado=True)
+        self.fields["proveedor"].empty_label = "\u2014 Cualquier proveedor \u2014"
+        self.fields["proveedor_material"].queryset = ProveedorMaterial.objects.filter(
+            disponible=True, proveedor__estado=True)
+        for opcional in ("material", "proveedor", "proveedor_material", "unidad_medida",
+                         "valor_unitario", "detalle", "partida", "justificacion"):
+            self.fields[opcional].required = False
+
         if self._solicitud is not None:
             self.fields["partida"].queryset = Itemizado.objects.filter(
-                proyecto=self._solicitud.proyecto
-            )
-            self.fields["partida"].empty_label = "— Sin partida —"
+                proyecto=self._solicitud.proyecto)
+            self.fields["partida"].empty_label = "\u2014 Sin partida \u2014"
         else:
             self.fields["partida"].queryset = Itemizado.objects.none()
+
+        # Al editar, el buscador muestra lo que ya estaba elegido
+        if self.instance.pk and not self.initial.get("nombre_libre"):
+            if self.instance.proveedor_material_id:
+                self.initial["nombre_libre"] = self.instance.proveedor_material.descripcion
+            elif self.instance.material_id:
+                self.initial["nombre_libre"] = self.instance.material.nombre
 
     def clean_cantidad_solicitada(self):
         cantidad = self.cleaned_data.get("cantidad_solicitada")
@@ -84,22 +120,47 @@ class SolicitudDetalleForm(forms.ModelForm):
             raise forms.ValidationError("La cantidad debe ser mayor que cero.")
         return cantidad
 
+    def clean_valor_unitario(self):
+        valor = self.cleaned_data.get("valor_unitario")
+        if valor is None:
+            return 0
+        if valor < 0:
+            raise forms.ValidationError("El valor no puede ser negativo.")
+        return valor
+
     def clean(self):
         cleaned = super().clean()
+        oferta = cleaned.get("proveedor_material")
         material = cleaned.get("material")
-        nombre_libre = cleaned.get("nombre_libre", "").strip()
+        nombre_libre = (cleaned.get("nombre_libre") or "").strip()
 
-        if not material and not nombre_libre:
+        if not oferta and not material and not nombre_libre:
             # fila completamente vacía → la ignoramos (formset extra vacío)
             return cleaned
 
-        if not material and nombre_libre:
-            unidad = cleaned.get("unidad_medida") or "unidad"
-            material_obj, _ = Material.objects.get_or_create(
-                nombre__iexact=nombre_libre,
-                defaults={"nombre": nombre_libre, "unidad_medida": unidad},
-            )
+        if oferta:
+            # Vino del catálogo de un proveedor: ese ítem manda
+            cleaned["material"] = oferta.resolver_material()
+            cleaned["proveedor"] = oferta.proveedor
+            if not cleaned.get("unidad_medida"):
+                cleaned["unidad_medida"] = oferta.unidad_medida
+            if not cleaned.get("valor_unitario"):
+                cleaned["valor_unitario"] = oferta.precio or 0
+        elif not material and nombre_libre:
+            # Material que no está en ningún catálogo: se crea en el general
+            material_obj = Material.objects.filter(nombre__iexact=nombre_libre).first()
+            if material_obj is None:
+                material_obj = Material.objects.create(
+                    nombre=nombre_libre,
+                    unidad_medida=cleaned.get("unidad_medida") or "un")
             cleaned["material"] = material_obj
+
+        material_final = cleaned.get("material")
+        if material_final and not cleaned.get("unidad_medida"):
+            cleaned["unidad_medida"] = material_final.unidad_medida
+
+        if not cleaned.get("cantidad_solicitada"):
+            self.add_error("cantidad_solicitada", "Indica cuánto necesitas.")
 
         # RF-16: alerta / justificación obligatoria si excede el saldo del itemizado
         partida = cleaned.get("partida")

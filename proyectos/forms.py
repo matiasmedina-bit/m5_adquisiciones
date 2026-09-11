@@ -19,6 +19,17 @@ class ProyectoForm(forms.ModelForm):
             "presupuesto_total": forms.NumberInput(attrs={"class": "form-control"}),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Sólo jefes de proyecto activos y ya aprobados (CU-52). Se conserva el
+        # que el proyecto ya tuviera asignado, para no borrarlo al editar.
+        from usuarios.models import usuarios_asignables, con_seleccion_actual
+        qs = usuarios_asignables("JEFE_PROYECTO")
+        self.fields["jefe_proyecto"].queryset = con_seleccion_actual(
+            qs, self.instance, "jefe_proyecto"
+        )
+        self.fields["jefe_proyecto"].empty_label = "— Sin jefe asignado —"
+
     def clean_centro_costo(self):
         """RF-14: el centro de costo no puede repetirse en otro proyecto."""
         centro = (self.cleaned_data.get("centro_costo") or "").strip()

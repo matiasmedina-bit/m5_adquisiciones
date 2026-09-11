@@ -143,6 +143,11 @@ def solicitud_detalle(request, pk):
         "adjunto_form": adjunto_form,
         "estados_progreso": estados_progreso,
         "max_adjuntos": SolicitudAdjunto.MAX_POR_SOLICITUD,
+        # Las plantillas comparaban el rol a mano y dejaban al ADMIN sin botones,
+        # aunque el decorador sí lo deja pasar. Se calcula aquí, con la misma
+        # regla que usuarios.permisos: ADMIN siempre puede.
+        "puede_gestionar": request.user.rol in ("ENCARGADO_ADQUISICIONES", "ADMIN"),
+        "puede_resolver": request.user.rol in ("JEFE_PROYECTO", "ADMIN"),
         # RF-39: órdenes de compra generadas a partir de esta SM y su recepción
         "ordenes_compra": solicitud.ordenes_compra.all() if hasattr(solicitud, "ordenes_compra") else [],
     })

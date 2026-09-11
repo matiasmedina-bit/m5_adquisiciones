@@ -3,7 +3,12 @@
 <div class="d-flex justify-content-between align-items-center mb-2">
   <h1 class="h3 mb-0">{{ proyecto.nombre }}</h1>
   {% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ADMIN' %}
-  <a href="{% url 'proyectos:editar' proyecto.pk %}" class="btn btn-outline-primary btn-sm">Editar proyecto</a>
+  <div class="d-flex gap-2">
+    <a href="{% url 'proyectos:pdf' proyecto.pk %}" target="_blank" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-file-earmark-pdf me-1"></i>Exportar PDF
+    </a>
+    <a href="{% url 'proyectos:editar' proyecto.pk %}" class="btn btn-outline-primary btn-sm">Editar proyecto</a>
+  </div>
   {% endif %}
 </div>
 <p class="text-muted">Mandante: {{ proyecto.mandante }} · Centro de costo: {{ proyecto.centro_costo|default:"—" }} · Estado: {{ proyecto.get_estado_display }} · Presupuesto: ${{ proyecto.presupuesto_total }}</p>

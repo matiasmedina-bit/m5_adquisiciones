@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% block title %}Revisar solicitud · {{ solicitante.username }}{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h1 class="h3 mb-0">Revisar solicitud de acceso</h1>
+    <small class="text-muted">
+      <span class="fw-semibold">{{ solicitante.username }}</span> ·
+      solicitada el {{ solicitante.date_joined|date:"d-m-Y" }} a las {{ solicitante.date_joined|date:"H:i" }}
+    </small>
+  </div>
+  <span class="badge bg-warning text-dark align-self-center">Pendiente de aprobación</span>
+</div>
+
+<div class="alert alert-light border d-flex gap-2 align-items-start" role="alert">
+  <i class="bi bi-info-circle text-secondary mt-1"></i>
+  <div class="small mb-0">
+    Estos datos los escribió el propio solicitante. Corrige lo que haga falta —el rol es lo que
+    más se equivoca— y aprueba. Mientras la solicitud siga pendiente, esta persona no puede
+    entrar al sistema ni aparecer para que se le asigne una obra o una herramienta.
+  </div>
+</div>
+
+<form method="post">
+  {% csrf_token %}
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header py-2 fw-semibold">Datos declarados</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-12 col-md-6">
+          <label class="form-label" for="{{ form.username.id_for_label }}">{{ form.username.label }}</label>
+          {{ form.username }}
+          {% if form.username.errors %}<div class="text-danger small">{{ form.username.errors|striptags }}</div>{% endif %}
+        </div>
+        <div class="col-12 col-md-6">
+          <label class="form-label" for="{{ form.email.id_for_label }}">{{ form.email.label }}</label>
+          {{ form.email }}
+          {% if form.email.errors %}<div class="text-danger small">{{ form.email.errors|striptags }}</div>{% endif %}
+        </div>
+        <div class="col-12 col-md-6">
+          <label class="form-label" for="{{ form.first_name.id_for_label }}">{{ form.first_name.label }}</label>
+          {{ form.first_name }}
+          {% if form.first_name.errors %}<div class="text-danger small">{{ form.first_name.errors|striptags }}</div>{% endif %}
+        </div>
+        <div class="col-12 col-md-6">
+          <label class="form-label" for="{{ form.last_name.id_for_label }}">{{ form.last_name.label }}</label>
+          {{ form.last_name }}
+          {% if form.last_name.errors %}<div class="text-danger small">{{ form.last_name.errors|striptags }}</div>{% endif %}
+        </div>
+        <div class="col-12 col-md-6">
+          <label class="form-label" for="{{ form.telefono.id_for_label }}">{{ form.telefono.label }}</label>
+          {{ form.telefono }}
+          {% if form.telefono.errors %}<div class="text-danger small">{{ form.telefono.errors|striptags }}</div>{% endif %}
+        </div>
+        <div class="col-12 col-md-6">
+          <label class="form-label" for="{{ form.rol.id_for_label }}">
+            {{ form.rol.label }}
+            <span class="badge bg-info text-dark ms-1">solicitó: {{ solicitante.get_rol_display }}</span>
+          </label>
+          {{ form.rol }}
+          {% if form.rol.errors %}<div class="text-danger small">{{ form.rol.errors|striptags }}</div>{% endif %}
+          <div class="form-text">Cámbialo si el solicitante eligió mal. Define a qué secciones del sistema entra.</div>
+        </div>
+      </div>
+      {% if form.non_field_errors %}
+        <div class="alert alert-danger mt-3 mb-0 py-2 small">{{ form.non_field_errors|striptags }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="d-flex flex-wrap gap-2">
+    <button type="submit" name="accion" value="aprobar" class="btn btn-success"
+            onclick="return confirm('¿Aprobar el acceso de {{ solicitante.username }} con estos datos?')">
+      <i class="bi bi-check-lg me-1"></i>Guardar y aprobar
+    </button>
+    <button type="submit" name="accion" value="guardar" class="btn btn-outline-primary">
+      <i class="bi bi-save me-1"></i>Sólo guardar cambios
+    </button>
+    <button type="submit" name="accion" value="rechazar" class="btn btn-outline-danger ms-auto"
+            formnovalidate
+            onclick="return confirm('Rechazar elimina la solicitud de {{ solicitante.username }} y no se puede deshacer. ¿Continuar?')">
+      <i class="bi bi-x-lg me-1"></i>Rechazar
+    </button>
+  </div>
+</form>
+
+<a href="{% url 'usuarios:lista' %}" class="btn btn-outline-secondary mt-3">← Volver a usuarios</a>
+{% endblock %}
