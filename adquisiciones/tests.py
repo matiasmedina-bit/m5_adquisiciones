@@ -135,3 +135,133 @@ class OrdenCompraTest(BaseAdq):
         oc.save()
         self.assertEqual(
             self.client.get(reverse("adquisiciones:orden_editar", args=[oc.pk])).status_code, 200)
+
+
+# ==========================================================================
+#  CU-47 — Buscando trazabilidad de material u Orden de Compra
+# ==========================================================================
+
+class TrazabilidadCU47Test(BaseAdq):
+    """
+    Las tres puertas de entrada (correlativo de SM, de OC, o nombre del
+    material) tienen que llevar a la misma cadena, y la cadena tiene que
+    mostrar hasta dónde llegó la compra.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from inventario.models import MovimientoInventario
+        from facturacion.models import Factura
+
+        self.bodeguero = Usuario.objects.create_user(
+            "bod47", password="clave12345", email="b47@m5.cl", rol="BODEGUERO")
+
+        # Cadena completa: cotización → OC → recepción → factura
+        self.cotizacion = Cotizacion.objects.create(
+            solicitud=self.sm, proveedor=self.prov1, creada_por=self.ea)
+        CotizacionLinea.objects.create(
+            cotizacion=self.cotizacion, solicitud_detalle=self.d_a,
+            valor_unitario=4500, estado=CotizacionLinea.Estado.APROBADA)
+        self.orden = OrdenCompra.objects.create(
+            solicitud=self.sm, proveedor=self.prov1, cotizacion=self.cotizacion,
+            creada_por=self.ea)
+        self.movimiento = MovimientoInventario.objects.create(
+            tipo=MovimientoInventario.Tipo.ENTRADA, material=self.mat_a,
+            cantidad=100, orden_compra=self.orden, registrado_por=self.bodeguero,
+            guia_despacho="G-8899")
+        self.factura = Factura.objects.create(
+            numero="F-4477", proveedor=self.prov1, fecha_emision=date(2026, 7, 1),
+            fecha_vencimiento=date(2026, 8, 1), monto_total=450000,
+            registrado_por=self.ea)
+        self.factura.ordenes.add(self.orden)
+
+        self.client.login(username="ea", password="clave12345")
+
+    def _buscar(self, q):
+        return self.client.get(reverse("adquisiciones:trazabilidad"), {"q": q})
+
+    # --- puerta 1: por solicitud ---
+
+    def test_por_correlativo_de_sm_devuelve_la_cadena(self):
+        resp = self._buscar(self.sm.correlativo)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context["resultado"]["tipo"], "sm")
+        cadena = resp.context["resultado"]["cadenas"][0]
+        self.assertEqual(cadena["solicitud"], self.sm)
+        self.assertIn(self.orden, cadena["ordenes"])
+        self.assertIn(self.movimiento, cadena["movimientos"])
+        self.assertIn(self.factura, cadena["facturas"])
+        self.assertIn(self.cotizacion, cadena["cotizaciones"])
+
+    # --- puerta 2: por orden de compra ---
+
+    def test_por_correlativo_de_oc_llega_a_la_misma_cadena(self):
+        resp = self._buscar(self.orden.correlativo)
+        self.assertEqual(resp.context["resultado"]["tipo"], "oc")
+        cadena = resp.context["resultado"]["cadenas"][0]
+        self.assertEqual(cadena["solicitud"], self.sm)
+        self.assertEqual(cadena["orden_buscada"], self.orden)
+
+    def test_la_busqueda_de_oc_tolera_minusculas_y_espacios(self):
+        resp = self._buscar(f"  {self.orden.correlativo.lower()}  ")
+        self.assertEqual(resp.context["resultado"]["tipo"], "oc")
+
+    # --- puerta 3: por material ---
+
+    def test_por_nombre_de_material_encuentra_sus_solicitudes(self):
+        resp = self._buscar("cemento")
+        datos = resp.context["resultado"]
+        self.assertEqual(datos["tipo"], "material")
+        self.assertEqual(datos["materiales"][0]["material"], self.mat_a)
+        self.assertEqual(datos["cadenas"][0]["solicitud"], self.sm)
+
+    def test_el_resumen_del_material_trae_lo_pedido_y_el_stock(self):
+        resp = self._buscar("cemento")
+        fila = resp.context["resultado"]["materiales"][0]
+        self.assertEqual(fila["pedido"], 100)
+        self.assertEqual(fila["movimientos"], 1)
+
+    # --- la pantalla ---
+
+    def test_la_pantalla_muestra_los_cinco_eslabones(self):
+        resp = self._buscar(self.sm.correlativo)
+        self.assertContains(resp, "Solicitud de material")
+        self.assertContains(resp, "Cotizaciones")
+        self.assertContains(resp, "Órdenes de compra")
+        self.assertContains(resp, "Recepción en bodega")
+        self.assertContains(resp, "Facturas")
+        self.assertContains(resp, self.orden.correlativo)
+        self.assertContains(resp, "F-4477")
+        self.assertContains(resp, "G-8899")
+
+    def test_sin_busqueda_no_muestra_resultados_vacios(self):
+        resp = self.client.get(reverse("adquisiciones:trazabilidad"))
+        self.assertEqual(resp.context["resultado"]["tipo"], "vacio")
+        self.assertContains(resp, "Escribe algo arriba")
+
+    def test_algo_que_no_existe_lo_dice_con_todas_sus_letras(self):
+        resp = self._buscar("OC-999999")
+        self.assertEqual(resp.context["resultado"]["tipo"], "sin_resultados")
+        self.assertContains(resp, "Sin resultados")
+
+    def test_una_cadena_cortada_se_ve_donde_se_corto(self):
+        """Una SM sin OC todavía: la pantalla lo dice, no deja el hueco mudo."""
+        sm2 = SolicitudMaterial.objects.create(
+            proyecto=self.proyecto, emisor=self.ea,
+            estado=SolicitudMaterial.Estado.ENVIADA)
+        SolicitudDetalle.objects.create(
+            solicitud=sm2, material=self.mat_b, cantidad_solicitada=10,
+            unidad_medida="barra")
+        resp = self._buscar(sm2.correlativo)
+        cadena = resp.context["resultado"]["cadenas"][0]
+        self.assertTrue(cadena["sin_ordenes"])
+        self.assertTrue(cadena["sin_factura"])
+        self.assertContains(resp, "Sin orden de compra emitida")
+
+    def test_bodega_tambien_puede_consultar_la_trazabilidad(self):
+        self.client.login(username="bod47", password="clave12345")
+        self.assertEqual(self._buscar(self.sm.correlativo).status_code, 200)
+
+    def test_la_trazabilidad_exige_sesion(self):
+        self.client.logout()
+        self.assertNotEqual(self._buscar("cemento").status_code, 200)

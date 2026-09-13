@@ -122,7 +122,9 @@
         <form method="post">
           {% csrf_token %}
           <input type="hidden" name="accion" value="agregar_material">
-          <div class="row g-2 formset-row">
+          {# data-proyecto: el buscador lo usa para pedir las partidas del
+             itemizado por API y traer el saldo de cada una (CU-13). #}
+          <div class="row g-2 formset-row" data-proyecto="{{ solicitud.proyecto_id }}">
             <div class="col-md-3">
               <label class="form-label small mb-1">Proveedor</label>
               {{ form.proveedor }}
@@ -156,11 +158,16 @@
               <label class="form-label small mb-1">Detalle <span class="text-muted">(opcional)</span></label>
               {{ form.detalle }}
             </div>
-            <div class="col-md-3">
+            <div class="col-md-3 celda-partida">
               <label class="form-label small mb-1">Partida del itemizado</label>
               {{ form.partida }}
+              {# CU-13: alerta visual cuando la cantidad supera el saldo #}
+              <div class="alerta-itemizado alert alert-warning py-1 px-2 mt-1 mb-0 small" style="display:none;">
+                <strong>⚠ Excede el itemizado.</strong>
+                <span class="texto-exceso"></span>
+              </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-3 bloque-justificacion" {% if not form.justificacion.errors %}style="display:none;"{% endif %}>
               <label class="form-label small mb-1">Justificación <span class="text-muted">(RF-16)</span></label>
               {{ form.justificacion }}
               {% if form.justificacion.errors %}<div class="text-danger small">{{ form.justificacion.errors|striptags }}</div>{% endif %}

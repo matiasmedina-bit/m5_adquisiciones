@@ -14,6 +14,7 @@ from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
 from django.views.generic import ListView, CreateView, UpdateView, DetailView
 
+from auditoria.models import RegistroAuditoria, registrar
 from .models import Usuario
 from .forms import (
     UsuarioCreateForm, UsuarioUpdateForm, RegistroSolicitudForm,
@@ -49,6 +50,10 @@ def aprobar_registro(request, pk):
     usuario.estado = True
     usuario.pendiente_aprobacion = False
     usuario.save()
+    # CU-53: la gestión de cuentas es una acción auditable
+    registrar(request.user, RegistroAuditoria.Accion.USUARIO_APROBADO,
+              f"Aprobó la cuenta de {usuario.username} como {usuario.get_rol_display()}.",
+              usuario.username)
     messages.success(request, f"Cuenta de {usuario.username} aprobada.")
     return redirect("usuarios:lista")
 
@@ -60,6 +65,8 @@ def rechazar_registro(request, pk):
     usuario = get_object_or_404(Usuario, pk=pk, pendiente_aprobacion=True)
     nombre = usuario.username
     usuario.delete()
+    registrar(request.user, RegistroAuditoria.Accion.USUARIO_RECHAZADO,
+              f"Rechazó y eliminó la solicitud de acceso de {nombre}.", nombre)
     messages.warning(request, f"Solicitud de {nombre} rechazada y eliminada.")
     return redirect("usuarios:lista")
 
@@ -80,6 +87,8 @@ def revisar_solicitud(request, pk):
     if request.method == "POST" and accion == "rechazar":
         nombre = usuario.username
         usuario.delete()
+        registrar(request.user, RegistroAuditoria.Accion.USUARIO_RECHAZADO,
+                  f"Rechazó y eliminó la solicitud de acceso de {nombre}.", nombre)
         messages.warning(request, f"Solicitud de {nombre} rechazada y eliminada.")
         return redirect("usuarios:lista")
 
@@ -94,6 +103,12 @@ def revisar_solicitud(request, pk):
                 usuario.estado = True
                 usuario.pendiente_aprobacion = False
                 usuario.save()
+                registrar(
+                    request.user, RegistroAuditoria.Accion.USUARIO_APROBADO,
+                    f"Aprobó la cuenta de {usuario.username} como "
+                    f"{usuario.get_rol_display()}"
+                    + (f" (había solicitado {rol_original})." if rol_cambiado else "."),
+                    usuario.username)
                 if rol_cambiado:
                     messages.success(
                         request,
@@ -225,6 +240,13 @@ class UsuarioCreateView(RolRequeridoMixin, SuccessMessageMixin, CreateView):
     success_url = reverse_lazy("usuarios:lista")
     success_message = "Cuenta de usuario creada correctamente."
 
+    def form_valid(self, form):
+        respuesta = super().form_valid(form)
+        registrar(self.request.user, RegistroAuditoria.Accion.USUARIO_CREADO,
+                  f"Creó la cuenta de {self.object.username} "
+                  f"({self.object.get_rol_display()}).", self.object.username)
+        return respuesta
+
 
 class UsuarioUpdateView(RolRequeridoMixin, SuccessMessageMixin, UpdateView):
     """CU-51 / CU-52: Editar cuenta y/o cambiar rol del usuario."""
@@ -234,6 +256,14 @@ class UsuarioUpdateView(RolRequeridoMixin, SuccessMessageMixin, UpdateView):
     template_name = "usuarios/usuario_form.html"
     success_url = reverse_lazy("usuarios:lista")
     success_message = "Cuenta de usuario actualizada correctamente."
+
+    def form_valid(self, form):
+        cambios = ", ".join(form.changed_data) or "sin cambios"
+        respuesta = super().form_valid(form)
+        registrar(self.request.user, RegistroAuditoria.Accion.USUARIO_MODIFICADO,
+                  f"Modificó la cuenta de {self.object.username}: {cambios}.",
+                  self.object.username)
+        return respuesta
 
 
 class UsuarioDetailView(RolRequeridoMixin, DetailView):
@@ -250,5 +280,7 @@ def usuario_cambiar_estado(request, pk):
     usuario.estado = not usuario.estado
     usuario.save()
     estado_txt = "activada" if usuario.estado else "inactivada"
+    registrar(request.user, RegistroAuditoria.Accion.USUARIO_MODIFICADO,
+              f"Cuenta de {usuario.username} {estado_txt}.", usuario.username)
     messages.success(request, f"Cuenta {usuario.username} {estado_txt}.")
     return redirect("usuarios:lista")

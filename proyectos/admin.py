@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Proyecto, Itemizado
+from .models import Proyecto, Itemizado, TipoDocumento, ArchivoProyecto
 
 
 class ItemizadoInline(admin.TabularInline):
@@ -19,3 +19,19 @@ class ProyectoAdmin(admin.ModelAdmin):
 class ItemizadoAdmin(admin.ModelAdmin):
     list_display = ("codigo_partida", "descripcion", "proyecto", "cant_presupuestada", "cant_ejecutada")
     search_fields = ("codigo_partida", "descripcion")
+
+
+# --- CU-54: catálogo de tipos de documento y archivos del proyecto ---
+
+@admin.register(TipoDocumento)
+class TipoDocumentoAdmin(admin.ModelAdmin):
+    list_display = ("nombre", "descripcion", "activo")
+    list_filter = ("activo",)
+    search_fields = ("nombre",)
+
+
+@admin.register(ArchivoProyecto)
+class ArchivoProyectoAdmin(admin.ModelAdmin):
+    list_display = ("nombre", "tipo", "proyecto", "subido_por", "fecha")
+    list_filter = ("tipo", "proyecto")
+    search_fields = ("nombre", "observaciones")

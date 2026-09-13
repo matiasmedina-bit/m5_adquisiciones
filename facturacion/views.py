@@ -16,6 +16,7 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
+from auditoria.models import RegistroAuditoria, registrar
 from usuarios.permisos import rol_requerido
 from .models import Factura
 from .forms import FacturaForm, DesbloqueoForm
@@ -47,6 +48,11 @@ def factura_crear(request):
                 factura.registrado_por = request.user
                 factura.save()
                 form.save_m2m()
+                # CU-53: la recepción de una factura es una acción auditable
+                registrar(request.user, RegistroAuditoria.Accion.FACTURA_RECIBIDA,
+                          f"Recibió la factura de {factura.proveedor.nombre} "
+                          f"por ${factura.monto_total:,.0f}.".replace(",", "."),
+                          factura.numero)
 
                 # RF-41: comparar monto de la factura con el total de las OC
                 total_oc = factura.total_ordenes
@@ -59,6 +65,9 @@ def factura_crear(request):
                 if dif > settings.FACTURA_TOLERANCIA_PCT:
                     factura.estado = Factura.Estado.BLOQUEADA
                     factura.save(update_fields=["diferencia_pct", "estado"])
+                    registrar(request.user, RegistroAuditoria.Accion.FACTURA_BLOQUEADA,
+                              f"Factura bloqueada: {factura.diferencia_pct}% de diferencia "
+                              f"con las órdenes de compra.", factura.numero)
                     messages.warning(
                         request,
                         f"Factura registrada pero BLOQUEADA: la diferencia con las OC es "
@@ -107,6 +116,9 @@ def factura_desbloquear(request, pk):
                 ) + f"[Desbloqueo] {form.cleaned_data['justificacion']}"
                 factura.save(update_fields=["estado", "desbloqueada_por",
                                             "fecha_desbloqueo", "observacion"])
+                registrar(request.user, RegistroAuditoria.Accion.FACTURA_DESBLOQUEADA,
+                          f"Desbloqueó la factura de {factura.proveedor.nombre}: "
+                          f"{form.cleaned_data['justificacion']}", factura.numero)
                 _marcar_oc_facturadas(factura)
             messages.success(request, f"Factura {factura.numero} desbloqueada y registrada.")
     return redirect("facturacion:detalle", pk=factura.pk)

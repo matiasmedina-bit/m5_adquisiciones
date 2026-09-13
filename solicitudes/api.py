@@ -16,6 +16,7 @@ from django.http import JsonResponse
 
 from proveedores.models import Proveedor, ProveedorMaterial
 from inventario.models import Material
+from proyectos.models import Itemizado
 from usuarios.permisos import rol_requerido
 
 LIMITE = 12
@@ -158,3 +159,35 @@ def proveedores_de(request):
         key=lambda p: (p["precio"] == 0, p["precio"], p["nombre"]),
     )[:LIMITE]
     return JsonResponse({"proveedores": lista, "total": len(lista)})
+
+
+@rol_requerido(*ROLES)
+def partidas_de_proyecto(request):
+    """
+    GET ?proyecto=<id>
+
+    Partidas del itemizado de un proyecto con su saldo disponible. Alimenta el
+    selector de partida de la solicitud, que en la pantalla de creación no puede
+    conocerse en el servidor: el proyecto se elige en el mismo formulario.
+
+    El saldo viaja al navegador para que la alerta del CU-13 —cantidad que
+    supera la partida— se dispare mientras se escribe, y no recién al guardar.
+    """
+    proyecto_id = (request.GET.get("proyecto") or "").strip()
+    if not proyecto_id.isdigit():
+        return JsonResponse({"partidas": [], "total": 0})
+
+    partidas = []
+    for item in Itemizado.objects.filter(proyecto_id=int(proyecto_id)).order_by("codigo_partida"):
+        saldo = float(item.saldo_disponible)
+        partidas.append({
+            "id": item.pk,
+            "codigo": item.codigo_partida,
+            "descripcion": item.descripcion,
+            "unidad": item.unidad_medida,
+            "presupuestado": float(item.cant_presupuestada),
+            "ejecutado": float(item.cant_ejecutada),
+            "saldo": saldo,
+            "etiqueta": f"{item.codigo_partida} · {item.descripcion} (saldo {saldo:g} {item.unidad_medida})",
+        })
+    return JsonResponse({"partidas": partidas, "total": len(partidas)})

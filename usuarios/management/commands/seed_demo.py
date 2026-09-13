@@ -10,11 +10,12 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 from usuarios.models import Usuario
 from proveedores.models import Proveedor, ProveedorMaterial
-from proyectos.models import Proyecto, Itemizado
+from proyectos.models import Proyecto, Itemizado, TipoDocumento
 from inventario.models import Material, MovimientoInventario, PrestamoHerramienta
 from solicitudes.models import SolicitudMaterial, SolicitudDetalle
 from adquisiciones.models import Cotizacion, CotizacionLinea, OrdenCompra, OrdenCompraLinea
 from facturacion.models import Factura
+from auditoria.models import RegistroAuditoria, registrar
 
 
 class Command(BaseCommand):
@@ -135,6 +136,21 @@ class Command(BaseCommand):
         it2, _ = Itemizado.objects.get_or_create(proyecto=proyecto, codigo_partida="OG-02",
             defaults={"descripcion": "Albañilería", "unidad_medida": "m2",
                       "cant_presupuestada": 800, "cant_ejecutada": 780})  # saldo 20 -> dispara RF-16
+
+        # --- CU-54: catálogo de tipos de documento ---
+        # Sin catálogo la ficha del proyecto bloquea la carga de archivos
+        # (Excepción 1 del CU-54); la demo parte con los tipos de una obra real.
+        for nombre_tipo, desc_tipo in [
+            ("Plano", "Planimetría de arquitectura, estructura o especialidades"),
+            ("Contrato", "Contrato de obra, subcontratos y anexos"),
+            ("Permiso municipal", "Permisos de edificación y recepción municipal"),
+            ("Cotización", "Cotizaciones recibidas de proveedores"),
+            ("Factura", "Facturas y documentos tributarios del proyecto"),
+            ("Acta de recepción", "Actas de recepción de obra y de materiales"),
+            ("Informe técnico", "Informes de ensayo, topografía y mecánica de suelos"),
+        ]:
+            TipoDocumento.objects.get_or_create(
+                nombre=nombre_tipo, defaults={"descripcion": desc_tipo})
 
         # --- Materiales y herramientas ---
         # (nombre, unidad, precio_ref, tipo, stock, activo, codigo_activo)
@@ -288,7 +304,36 @@ class Command(BaseCommand):
             f.ordenes.add(oc_a)
             oc_a.facturada = True
             oc_a.save(update_fields=["facturada"])
+
+            # CU-53: la bitácora se escribe desde las vistas, así que los datos
+            # sembrados a mano no pasan por ahí. Se registran acá para que la
+            # pantalla de auditoría arranque con la cadena completa a la vista
+            # (los movimientos de bodega ya entraron solos por señal).
+            A = RegistroAuditoria.Accion
+            registrar(ea, A.SM_EMITIDA,
+                      f"Emitió la solicitud de material para {proyecto.nombre} "
+                      f"(2 ítems).", sol2.correlativo)
+            registrar(jefe_user_local, A.SM_APROBADA,
+                      f"Aprobó la solicitud de {proyecto.nombre}.", sol2.correlativo)
+            registrar(ea, A.OC_EMITIDA,
+                      f"Emitió la orden de compra a {prov_a.nombre} por la "
+                      f"solicitud {sol2.correlativo}.", oc_a.correlativo)
+            registrar(ea, A.OC_EMITIDA,
+                      f"Emitió la orden de compra a {prov_b.nombre} por la "
+                      f"solicitud {sol2.correlativo}.", oc_b.correlativo)
+            registrar(jefe_user_local, A.OC_APROBADA,
+                      f"Aprobó la orden de compra a {prov_a.nombre}.", oc_a.correlativo)
+            registrar(jefe_user_local, A.OC_ENVIADA,
+                      f"Envió la orden de compra a {prov_a.nombre} "
+                      f"({prov_a.correo}).", oc_a.correlativo)
+            registrar(cont, A.FACTURA_RECIBIDA,
+                      f"Recibió la factura de {prov_a.nombre} por "
+                      f"${f.monto_total:,.0f}.".replace(",", "."), f.numero)
+            registrar(Usuario.objects.get(username="admin"), A.USUARIO_APROBADO,
+                      "Aprobó la cuenta de bodega como Bodeguero.", "bodega")
+
             self.stdout.write("  Cadena Inc.2 creada: cotizaciones, OC, recepción y factura demo.")
+            self.stdout.write("  Bitácora de auditoría poblada (CU-53).")
 
         self.stdout.write(self.style.SUCCESS("Datos de demostración cargados correctamente."))
         self.stdout.write("Usuarios: admin / jefe / encargado / bodega / contador  (clave: demo12345)")

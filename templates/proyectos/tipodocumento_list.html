@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% block title %}Tipos de documento{% endblock %}
+{% block content %}
+{# CU-54 (RF-51): catálogo con que se clasifica cada archivo del proyecto.
+   Si queda vacío, la ficha del proyecto bloquea la carga de archivos. #}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h3 mb-0">Tipos de documento</h1>
+    <small class="text-muted">Catálogo con que se clasifican los archivos de cada proyecto</small>
+  </div>
+  <span class="badge bg-secondary align-self-center">{{ tipos|length }} tipo{{ tipos|length|pluralize }}</span>
+</div>
+
+{% if not tipos %}
+<div class="alert alert-warning">
+  El catálogo está vacío. Mientras no tenga al menos un tipo activo, los proyectos
+  no admiten archivos: un documento sin clasificar no se puede almacenar.
+</div>
+{% endif %}
+
+<div class="card shadow-sm mb-3">
+  <div class="card-header py-2 fw-semibold">Agregar un tipo</div>
+  <div class="card-body">
+    <form method="post" action="{% url 'proyectos:tipo_documento_crear' %}">
+      {% csrf_token %}
+      <div class="row g-2 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label small mb-1">Nombre <span class="text-danger">*</span></label>
+          {{ form.nombre }}
+        </div>
+        <div class="col-md-5">
+          <label class="form-label small mb-1">Descripción</label>
+          {{ form.descripcion }}
+        </div>
+        <div class="col-md-2">
+          <div class="form-check mb-2">
+            {{ form.activo }}
+            <label class="form-check-label small" for="{{ form.activo.id_for_label }}">Activo</label>
+          </div>
+        </div>
+        <div class="col-md-1 text-end">
+          <button type="submit" class="btn btn-primary btn-sm">Agregar</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card shadow-sm"><div class="table-responsive">
+<table class="table mb-0 align-middle">
+  <thead class="table-light"><tr>
+    <th>Tipo</th><th>Descripción</th><th class="text-center">Estado</th><th class="text-end">Archivos</th>
+  </tr></thead>
+  <tbody>
+  {% for t in tipos %}
+    <tr>
+      <td class="fw-semibold">{{ t.nombre }}</td>
+      <td class="text-muted small">{{ t.descripcion|default:"—" }}</td>
+      <td class="text-center">
+        {% if t.activo %}<span class="badge bg-success">Activo</span>
+        {% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}
+      </td>
+      <td class="text-end">{{ t.archivos.count }}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="4" class="text-center text-muted py-3">Catálogo vacío.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div></div>
+
+<a href="{% url 'proyectos:lista' %}" class="btn btn-outline-secondary mt-3">Volver a proyectos</a>
+{% endblock %}

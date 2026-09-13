@@ -1,0 +1,192 @@
+{% extends 'base.html' %}
+{% block title %}Trazabilidad{% endblock %}
+{% block content %}
+{# CU-47 — Buscando trazabilidad de material u Orden de Compra #}
+<div class="mb-3">
+  <h1 class="h3 mb-0">Trazabilidad</h1>
+  <small class="text-muted">
+    Qué pasó con un material o con una compra, de punta a punta: solicitud →
+    cotizaciones → orden de compra → recepción en bodega → factura.
+  </small>
+</div>
+
+<div class="card shadow-sm mb-3">
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-md-9">
+        <label class="form-label small mb-1">Buscar</label>
+        <input type="text" name="q" value="{{ termino }}" autofocus
+               class="form-control" placeholder="SM-000012 · OC-000004 · cemento">
+        <div class="form-text">
+          Escribe el correlativo de una solicitud, el de una orden de compra, o
+          el nombre del material.
+        </div>
+      </div>
+      <div class="col-md-3 d-flex gap-2">
+        <button type="submit" class="btn btn-primary flex-grow-1">Buscar</button>
+        {% if termino %}
+        <a href="{% url 'adquisiciones:trazabilidad' %}" class="btn btn-outline-secondary">Limpiar</a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if resultado.tipo == 'vacio' %}
+  <div class="alert alert-light border">
+    Escribe algo arriba para empezar. Si no te acuerdas del correlativo, busca
+    por el nombre del material.
+  </div>
+
+{% elif resultado.tipo == 'sin_resultados' %}
+  <div class="alert alert-warning">
+    <strong>Sin resultados para «{{ termino }}».</strong>
+    Revisa el correlativo o prueba con el nombre del material.
+  </div>
+
+{% else %}
+
+  {% if resultado.materiales %}
+  <div class="card shadow-sm mb-3">
+    <div class="card-header py-2 fw-semibold">Materiales que calzan</div>
+    <div class="table-responsive">
+      <table class="table mb-0 align-middle">
+        <thead class="table-light"><tr>
+          <th>Material</th><th class="text-end">Total solicitado</th>
+          <th class="text-end">Movimientos</th><th class="text-end">Stock actual</th>
+        </tr></thead>
+        <tbody>
+        {% for r in resultado.materiales %}
+          <tr>
+            <td>{{ r.material.nombre }}</td>
+            <td class="text-end">{{ r.pedido }} {{ r.material.unidad_medida }}</td>
+            <td class="text-end">{{ r.movimientos }}</td>
+            <td class="text-end">{{ r.stock }} {{ r.material.unidad_medida }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% for c in resultado.cadenas %}
+  <div class="card shadow-sm mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center py-2">
+      <span class="fw-semibold">
+        <a href="{% url 'solicitudes:detalle' c.solicitud.pk %}">{{ c.solicitud.correlativo }}</a>
+        · {{ c.solicitud.proyecto.nombre }}
+      </span>
+      <span class="badge bg-secondary">{{ c.solicitud.get_estado_display }}</span>
+    </div>
+    <div class="card-body">
+
+      {# --- 1. La solicitud --- #}
+      <div class="mb-3">
+        <div class="fw-semibold small text-uppercase text-muted mb-1">1 · Solicitud de material</div>
+        <div class="small text-muted mb-1">
+          Emitida por {{ c.solicitud.emisor.get_full_name|default:c.solicitud.emisor.username }}
+          el {{ c.solicitud.fecha|date:"d/m/Y H:i" }}
+        </div>
+        <ul class="list-unstyled mb-0 small">
+          {% for d in c.detalles %}
+          <li>
+            · {{ d.material.nombre }} — {{ d.cantidad_solicitada }} {{ d.unidad_medida }}
+            {% if d.proveedor %}<span class="text-muted">(sugerido: {{ d.proveedor.nombre }})</span>{% endif %}
+            {% if d.excede_itemizado %}<span class="badge bg-warning text-dark">Excede itemizado</span>{% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      {# --- 2. Cotizaciones --- #}
+      <div class="mb-3">
+        <div class="fw-semibold small text-uppercase text-muted mb-1">2 · Cotizaciones</div>
+        {% if c.sin_cotizaciones %}
+          <div class="small text-muted fst-italic">Todavía no se cotizó.</div>
+        {% else %}
+          <ul class="list-unstyled mb-0 small">
+            {% for cot in c.cotizaciones %}
+            <li>· {{ cot.proveedor.nombre }} — {{ cot.get_estado_display }}
+              <span class="text-muted">({{ cot.lineas.count }} línea{{ cot.lineas.count|pluralize }})</span></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+
+      {# --- 3. Órdenes de compra --- #}
+      <div class="mb-3">
+        <div class="fw-semibold small text-uppercase text-muted mb-1">3 · Órdenes de compra</div>
+        {% if c.sin_ordenes %}
+          <div class="small text-muted fst-italic">Sin orden de compra emitida.</div>
+        {% else %}
+          <ul class="list-unstyled mb-0 small">
+            {% for oc in c.ordenes %}
+            <li class="{% if c.orden_buscada and oc.pk == c.orden_buscada.pk %}fw-semibold{% endif %}">
+              · <a href="{% url 'adquisiciones:orden_detalle' oc.pk %}">{{ oc.correlativo }}</a>
+              — {{ oc.proveedor.nombre }} — {{ oc.get_estado_display }}
+              <span class="text-muted">${{ oc.total|floatformat:0 }}</span>
+              {% if c.orden_buscada and oc.pk == c.orden_buscada.pk %}
+              <span class="badge bg-primary">la que buscaste</span>{% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+
+      {# --- 4. Recepción en bodega --- #}
+      <div class="mb-3">
+        <div class="fw-semibold small text-uppercase text-muted mb-1">4 · Recepción en bodega</div>
+        {% if c.sin_recepcion %}
+          <div class="small text-muted fst-italic">No se ha recibido nada todavía.</div>
+        {% else %}
+          <ul class="list-unstyled mb-0 small">
+            {% for m in c.movimientos %}
+            <li>· {{ m.fecha|date:"d/m/Y H:i" }} — {{ m.get_tipo_display }}
+              {{ m.cantidad }} {{ m.material.unidad_medida }} de {{ m.material.nombre }}
+              <span class="text-muted">({{ m.registrado_por.username }}{% if m.guia_despacho %} · guía {{ m.guia_despacho }}{% endif %})</span></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+
+      {# --- 5. Facturas --- #}
+      <div class="mb-3">
+        <div class="fw-semibold small text-uppercase text-muted mb-1">5 · Facturas</div>
+        {% if c.sin_factura %}
+          <div class="small text-muted fst-italic">Sin factura asociada.</div>
+        {% else %}
+          <ul class="list-unstyled mb-0 small">
+            {% for f in c.facturas %}
+            <li>· <a href="{% url 'facturacion:detalle' f.pk %}">Factura {{ f.numero }}</a>
+              — {{ f.proveedor.nombre }} — ${{ f.monto_total|floatformat:0 }}
+              <span class="badge {% if f.estado == 'BLOQUEADA' %}bg-danger{% else %}bg-success{% endif %}">{{ f.get_estado_display }}</span></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+
+      {% if c.otros_movimientos %}
+      <div>
+        <div class="fw-semibold small text-uppercase text-muted mb-1">
+          Otros movimientos de estos materiales
+        </div>
+        <ul class="list-unstyled mb-0 small text-muted">
+          {% for m in c.otros_movimientos %}
+          <li>· {{ m.fecha|date:"d/m/Y" }} — {{ m.get_tipo_display }} {{ m.cantidad }} de {{ m.material.nombre }}
+            {% if m.proyecto %}→ {{ m.proyecto.nombre }}{% endif %}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+  {% empty %}
+  <div class="alert alert-warning">
+    Encontramos el material pero todavía no aparece en ninguna solicitud.
+  </div>
+  {% endfor %}
+
+{% endif %}
+{% endblock %}

@@ -1,11 +1,15 @@
 """
-Pruebas unitarias del módulo de Proyectos e Itemizado (CU-06 a CU-10).
+Pruebas unitarias del módulo de Proyectos e Itemizado (CU-06 a CU-10, CU-54).
 """
+import tempfile
 from datetime import date
-from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, Client, override_settings
 from django.db import IntegrityError
-from .models import Proyecto, Itemizado
-from .forms import ProyectoForm
+from django.urls import reverse
+from usuarios.models import Usuario
+from .models import Proyecto, Itemizado, TipoDocumento, ArchivoProyecto
+from .forms import ProyectoForm, ArchivoProyectoForm
 
 
 class ProyectoModelTest(TestCase):
@@ -171,3 +175,149 @@ class ProyectoPDFTest(TestCase):
         from django.urls import reverse
         resp = self.client.get(reverse("proyectos:detalle", args=[self.proyecto.pk]))
         self.assertContains(resp, reverse("proyectos:pdf", args=[self.proyecto.pk]))
+
+
+# ==========================================================================
+#  CU-54 (RF-51) — Almacenando archivo y clasificándolo por tipo de documento
+# ==========================================================================
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class ArchivoProyectoCU54Test(TestCase):
+    """
+    Flujo principal: el actor sube un archivo, le pone nombre y lo clasifica con
+    un tipo del catálogo; el sistema lo almacena contra el proyecto.
+    Excepción 1: sin tipo seleccionado —o con el catálogo vacío— la carga se
+    bloquea y el archivo no queda guardado.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.jefe = Usuario.objects.create_user(
+            username="jefe54", password="clave12345", email="j54@m5.cl",
+            rol="JEFE_PROYECTO")
+        self.conta = Usuario.objects.create_user(
+            username="conta54", password="clave12345", email="c54@m5.cl",
+            rol="CONTABILIDAD")
+        self.bodega = Usuario.objects.create_user(
+            username="bod54", password="clave12345", email="b54@m5.cl",
+            rol="BODEGUERO")
+        self.proyecto = Proyecto.objects.create(
+            nombre="Torre Poniente", mandante="Inmobiliaria X",
+            fecha_inicio=date(2026, 6, 1))
+        self.tipo = TipoDocumento.objects.create(
+            nombre="Plano", descripcion="Planimetría")
+        self.client.login(username="jefe54", password="clave12345")
+
+    def _pdf(self, nombre="plano.pdf"):
+        return SimpleUploadedFile(nombre, b"%PDF-1.4 contenido", content_type="application/pdf")
+
+    def _url(self):
+        return reverse("proyectos:archivo_subir", args=[self.proyecto.pk])
+
+    # --- catálogo ---
+
+    def test_el_catalogo_responde_si_hay_tipos_activos(self):
+        self.assertTrue(TipoDocumento.hay_catalogo())
+        self.tipo.activo = False
+        self.tipo.save()
+        self.assertFalse(TipoDocumento.hay_catalogo())
+
+    def test_el_formulario_solo_ofrece_tipos_activos(self):
+        TipoDocumento.objects.create(nombre="Obsoleto", activo=False)
+        form = ArchivoProyectoForm()
+        nombres = [t.nombre for t in form.fields["tipo"].queryset]
+        self.assertIn("Plano", nombres)
+        self.assertNotIn("Obsoleto", nombres)
+
+    # --- flujo principal ---
+
+    def test_sube_y_clasifica_el_archivo(self):
+        resp = self.client.post(self._url(), {
+            "tipo": self.tipo.pk,
+            "nombre": "Plano de emplazamiento rev. C",
+            "archivo": self._pdf(),
+            "observaciones": "Entregado por arquitectura",
+        })
+        self.assertRedirects(resp, reverse("proyectos:detalle", args=[self.proyecto.pk]))
+        archivo = ArchivoProyecto.objects.get()
+        self.assertEqual(archivo.proyecto, self.proyecto)
+        self.assertEqual(archivo.tipo, self.tipo)
+        self.assertEqual(archivo.subido_por, self.jefe)
+        self.assertEqual(archivo.extension, "pdf")
+
+    def test_el_archivo_aparece_en_la_ficha_del_proyecto(self):
+        self.client.post(self._url(), {
+            "tipo": self.tipo.pk, "nombre": "Contrato firmado",
+            "archivo": self._pdf("contrato.pdf")})
+        resp = self.client.get(reverse("proyectos:detalle", args=[self.proyecto.pk]))
+        self.assertContains(resp, "Contrato firmado")
+        self.assertContains(resp, "Plano")  # el tipo con que quedó clasificado
+
+    def test_contabilidad_tambien_puede_almacenar(self):
+        self.client.login(username="conta54", password="clave12345")
+        self.client.post(self._url(), {
+            "tipo": self.tipo.pk, "nombre": "Factura 1234",
+            "archivo": self._pdf("f.pdf")})
+        self.assertEqual(ArchivoProyecto.objects.count(), 1)
+
+    def test_un_rol_ajeno_no_puede_almacenar(self):
+        self.client.login(username="bod54", password="clave12345")
+        resp = self.client.post(self._url(), {
+            "tipo": self.tipo.pk, "nombre": "X", "archivo": self._pdf()})
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(ArchivoProyecto.objects.count(), 0)
+
+    # --- Excepción 1 ---
+
+    def test_sin_tipo_no_se_almacena(self):
+        resp = self.client.post(self._url(), {
+            "tipo": "", "nombre": "Plano sin clasificar", "archivo": self._pdf()})
+        self.assertEqual(resp.status_code, 200)   # vuelve a la ficha con el error
+        self.assertEqual(ArchivoProyecto.objects.count(), 0)
+        self.assertContains(resp, "selecciona un tipo")
+
+    def test_con_el_catalogo_vacio_la_carga_queda_bloqueada(self):
+        TipoDocumento.objects.all().delete()
+        resp = self.client.post(self._url(), {
+            "nombre": "Cualquiera", "archivo": self._pdf()}, follow=True)
+        self.assertEqual(ArchivoProyecto.objects.count(), 0)
+        self.assertContains(resp, "catálogo")
+
+    def test_la_ficha_avisa_cuando_el_catalogo_esta_vacio(self):
+        TipoDocumento.objects.all().delete()
+        resp = self.client.get(reverse("proyectos:detalle", args=[self.proyecto.pk]))
+        self.assertContains(resp, "No se pueden almacenar archivos todav")
+        self.assertNotContains(resp, "Almacenar archivo</button>")
+
+    def test_formato_no_permitido_se_rechaza(self):
+        malo = SimpleUploadedFile("script.exe", b"MZ", content_type="application/octet-stream")
+        resp = self.client.post(self._url(), {
+            "tipo": self.tipo.pk, "nombre": "Ejecutable", "archivo": malo})
+        self.assertEqual(ArchivoProyecto.objects.count(), 0)
+        self.assertContains(resp, "Formato no permitido")
+
+    def test_sin_nombre_no_se_almacena(self):
+        resp = self.client.post(self._url(), {
+            "tipo": self.tipo.pk, "nombre": "   ", "archivo": self._pdf()})
+        self.assertEqual(ArchivoProyecto.objects.count(), 0)
+        self.assertContains(resp, "nombre al documento")
+
+    # --- catálogo administrable ---
+
+    def test_agregar_un_tipo_destraba_el_catalogo(self):
+        TipoDocumento.objects.all().delete()
+        self.client.post(reverse("proyectos:tipo_documento_crear"),
+                         {"nombre": "Permiso municipal", "activo": "on"})
+        self.assertTrue(TipoDocumento.hay_catalogo())
+
+    def test_el_listado_del_catalogo_se_muestra(self):
+        resp = self.client.get(reverse("proyectos:tipos_documento"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Plano")
+
+    def test_eliminar_saca_el_documento_de_la_carpeta(self):
+        self.client.post(self._url(), {
+            "tipo": self.tipo.pk, "nombre": "Borrable", "archivo": self._pdf()})
+        archivo = ArchivoProyecto.objects.get()
+        self.client.post(reverse("proyectos:archivo_eliminar", args=[archivo.pk]))
+        self.assertEqual(ArchivoProyecto.objects.count(), 0)

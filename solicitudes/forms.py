@@ -105,7 +105,12 @@ class SolicitudDetalleForm(forms.ModelForm):
                 proyecto=self._solicitud.proyecto)
             self.fields["partida"].empty_label = "\u2014 Sin partida \u2014"
         else:
-            self.fields["partida"].queryset = Itemizado.objects.none()
+            # Sin solicitud todavía (pantalla de creación) el proyecto se elige
+            # en la misma página: el selector se llena por API y la validación
+            # debe aceptar cualquier partida. SolicitudDetalle.save() descarta
+            # la que no sea del proyecto elegido.
+            self.fields["partida"].queryset = Itemizado.objects.all()
+            self.fields["partida"].empty_label = "— Sin partida —"
 
         # Al editar, el buscador muestra lo que ya estaba elegido
         if self.instance.pk and not self.initial.get("nombre_libre"):

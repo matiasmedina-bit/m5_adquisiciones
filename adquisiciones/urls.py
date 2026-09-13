@@ -12,4 +12,6 @@ urlpatterns = [
     path("ordenes/<int:pk>/", views.orden_detalle, name="orden_detalle"),
     path("ordenes/<int:pk>/editar/", views.orden_editar, name="orden_editar"),
     path("ordenes/<int:pk>/pdf/", views.orden_pdf, name="orden_pdf"),
+    # CU-47 — trazabilidad de material u orden de compra
+    path("trazabilidad/", views.trazabilidad_buscar, name="trazabilidad"),
 ]

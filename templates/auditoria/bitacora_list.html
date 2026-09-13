@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+{% block title %}Bitácora de auditoría{% endblock %}
+{% block content %}
+{# CU-53 (RF-50) — Consulta de la bitácora. Sólo lectura: el sistema escribe,
+   las personas revisan. #}
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <div>
+    <h1 class="h3 mb-0">Bitácora de auditoría</h1>
+    <small class="text-muted">
+      Quién hizo qué y cuándo: movimientos de bodega, emisión de solicitudes y
+      órdenes de compra, recepción de facturas y gestión de cuentas.
+    </small>
+  </div>
+  <span class="badge bg-secondary align-self-center">{{ total_filtrado }} registro{{ total_filtrado|pluralize }}</span>
+</div>
+
+<div class="card shadow-sm mb-3">
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label small mb-1">Módulo</label>
+        <select name="modulo" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          {% for valor, etiqueta in modulos %}
+          <option value="{{ valor }}" {% if filtros.modulo == valor %}selected{% endif %}>{{ etiqueta }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small mb-1">Acción</label>
+        <select name="accion" class="form-select form-select-sm">
+          <option value="">Todas</option>
+          {% for valor, etiqueta in acciones %}
+          <option value="{{ valor }}" {% if filtros.accion == valor %}selected{% endif %}>{{ etiqueta }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-1">Usuario</label>
+        <select name="usuario" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          {% for u in usuarios %}
+          <option value="{{ u.pk }}" {% if filtros.usuario == u.pk|stringformat:"s" %}selected{% endif %}>{{ u.username }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-1">Desde</label>
+        <input type="date" name="desde" value="{{ filtros.desde }}" class="form-control form-control-sm">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-1">Hasta</label>
+        <input type="date" name="hasta" value="{{ filtros.hasta }}" class="form-control form-control-sm">
+      </div>
+      <div class="col-md-1"></div>
+      <div class="col-md-9">
+        <label class="form-label small mb-1">Buscar</label>
+        <input type="text" name="q" value="{{ filtros.q }}" class="form-control form-control-sm"
+               placeholder="Correlativo, material, usuario, texto de la acción…">
+      </div>
+      <div class="col-md-3 d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm flex-grow-1">Filtrar</button>
+        {% if hay_filtros %}
+        <a href="{% url 'auditoria:bitacora' %}" class="btn btn-outline-secondary btn-sm">Limpiar</a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card shadow-sm"><div class="table-responsive">
+<table class="table mb-0 align-middle">
+  <thead class="table-light"><tr>
+    <th style="white-space:nowrap;">Fecha y hora</th>
+    <th>Usuario</th>
+    <th>Módulo</th>
+    <th>Acción</th>
+    <th>Referencia</th>
+    <th>Detalle</th>
+  </tr></thead>
+  <tbody>
+  {% for r in registros %}
+    <tr>
+      <td class="small text-nowrap">{{ r.fecha|date:"d/m/Y H:i:s" }}</td>
+      <td class="small">{{ r.actor }}</td>
+      <td><span class="badge bg-light text-dark border">{{ r.get_modulo_display }}</span></td>
+      <td class="small">{{ r.get_accion_display }}</td>
+      <td class="small fw-semibold">{{ r.referencia|default:"—" }}</td>
+      <td class="small text-muted">{{ r.descripcion }}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6" class="text-center text-muted py-4">
+      {% if hay_filtros %}Ningún registro calza con el filtro.{% else %}La bitácora está vacía.{% endif %}
+    </td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div></div>
+
+{% if is_paginated %}
+<nav class="mt-3">
+  <ul class="pagination pagination-sm justify-content-center">
+    {% if page_obj.has_previous %}
+    <li class="page-item"><a class="page-link" href="?{{ request.GET.urlencode }}&page={{ page_obj.previous_page_number }}">Anterior</a></li>
+    {% endif %}
+    <li class="page-item disabled"><span class="page-link">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span></li>
+    {% if page_obj.has_next %}
+    <li class="page-item"><a class="page-link" href="?{{ request.GET.urlencode }}&page={{ page_obj.next_page_number }}">Siguiente</a></li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}
+{% endblock %}

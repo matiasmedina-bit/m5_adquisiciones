@@ -16,6 +16,7 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
+from auditoria.models import RegistroAuditoria, registrar
 from usuarios.permisos import rol_requerido
 from solicitudes.models import SolicitudMaterial
 from .models import Cotizacion, CotizacionLinea, OrdenCompra, OrdenCompraLinea  # noqa: F401
@@ -161,6 +162,10 @@ def _generar_ordenes_compra(solicitud, usuario):
                 cantidad=d.cantidad_solicitada, unidad_medida=d.unidad_medida,
                 valor_unitario=cl.valor_unitario,
             )
+        # CU-53: la emisión de una OC es una acción auditable
+        registrar(usuario, RegistroAuditoria.Accion.OC_EMITIDA,
+                  f"Emitió la orden de compra a {orden.proveedor.nombre} "
+                  f"por la solicitud {solicitud.correlativo}.", orden.correlativo)
         ordenes.append(orden)
 
     solicitud.estado = SolicitudMaterial.Estado.OC_GENERADA
@@ -205,6 +210,9 @@ def orden_detalle(request, pk):
                 orden.aprobada_por = request.user
                 orden.fecha_aprobacion = timezone.now()
                 orden.save(update_fields=["estado", "aprobada_por", "fecha_aprobacion"])
+                registrar(request.user, RegistroAuditoria.Accion.OC_APROBADA,
+                          f"Aprobó la orden de compra a {orden.proveedor.nombre}.",
+                          orden.correlativo)
                 _enviar_orden_al_proveedor(request, orden)  # RF-27
             return redirect("adquisiciones:orden_detalle", pk=orden.pk)
 
@@ -346,6 +354,9 @@ def _enviar_orden_al_proveedor(request, orden):
         orden.estado = OrdenCompra.Estado.ENVIADA
         orden.fecha_envio = timezone.now()
         orden.save(update_fields=["estado", "fecha_envio"])
+        registrar(request.user, RegistroAuditoria.Accion.OC_ENVIADA,
+                  f"Envió la orden de compra a {orden.proveedor.nombre} "
+                  f"({orden.proveedor.correo}).", orden.correlativo)
         # La SM queda con OC generada/enviada
         if orden.solicitud.estado in (SolicitudMaterial.Estado.EN_COTIZACION,
                                       SolicitudMaterial.Estado.APROBADA,
@@ -373,3 +384,21 @@ def _refrescar_estado_recepcion_sm(solicitud):
     else:
         return
     solicitud.save(update_fields=["estado"])
+
+
+# ----------------------------------------------------------------------------
+# CU-47 — Buscando trazabilidad de material u Orden de Compra
+# ----------------------------------------------------------------------------
+@rol_requerido(EA, "JEFE_PROYECTO", "CONTABILIDAD", "BODEGUERO")
+def trazabilidad_buscar(request):
+    """
+    Una sola caja de búsqueda: correlativo de SM, correlativo de OC o nombre
+    del material. La cadena completa se arma en adquisiciones/trazabilidad.py.
+    """
+    from .trazabilidad import buscar
+
+    resultado = buscar(request.GET.get("q", ""))
+    return render(request, "adquisiciones/trazabilidad.html", {
+        "resultado": resultado,
+        "termino": resultado["termino"],
+    })

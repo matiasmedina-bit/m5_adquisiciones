@@ -1,6 +1,7 @@
-"""Formularios de Proyectos e Itemizado (CU-06 a CU-10)."""
+"""Formularios de Proyectos e Itemizado (CU-06 a CU-10, CU-54)."""
+import os
 from django import forms
-from .models import Proyecto, Itemizado
+from .models import Proyecto, Itemizado, TipoDocumento, ArchivoProyecto
 
 
 class ProyectoForm(forms.ModelForm):
@@ -63,4 +64,80 @@ class ItemizadoForm(forms.ModelForm):
             "unidad_medida": forms.TextInput(attrs={"class": "form-control", "placeholder": "m3, kg, un..."}),
             "cant_presupuestada": forms.NumberInput(attrs={"class": "form-control"}),
             "cant_ejecutada": forms.NumberInput(attrs={"class": "form-control"}),
+        }
+
+
+# ==========================================================================
+#  CU-54 (RF-51) — Almacenando archivo y clasificándolo por tipo de documento
+# ==========================================================================
+
+class ArchivoProyectoForm(forms.ModelForm):
+    """
+    Subida de un archivo del proyecto. El tipo de documento es obligatorio: sin
+    clasificar, el archivo no entra (Excepción 1 del CU-54). El selector sólo
+    ofrece tipos activos del catálogo.
+    """
+    class Meta:
+        model = ArchivoProyecto
+        fields = ["tipo", "nombre", "archivo", "observaciones"]
+        widgets = {
+            "tipo": forms.Select(attrs={"class": "form-select form-select-sm"}),
+            "nombre": forms.TextInput(attrs={
+                "class": "form-control form-control-sm",
+                "placeholder": "Ej: Plano de emplazamiento rev. C"}),
+            "archivo": forms.ClearableFileInput(attrs={"class": "form-control form-control-sm"}),
+            "observaciones": forms.TextInput(attrs={
+                "class": "form-control form-control-sm",
+                "placeholder": "Opcional"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["tipo"].queryset = TipoDocumento.objects.filter(activo=True)
+        self.fields["tipo"].empty_label = "— Selecciona el tipo —"
+        self.fields["tipo"].required = True
+        # El mensaje genérico de Django («Este campo es obligatorio») no dice
+        # de qué se trata. La Excepción 1 del CU-54 merece decirlo con todas
+        # sus letras, porque es la regla del caso de uso y no un descuido.
+        self.fields["tipo"].error_messages["required"] = (
+            "Debes clasificar el archivo: selecciona un tipo de documento.")
+        self.fields["nombre"].error_messages["required"] = (
+            "Ponle un nombre al documento.")
+        self.fields["archivo"].error_messages["required"] = (
+            "Elige el archivo que quieres almacenar.")
+
+    def clean_archivo(self):
+        archivo = self.cleaned_data.get("archivo")
+        if not archivo:
+            return archivo
+        ext = os.path.splitext(archivo.name)[1].lower()
+        if ext not in ArchivoProyecto.EXT_PERMITIDAS:
+            raise forms.ValidationError(
+                "Formato no permitido. Se aceptan: "
+                + ", ".join(e.lstrip(".") for e in ArchivoProyecto.EXT_PERMITIDAS) + "."
+            )
+        if archivo.size > ArchivoProyecto.TAM_MAX_MB * 1024 * 1024:
+            raise forms.ValidationError(
+                f"El archivo supera el tamaño máximo de {ArchivoProyecto.TAM_MAX_MB} MB.")
+        return archivo
+
+    def clean_nombre(self):
+        """Un nombre de puros espacios no es un nombre."""
+        nombre = (self.cleaned_data.get("nombre") or "").strip()
+        if not nombre:
+            raise forms.ValidationError("Ponle un nombre al documento.")
+        return nombre
+
+
+class TipoDocumentoForm(forms.ModelForm):
+    """Alta de un tipo en el catálogo, para destrabar la Excepción 1."""
+    class Meta:
+        model = TipoDocumento
+        fields = ["nombre", "descripcion", "activo"]
+        widgets = {
+            "nombre": forms.TextInput(attrs={"class": "form-control",
+                                             "placeholder": "Ej: Plano"}),
+            "descripcion": forms.TextInput(attrs={"class": "form-control",
+                                                  "placeholder": "Opcional"}),
+            "activo": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }

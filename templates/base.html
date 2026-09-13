@@ -75,11 +75,30 @@
             </a>
           </li>
         {% endif %}
+        {# CU-47: la trazabilidad la consulta todo el que tiene que responder
+           «¿dónde está esto?» — compras, obra, bodega y contabilidad. #}
+        {% if user.is_authenticated and user.rol != 'PROVEEDOR' %}
+          <li class="nav-item">
+            <a class="nav-link {% if request.resolver_match.url_name == 'trazabilidad' %}active{% endif %}"
+               href="{% url 'adquisiciones:trazabilidad' %}">
+              <i class="bi bi-diagram-3 me-1"></i>Trazabilidad
+            </a>
+          </li>
+        {% endif %}
         {% if user.rol == 'CONTABILIDAD' or user.rol == 'ADMIN' %}
           <li class="nav-item">
             <a class="nav-link {% if request.resolver_match.app_name == 'facturacion' %}active{% endif %}"
                href="{% url 'facturacion:lista' %}">
               <i class="bi bi-cash-coin me-1"></i>Facturación
+            </a>
+          </li>
+        {% endif %}
+        {# CU-53: la bitácora la revisan Administración y Contabilidad #}
+        {% if user.rol == 'CONTABILIDAD' or user.rol == 'ADMIN' %}
+          <li class="nav-item">
+            <a class="nav-link {% if request.resolver_match.app_name == 'auditoria' %}active{% endif %}"
+               href="{% url 'auditoria:bitacora' %}">
+              <i class="bi bi-shield-check me-1"></i>Auditoría
             </a>
           </li>
         {% endif %}

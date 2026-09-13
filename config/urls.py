@@ -21,6 +21,7 @@ urlpatterns = [
     path("solicitudes/", include("solicitudes.urls")),
     path("adquisiciones/", include("adquisiciones.urls")),
     path("facturacion/", include("facturacion.urls")),
+    path("auditoria/", include("auditoria.urls")),
 ]
 
 # En desarrollo, Django sirve los archivos subidos (RF-17, RF-26, RF-41).

@@ -42,5 +42,99 @@
   </tbody>
 </table>
 </div></div>
+
+{# ===================================================================
+   CU-54 (RF-51) — Archivos del proyecto clasificados por tipo
+   =================================================================== #}
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+  <h2 class="h5 mb-0">Documentos del proyecto</h2>
+  <div class="d-flex gap-2">
+    <span class="badge bg-secondary align-self-center">{{ archivos|length }} archivo{{ archivos|length|pluralize }}</span>
+    {% if puede_subir %}
+    <a href="{% url 'proyectos:tipos_documento' %}" class="btn btn-outline-secondary btn-sm">Catálogo de tipos</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if puede_subir %}
+  {% if hay_catalogo %}
+  <div class="card shadow-sm mb-3">
+    <div class="card-header py-2 fw-semibold">Almacenar un archivo</div>
+    <div class="card-body">
+      <form method="post" action="{% url 'proyectos:archivo_subir' proyecto.pk %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="row g-2 align-items-end">
+          <div class="col-md-3">
+            <label class="form-label small mb-1">Tipo de documento <span class="text-danger">*</span></label>
+            {{ form_archivo.tipo }}
+            {% if form_archivo.tipo.errors %}<div class="text-danger small">{{ form_archivo.tipo.errors|striptags }}</div>{% endif %}
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small mb-1">Nombre del documento <span class="text-danger">*</span></label>
+            {{ form_archivo.nombre }}
+            {% if form_archivo.nombre.errors %}<div class="text-danger small">{{ form_archivo.nombre.errors|striptags }}</div>{% endif %}
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small mb-1">Archivo <span class="text-danger">*</span></label>
+            {{ form_archivo.archivo }}
+            {% if form_archivo.archivo.errors %}<div class="text-danger small">{{ form_archivo.archivo.errors|striptags }}</div>{% endif %}
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small mb-1">Observaciones</label>
+            {{ form_archivo.observaciones }}
+          </div>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mt-2">
+          <span class="small text-muted">
+            Todo archivo se guarda clasificado. Formatos: pdf, jpg, png, dwg, xlsx, docx · máx. 10 MB.
+          </span>
+          <button type="submit" class="btn btn-primary btn-sm">Almacenar archivo</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% else %}
+  {# Excepción 1 del CU-54: sin catálogo no se puede clasificar, no se sube nada #}
+  <div class="alert alert-warning">
+    <strong>No se pueden almacenar archivos todavía.</strong>
+    El catálogo de tipos de documento está vacío y todo archivo debe quedar clasificado.
+    <a href="{% url 'proyectos:tipos_documento' %}" class="alert-link">Carga el catálogo primero</a>.
+  </div>
+  {% endif %}
+{% endif %}
+
+<div class="card shadow-sm"><div class="table-responsive">
+<table class="table mb-0 align-middle">
+  <thead class="table-light"><tr>
+    <th>Documento</th><th>Tipo</th><th>Subido por</th><th>Fecha</th><th class="text-end">Tamaño</th><th></th>
+  </tr></thead>
+  <tbody>
+  {% for a in archivos %}
+    <tr>
+      <td>
+        <a href="{{ a.archivo.url }}" target="_blank">{{ a.nombre }}</a>
+        <span class="badge bg-light text-dark border ms-1 text-uppercase">{{ a.extension }}</span>
+        {% if a.observaciones %}<div class="small text-muted">{{ a.observaciones }}</div>{% endif %}
+      </td>
+      <td><span class="badge bg-info text-dark">{{ a.tipo.nombre }}</span></td>
+      <td class="small">{{ a.subido_por.get_full_name|default:a.subido_por.username }}</td>
+      <td class="small text-muted">{{ a.fecha|date:"d/m/Y H:i" }}</td>
+      <td class="text-end small text-muted">{{ a.tamano_kb }} KB</td>
+      <td class="text-end">
+        {% if puede_subir %}
+        <form method="post" action="{% url 'proyectos:archivo_eliminar' a.pk %}" class="d-inline">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6" class="text-center text-muted py-3">Sin documentos almacenados.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div></div>
+
 <a href="{% url 'proyectos:lista' %}" class="btn btn-outline-secondary mt-3">Volver</a>
 {% endblock %}

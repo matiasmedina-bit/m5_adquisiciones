@@ -1,8 +1,14 @@
 """
 Modelos Proyecto e Itemizado del MERE.
 Relación: Proyecto --Contiene--> Itemizado (1:N). Cubre CU-06 a CU-10.
+
+CU-54 (RF-51) — Almacenando archivo y clasificándolo por tipo de documento:
+  TipoDocumento  (catálogo)  --Clasifica--> ArchivoProyecto
+  Proyecto       --Almacena--> ArchivoProyecto (1:N)
 """
+import os
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -80,3 +86,96 @@ class Itemizado(models.Model):
     @property
     def saldo_disponible(self):
         return self.cant_presupuestada - self.cant_ejecutada
+
+
+# ==========================================================================
+#  CU-54 (RF-51) — Almacenando archivo y clasificándolo por tipo de documento
+# ==========================================================================
+
+class TipoDocumento(models.Model):
+    """
+    Catálogo de tipos de documento con que se clasifica cada archivo del
+    proyecto: plano, contrato, permiso municipal, acta de recepción…
+
+    Es un catálogo administrable y no una lista fija en el código porque cada
+    obra llega con su propia papelería; el CU-54 lo exige explícitamente
+    («seleccionar el tipo desde un catálogo»). Si el catálogo está vacío, la
+    Excepción 1 del caso de uso impide subir archivos hasta que se cargue.
+    """
+    nombre = models.CharField("Tipo de documento", max_length=80, unique=True)
+    descripcion = models.CharField("Descripción", max_length=200, blank=True)
+    activo = models.BooleanField("Activo", default=True)
+
+    class Meta:
+        verbose_name = "Tipo de documento"
+        verbose_name_plural = "Tipos de documento"
+        ordering = ["nombre"]
+
+    def __str__(self):
+        return self.nombre
+
+    @classmethod
+    def hay_catalogo(cls):
+        """Excepción 1 del CU-54: sin catálogo no se puede clasificar nada."""
+        return cls.objects.filter(activo=True).exists()
+
+
+def ruta_archivo_proyecto(instance, filename):
+    return f"proyectos/{instance.proyecto_id}/{filename}"
+
+
+class ArchivoProyecto(models.Model):
+    """
+    Archivo almacenado contra un proyecto, obligatoriamente clasificado con un
+    TipoDocumento. Lo suben Administrador, Adquisiciones, Contabilidad y el
+    Jefe de Proyecto; queda registrado quién y cuándo, para que la carpeta del
+    proyecto sea rastreable y no un montón de archivos sueltos.
+    """
+    EXT_PERMITIDAS = (".pdf", ".jpg", ".jpeg", ".png", ".dwg",
+                      ".xlsx", ".xls", ".docx", ".doc")
+    TAM_MAX_MB = 10
+
+    proyecto = models.ForeignKey(
+        Proyecto, on_delete=models.CASCADE, related_name="archivos")
+    tipo = models.ForeignKey(
+        TipoDocumento, on_delete=models.PROTECT, related_name="archivos",
+        verbose_name="Tipo de documento")
+    nombre = models.CharField("Nombre del documento", max_length=150)
+    archivo = models.FileField("Archivo", upload_to=ruta_archivo_proyecto)
+    observaciones = models.CharField("Observaciones", max_length=250, blank=True)
+    subido_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="archivos_proyecto_subidos")
+    fecha = models.DateTimeField("Fecha de carga", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Archivo del proyecto"
+        verbose_name_plural = "Archivos del proyecto"
+        ordering = ["-fecha"]
+
+    def __str__(self):
+        return f"{self.nombre} ({self.tipo})"
+
+    @property
+    def extension(self):
+        return os.path.splitext(self.archivo.name)[1].lower().lstrip(".")
+
+    @property
+    def tamano_kb(self):
+        try:
+            return round(self.archivo.size / 1024)
+        except (OSError, ValueError):
+            return 0
+
+    def clean(self):
+        if not self.archivo:
+            return
+        ext = os.path.splitext(self.archivo.name)[1].lower()
+        if ext not in self.EXT_PERMITIDAS:
+            raise ValidationError(
+                "Formato no permitido. Se aceptan: "
+                + ", ".join(e.lstrip(".") for e in self.EXT_PERMITIDAS) + "."
+            )
+        if self.archivo.size and self.archivo.size > self.TAM_MAX_MB * 1024 * 1024:
+            raise ValidationError(
+                f"El archivo supera el tamaño máximo de {self.TAM_MAX_MB} MB.")

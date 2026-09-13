@@ -14,10 +14,28 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv("SECRET_KEY", "clave-insegura-solo-para-desarrollo")
 DEBUG = os.getenv("DEBUG", "True").lower() == "true"
-ALLOWED_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",") if h.strip()]
-CSRF_TRUSTED_ORIGINS = [
-    o.strip() for o in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()
-] or [f"http://{h}" for h in ALLOWED_HOSTS if h != "*"]
+ALLOWED_HOSTS = [h.strip() for h in
+                 os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",") if h.strip()]
+
+# CSRF detrás de nginx (DEBUG=False): Django exige el esquema en cada origen.
+# Se deducen de ALLOWED_HOSTS en vez de pedir una segunda variable en el .env:
+# esa línea, con sus "http://" y sus comas, es justo la que se corrompe al
+# pegarla por SSH y deja el sistema caído con un error 4_0.E001 que no dice nada.
+# Si alguna vez hace falta forzar un origen distinto (HTTPS, un dominio), se
+# escribe CSRF_TRUSTED_ORIGINS en el .env y manda esa.
+_origenes_env = [o.strip() for o in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()]
+if _origenes_env:
+    CSRF_TRUSTED_ORIGINS = _origenes_env
+else:
+    CSRF_TRUSTED_ORIGINS = []
+    for _host in ALLOWED_HOSTS:
+        if _host in ("*", ""):
+            continue
+        if "://" in _host:                      # ya venía con esquema
+            CSRF_TRUSTED_ORIGINS.append(_host)
+        else:
+            CSRF_TRUSTED_ORIGINS.append(f"http://{_host}")
+            CSRF_TRUSTED_ORIGINS.append(f"https://{_host}")
 
 # Aplicaciones
 INSTALLED_APPS = [
@@ -35,6 +53,7 @@ INSTALLED_APPS = [
     "solicitudes",    # CU-11..CU-17  + Inc.2: RF-16 (justificación), RF-17 (adjuntos)
     "adquisiciones",  # Inc.2: RF-19 a RF-27, RF-38, RF-39 (cotizaciones y órdenes de compra)
     "facturacion",    # Inc.2: RF-40 a RF-44 (facturación y contabilidad)
+    "auditoria",      # CU-53 (RF-50): bitácora de auditoría
 ]
 
 MIDDLEWARE = [

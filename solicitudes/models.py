@@ -179,6 +179,13 @@ class SolicitudDetalle(models.Model):
         # El proveedor se deduce del ítem del catálogo
         if self.proveedor_material_id and not self.proveedor_id:
             self.proveedor_id = self.proveedor_material.proveedor_id
+        # La partida tiene que ser del mismo proyecto de la solicitud. En la
+        # pantalla de creación el selector se llena por API después de elegir
+        # el proyecto, así que un cambio de proyecto puede dejar partidas de
+        # otro colgando: aquí se descartan.
+        if self.partida_id and self.solicitud_id:
+            if self.partida.proyecto_id != self.solicitud.proyecto_id:
+                self.partida = None
         super().save(*args, **kwargs)
 
 

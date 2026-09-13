@@ -7,6 +7,7 @@ urlpatterns = [
     # Búsqueda del buscador de materiales (CU-12)
     path("api/materiales/", api.buscar_materiales, name="api_materiales"),
     path("api/proveedores/", api.proveedores_de, name="api_proveedores"),
+    path("api/partidas/", api.partidas_de_proyecto, name="api_partidas"),
     path("", views.SolicitudListView.as_view(), name="lista"),
     path("nueva/", views.solicitud_crear, name="crear"),
     path("<int:pk>/", views.solicitud_detalle, name="detalle"),

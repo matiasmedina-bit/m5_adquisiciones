@@ -12,6 +12,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.generic import ListView
 
 from usuarios.permisos import RolRequeridoMixin, rol_requerido
+from auditoria.models import RegistroAuditoria, registrar
 from .models import SolicitudMaterial, SolicitudDetalle, SolicitudAdjunto
 from .forms import (
     SolicitudForm, SolicitudDetalleForm, SolicitudDetalleFormSet, SolicitudAdjuntoForm,
@@ -206,6 +207,10 @@ def solicitud_enviar(request, pk):
     else:
         solicitud.estado = SolicitudMaterial.Estado.ENVIADA
         solicitud.save()
+        # CU-53: la emisión de una SM es una acción auditable
+        registrar(request.user, RegistroAuditoria.Accion.SM_EMITIDA,
+                  f"Emitió la solicitud de material para {solicitud.proyecto.nombre} "
+                  f"({solicitud.total_items} ítem(s)).", solicitud.correlativo)
         messages.success(request, f"Solicitud {solicitud.correlativo} enviada para aprobación.")
     return redirect("solicitudes:detalle", pk=solicitud.pk)
 
@@ -219,9 +224,15 @@ def solicitud_resolver(request, pk, accion):
     elif accion == "aprobar":
         solicitud.estado = SolicitudMaterial.Estado.APROBADA
         solicitud.save()
+        registrar(request.user, RegistroAuditoria.Accion.SM_APROBADA,
+                  f"Aprobó la solicitud de {solicitud.proyecto.nombre}.",
+                  solicitud.correlativo)
         messages.success(request, f"Solicitud {solicitud.correlativo} aprobada.")
     elif accion == "rechazar":
         solicitud.estado = SolicitudMaterial.Estado.RECHAZADA
         solicitud.save()
+        registrar(request.user, RegistroAuditoria.Accion.SM_RECHAZADA,
+                  f"Rechazó la solicitud de {solicitud.proyecto.nombre}.",
+                  solicitud.correlativo)
         messages.warning(request, f"Solicitud {solicitud.correlativo} rechazada.")
     return redirect("solicitudes:detalle", pk=solicitud.pk)

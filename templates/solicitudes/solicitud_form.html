@@ -40,7 +40,8 @@
               <th style="min-width:260px">Material</th>
               <th style="min-width:130px">Cantidad</th>
               <th style="min-width:120px">Valor unitario</th>
-              <th style="min-width:190px">Detalle <span class="text-muted fw-normal">(opcional)</span></th>
+              <th style="min-width:230px">Partida del itemizado</th>
+              <th style="min-width:170px">Detalle <span class="text-muted fw-normal">(opcional)</span></th>
               <th style="width:44px"></th>
             </tr>
           </thead>
@@ -72,6 +73,20 @@
                   </div>
                   <div class="subtotal small text-muted mt-1"></div>
                 </td>
+                <td class="celda-partida">
+                  {{ detalle_form.partida }}
+                  {# CU-13: la alerta y la justificación aparecen sólo cuando la
+                     cantidad supera el saldo de la partida elegida. #}
+                  <div class="alerta-itemizado alert alert-warning py-1 px-2 mt-1 mb-1 small" style="display:none;">
+                    <strong>⚠ Excede el itemizado.</strong>
+                    <span class="texto-exceso"></span>
+                    Justifica para poder continuar.
+                  </div>
+                  <div class="bloque-justificacion" style="display:none;">
+                    {{ detalle_form.justificacion }}
+                    {% if detalle_form.justificacion.errors %}<div class="text-danger small">{{ detalle_form.justificacion.errors|striptags }}</div>{% endif %}
+                  </div>
+                </td>
                 <td>{{ detalle_form.detalle }}</td>
                 <td class="text-center">
                   {% if detalle_form.instance.pk %}{{ detalle_form.DELETE }}{% endif %}
@@ -83,7 +98,7 @@
           <tfoot class="table-light">
             <tr>
               <td colspan="3" class="text-end fw-semibold">Total estimado</td>
-              <td colspan="3" class="fw-semibold" id="total-estimado">$0</td>
+              <td colspan="4" class="fw-semibold" id="total-estimado">$0</td>
             </tr>
           </tfoot>
         </table>

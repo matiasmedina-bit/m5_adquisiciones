@@ -8,6 +8,7 @@
 
   const URL_MATERIALES  = "{% url 'solicitudes:api_materiales' %}";
   const URL_PROVEEDORES = "{% url 'solicitudes:api_proveedores' %}";
+  const URL_PARTIDAS    = "{% url 'solicitudes:api_partidas' %}";
 
   const totalForms = document.getElementById('id_detalles-TOTAL_FORMS');
   const cuerpo     = document.getElementById('formset-body');
@@ -32,7 +33,12 @@
       sugerencias:  fila.querySelector('.sugerencias'),
       alternativas: fila.querySelector('.alternativas'),
       elegido:      fila.querySelector('.elegido'),
-      subtotal:     fila.querySelector('.subtotal')
+      subtotal:     fila.querySelector('.subtotal'),
+      partida:      fila.querySelector('select[name$="-partida"]'),
+      alerta:       fila.querySelector('.alerta-itemizado'),
+      textoExceso:  fila.querySelector('.texto-exceso'),
+      justif:       fila.querySelector('.bloque-justificacion'),
+      areaJustif:   fila.querySelector('textarea[name$="-justificacion"]')
     };
   }
 
@@ -237,10 +243,90 @@
     });
   }
 
+  // ====================================================================
+  //  CU-13 — Justificando exceso de itemizado
+  //  El saldo de cada partida viaja en data-saldo. Al escribir la cantidad
+  //  se compara contra ese saldo y, si lo supera, se levanta la alerta y se
+  //  muestra la justificación, que el servidor además exige al validar.
+  // ====================================================================
+  function revisarItemizado(fila) {
+    const p = partes(fila);
+    if (!p.partida || !p.alerta) return;
+    const opcion = p.partida.options[p.partida.selectedIndex];
+    const saldo = opcion ? parseFloat(opcion.dataset.saldo) : NaN;
+    const cantidad = parseFloat(p.cantidad ? p.cantidad.value : '');
+
+    const excede = !isNaN(saldo) && !isNaN(cantidad) && cantidad > saldo;
+    p.alerta.style.display = excede ? 'block' : 'none';
+    if (p.justif) p.justif.style.display = excede ? 'block' : 'none';
+    if (excede && p.textoExceso) {
+      const unidad = opcion.dataset.unidad || '';
+      p.textoExceso.textContent =
+        ` Pides ${cantidad}${unidad ? ' ' + unidad : ''} y la partida ` +
+        `${opcion.dataset.codigo || ''} tiene ${saldo}${unidad ? ' ' + unidad : ''} disponible.`;
+    }
+    if (p.areaJustif) p.areaJustif.required = excede;
+  }
+
+  function proyectoActual() {
+    // Pantalla de creación: el proyecto se elige en el mismo formulario.
+    const sel = document.getElementById('id_proyecto');
+    if (sel) return sel.value;
+    // Pantalla de detalle: la solicitud ya tiene proyecto, viaja en el data-.
+    const fila = document.querySelector('.formset-row[data-proyecto]');
+    return fila ? fila.dataset.proyecto : '';
+  }
+
+  function cargarPartidas() {
+    const selects = document.querySelectorAll('select[name$="-partida"]');
+    if (!selects.length) return;
+
+    const proyecto = proyectoActual();
+    if (!proyecto) return;
+
+    fetch(URL_PARTIDAS + '?' + new URLSearchParams({ proyecto: proyecto }).toString())
+      .then(r => r.ok ? r.json() : { partidas: [] })
+      .then(d => {
+        const partidas = d.partidas || [];
+        selects.forEach(sel => {
+          const elegido = sel.value;
+          sel.innerHTML = '<option value="">— Sin partida —</option>';
+          partidas.forEach(pa => {
+            const op = new Option(pa.etiqueta, pa.id);
+            op.dataset.saldo = pa.saldo;
+            op.dataset.codigo = pa.codigo;
+            op.dataset.unidad = pa.unidad;
+            sel.add(op);
+          });
+          if (elegido) sel.value = elegido;
+        });
+        document.querySelectorAll('.formset-row').forEach(revisarItemizado);
+      })
+      .catch(() => {});
+  }
+
+  const selectorProyecto = document.getElementById('id_proyecto');
+  if (selectorProyecto) selectorProyecto.addEventListener('change', cargarPartidas);
+  cargarPartidas();
+
+  document.addEventListener('input', function (e) {
+    if (e.target.classList.contains('campo-cantidad')) {
+      const fila = e.target.closest('.formset-row');
+      if (fila) revisarItemizado(fila);
+    }
+  });
+  document.addEventListener('change', function (e) {
+    if (e.target.name && e.target.name.endsWith('-partida')) {
+      const fila = e.target.closest('.formset-row');
+      if (fila) revisarItemizado(fila);
+    }
+  });
+
   // Estado inicial: al editar, las filas ya vienen con datos
   document.querySelectorAll('.formset-row').forEach(fila => {
     const p = partes(fila);
     if (p.unidad && p.unidad.value && p.badge) p.badge.textContent = p.unidad.value;
+    revisarItemizado(fila);
   });
   recalcular();
 })();

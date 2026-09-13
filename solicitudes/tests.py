@@ -373,3 +373,129 @@ class AccionesDelBorradorTest(TestCase):
         self.assertContains(resp, "buscador-material")
         self.assertContains(resp, reverse("solicitudes:api_materiales"))
         self.assertContains(resp, reverse("solicitudes:api_proveedores"))
+
+
+class ExcesoItemizadoCU13Test(TestCase):
+    """
+    CU-13 — Justificando exceso de itemizado en línea de Solicitud de Materiales.
+
+    El flujo principal del caso de uso vive en la pantalla de creación: el
+    encargado elige la partida, escribe una cantidad mayor al saldo, el sistema
+    despliega la alerta y exige la justificación. Estas pruebas cubren las tres
+    piezas que lo hacen posible: que el selector de partida exista en la
+    pantalla, que la API entregue los saldos con los que se dispara la alerta,
+    y que sin justificación la línea no se pueda confirmar.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.ea = Usuario.objects.create_user(
+            username="ea13", password="clave12345", email="ea13@m5.cl",
+            rol="ENCARGADO_ADQUISICIONES")
+        self.proyecto = Proyecto.objects.create(
+            nombre="Edificio Centro", mandante="M5", fecha_inicio=date(2026, 6, 1))
+        self.otro = Proyecto.objects.create(
+            nombre="Bodega Norte", mandante="M5", fecha_inicio=date(2026, 6, 1))
+        self.partida = Itemizado.objects.create(
+            proyecto=self.proyecto, codigo_partida="P-10", descripcion="Albañilería",
+            unidad_medida="saco", cant_presupuestada=200, cant_ejecutada=180)  # saldo 20
+        self.partida_ajena = Itemizado.objects.create(
+            proyecto=self.otro, codigo_partida="B-01", descripcion="Radier",
+            unidad_medida="m3", cant_presupuestada=50, cant_ejecutada=0)
+        self.material = Material.objects.create(
+            nombre="Cemento 25kg", unidad_medida="saco", precio_referencia=5490)
+        self.sol = SolicitudMaterial.objects.create(proyecto=self.proyecto, emisor=self.ea)
+        self.client.login(username="ea13", password="clave12345")
+
+    # --- la pantalla ---
+
+    def test_la_pantalla_de_creacion_ofrece_la_partida(self):
+        resp = self.client.get(reverse("solicitudes:crear"))
+        self.assertContains(resp, "Partida del itemizado")
+        self.assertContains(resp, "celda-partida")
+        self.assertContains(resp, reverse("solicitudes:api_partidas"))
+
+    def test_el_detalle_de_un_borrador_tambien_ofrece_la_partida(self):
+        resp = self.client.get(reverse("solicitudes:detalle", args=[self.sol.pk]))
+        self.assertEqual(resp.status_code, 200)
+
+    # --- la API que alimenta la alerta ---
+
+    def test_la_api_devuelve_las_partidas_con_su_saldo(self):
+        resp = self.client.get(reverse("solicitudes:api_partidas"),
+                               {"proyecto": self.proyecto.pk})
+        datos = resp.json()
+        self.assertEqual(datos["total"], 1)
+        fila = datos["partidas"][0]
+        self.assertEqual(fila["codigo"], "P-10")
+        self.assertEqual(fila["saldo"], 20)
+        self.assertIn("saldo 20", fila["etiqueta"])
+
+    def test_la_api_no_mezcla_partidas_de_otro_proyecto(self):
+        resp = self.client.get(reverse("solicitudes:api_partidas"),
+                               {"proyecto": self.otro.pk})
+        codigos = [p["codigo"] for p in resp.json()["partidas"]]
+        self.assertEqual(codigos, ["B-01"])
+
+    def test_la_api_sin_proyecto_devuelve_vacio(self):
+        resp = self.client.get(reverse("solicitudes:api_partidas"))
+        self.assertEqual(resp.json()["total"], 0)
+
+    def test_la_api_de_partidas_exige_sesion(self):
+        self.client.logout()
+        resp = self.client.get(reverse("solicitudes:api_partidas"),
+                               {"proyecto": self.proyecto.pk})
+        self.assertNotEqual(resp.status_code, 200)
+
+    # --- la regla del caso de uso ---
+
+    def _linea(self, cantidad, justificacion="", partida=None):
+        return {
+            "material": self.material.pk,
+            "cantidad_solicitada": cantidad,
+            "unidad_medida": "saco",
+            "valor_unitario": 5490,
+            "partida": (partida or self.partida).pk,
+            "justificacion": justificacion,
+            "nombre_libre": "",
+        }
+
+    def test_sin_justificacion_la_linea_no_se_confirma(self):
+        form = SolicitudDetalleForm(data=self._linea(35), solicitud=self.sol)
+        self.assertFalse(form.is_valid())
+        self.assertIn("justificacion", form.errors)
+        # el mensaje le dice al usuario cuánto se pasó
+        self.assertIn("P-10", form.errors["justificacion"][0])
+
+    def test_con_justificacion_la_linea_queda_registrada(self):
+        form = SolicitudDetalleForm(
+            data=self._linea(35, "Rectificación de metraje en terreno"), solicitud=self.sol)
+        self.assertTrue(form.is_valid(), form.errors)
+        linea = form.save(commit=False)
+        linea.solicitud = self.sol
+        linea.save()
+        linea.refresh_from_db()
+        self.assertEqual(linea.partida, self.partida)
+        self.assertEqual(linea.justificacion, "Rectificación de metraje en terreno")
+        self.assertTrue(linea.excede_itemizado)
+
+    def test_dentro_del_saldo_la_linea_pasa_sin_justificacion(self):
+        form = SolicitudDetalleForm(data=self._linea(10), solicitud=self.sol)
+        self.assertTrue(form.is_valid(), form.errors)
+        linea = form.save(commit=False)
+        linea.solicitud = self.sol
+        linea.save()
+        self.assertFalse(linea.excede_itemizado)
+
+    def test_la_partida_de_otro_proyecto_se_descarta_al_guardar(self):
+        linea = SolicitudDetalle(
+            solicitud=self.sol, material=self.material,
+            cantidad_solicitada=5, partida=self.partida_ajena)
+        linea.save()
+        linea.refresh_from_db()
+        self.assertIsNone(linea.partida)
+
+    def test_una_linea_sin_partida_nunca_excede(self):
+        linea = SolicitudDetalle.objects.create(
+            solicitud=self.sol, material=self.material, cantidad_solicitada=9999)
+        self.assertFalse(linea.excede_itemizado)
