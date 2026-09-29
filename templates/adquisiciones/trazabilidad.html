@@ -1,7 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}Trazabilidad{% endblock %}
 {% block content %}
-{# CU-47 — Buscando trazabilidad de material u Orden de Compra #}
 <div class="mb-3">
   <h1 class="h3 mb-0">Trazabilidad</h1>
   <small class="text-muted">
@@ -81,7 +80,6 @@
     </div>
     <div class="card-body">
 
-      {# --- 1. La solicitud --- #}
       <div class="mb-3">
         <div class="fw-semibold small text-uppercase text-muted mb-1">1 · Solicitud de material</div>
         <div class="small text-muted mb-1">
@@ -99,7 +97,6 @@
         </ul>
       </div>
 
-      {# --- 2. Cotizaciones --- #}
       <div class="mb-3">
         <div class="fw-semibold small text-uppercase text-muted mb-1">2 · Cotizaciones</div>
         {% if c.sin_cotizaciones %}
@@ -114,7 +111,6 @@
         {% endif %}
       </div>
 
-      {# --- 3. Órdenes de compra --- #}
       <div class="mb-3">
         <div class="fw-semibold small text-uppercase text-muted mb-1">3 · Órdenes de compra</div>
         {% if c.sin_ordenes %}
@@ -134,7 +130,6 @@
         {% endif %}
       </div>
 
-      {# --- 4. Recepción en bodega --- #}
       <div class="mb-3">
         <div class="fw-semibold small text-uppercase text-muted mb-1">4 · Recepción en bodega</div>
         {% if c.sin_recepcion %}
@@ -150,7 +145,6 @@
         {% endif %}
       </div>
 
-      {# --- 5. Facturas --- #}
       <div class="mb-3">
         <div class="fw-semibold small text-uppercase text-muted mb-1">5 · Facturas</div>
         {% if c.sin_factura %}

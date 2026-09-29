@@ -39,6 +39,9 @@ class SolicitudMaterial(models.Model):
     fecha = models.DateTimeField("Fecha de creación", auto_now_add=True)
     estado = models.CharField("Estado", max_length=20, choices=Estado.choices, default=Estado.BORRADOR)
     observaciones = models.TextField("Observaciones", blank=True)
+    # Por qué el Jefe de Proyecto la rechazó. Sin esto, el Encargado recibe un
+    # "rechazada" a secas y tiene que adivinar qué corregir.
+    motivo_rechazo = models.TextField("Motivo del rechazo", blank=True)
 
     class Meta:
         verbose_name = "Solicitud de material"

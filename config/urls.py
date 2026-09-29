@@ -10,6 +10,21 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("login/", auth_views.LoginView.as_view(template_name="registration/login.html"), name="login"),
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
+    # --- CU-56 (RF-53) Recuperación de contraseña y CU-52 (RF-49) activación ---
+    # Las dos usan el mismo mecanismo de token firmado de un solo uso; lo que
+    # cambia es el texto de la pantalla, no la seguridad de fondo.
+    path("clave/", auth_views.PasswordResetView.as_view(
+        template_name="registration/password_reset_form.html",
+        email_template_name="registration/password_reset_email.txt",
+        subject_template_name="registration/password_reset_subject.txt",
+        success_url="/clave/enviado/"), name="password_reset"),
+    path("clave/enviado/", auth_views.PasswordResetDoneView.as_view(
+        template_name="registration/password_reset_done.html"), name="password_reset_done"),
+    path("clave/<uidb64>/<token>/", auth_views.PasswordResetConfirmView.as_view(
+        template_name="registration/password_reset_confirm.html",
+        success_url="/clave/listo/"), name="password_reset_confirm"),
+    path("clave/listo/", auth_views.PasswordResetCompleteView.as_view(
+        template_name="registration/password_reset_complete.html"), name="password_reset_complete"),
     path("registro/", registro_solicitud, name="registro"),
     # Página de inicio (dashboard)
     path("", home, name="home"),
@@ -22,6 +37,7 @@ urlpatterns = [
     path("adquisiciones/", include("adquisiciones.urls")),
     path("facturacion/", include("facturacion.urls")),
     path("auditoria/", include("auditoria.urls")),
+    path("reportes/", include("reportes.urls")),
 ]
 
 # En desarrollo, Django sirve los archivos subidos (RF-17, RF-26, RF-41).

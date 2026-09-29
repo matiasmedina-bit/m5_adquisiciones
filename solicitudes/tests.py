@@ -54,14 +54,14 @@ class SolicitudFlujoTest(TestCase):
 
     def test_no_se_puede_enviar_sin_items(self):
         self.client.login(username="ea", password="clave12345")
-        self.client.get(reverse("solicitudes:enviar", args=[self.sol.pk]))
+        self.client.post(reverse("solicitudes:enviar", args=[self.sol.pk]))
         self.sol.refresh_from_db()
         self.assertEqual(self.sol.estado, SolicitudMaterial.Estado.BORRADOR)
 
     def test_enviar_con_items_cambia_estado(self):
         SolicitudDetalle.objects.create(solicitud=self.sol, material=self.material, cantidad_solicitada=5)
         self.client.login(username="ea", password="clave12345")
-        self.client.get(reverse("solicitudes:enviar", args=[self.sol.pk]))
+        self.client.post(reverse("solicitudes:enviar", args=[self.sol.pk]))
         self.sol.refresh_from_db()
         self.assertEqual(self.sol.estado, SolicitudMaterial.Estado.ENVIADA)
 
@@ -70,7 +70,7 @@ class SolicitudFlujoTest(TestCase):
         self.sol.estado = SolicitudMaterial.Estado.ENVIADA
         self.sol.save()
         self.client.login(username="jp", password="clave12345")
-        self.client.get(reverse("solicitudes:resolver", args=[self.sol.pk, "aprobar"]))
+        self.client.post(reverse("solicitudes:resolver", args=[self.sol.pk, "aprobar"]))
         self.sol.refresh_from_db()
         self.assertEqual(self.sol.estado, SolicitudMaterial.Estado.APROBADA)
 
@@ -350,7 +350,7 @@ class AccionesDelBorradorTest(TestCase):
         self.assertContains(resp, reverse("solicitudes:enviar", args=[self.solicitud.pk]))
 
     def test_el_admin_puede_enviar(self):
-        self.client.get(reverse("solicitudes:enviar", args=[self.solicitud.pk]))
+        self.client.post(reverse("solicitudes:enviar", args=[self.solicitud.pk]))
         self.solicitud.refresh_from_db()
         self.assertEqual(self.solicitud.estado, SolicitudMaterial.Estado.ENVIADA)
 

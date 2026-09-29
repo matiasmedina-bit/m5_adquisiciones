@@ -148,6 +148,16 @@ class ArchivoProyecto(models.Model):
         related_name="archivos_proyecto_subidos")
     fecha = models.DateTimeField("Fecha de carga", auto_now_add=True)
 
+    # --- CU-58 / CU-59 (RF-55, RF-56): edición offline con bloqueo ---
+    # Quien se lleva el archivo para editarlo fuera del sistema lo bloquea para
+    # los demás. Sin esto, dos personas bajan el mismo plano, lo editan en
+    # paralelo y la segunda subida borra el trabajo de la primera sin avisar.
+    bloqueado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="archivos_bloqueados", verbose_name="Bloqueado por")
+    bloqueado_desde = models.DateTimeField("Bloqueado desde", null=True, blank=True)
+    version = models.PositiveIntegerField("Versión", default=1)
+
     class Meta:
         verbose_name = "Archivo del proyecto"
         verbose_name_plural = "Archivos del proyecto"
@@ -166,6 +176,19 @@ class ArchivoProyecto(models.Model):
             return round(self.archivo.size / 1024)
         except (OSError, ValueError):
             return 0
+
+    @property
+    def bloqueado(self):
+        return self.bloqueado_por_id is not None
+
+    def bloqueado_para(self, usuario):
+        """True si otro lo tiene tomado. El dueño del bloqueo no se bloquea a sí mismo."""
+        return self.bloqueado and self.bloqueado_por_id != getattr(usuario, "pk", None)
+
+    @property
+    def extension_esperada(self):
+        """CU-59: la versión editada tiene que volver en el mismo formato."""
+        return self.extension
 
     def clean(self):
         if not self.archivo:

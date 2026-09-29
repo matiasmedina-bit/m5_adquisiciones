@@ -5,6 +5,7 @@ CU-03 Verificando duplicado      CU-04 Editando proveedor
 CU-05 Inactivando proveedor
 """
 from django.contrib import messages
+from django.views.decorators.http import require_POST
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db.models import Count, Q
 from django.http import HttpResponse
@@ -148,6 +149,7 @@ class ProveedorDetailView(RolRequeridoMixin, DetailView):
 
 
 @rol_requerido("ENCARGADO_ADQUISICIONES")
+@require_POST
 def proveedor_inactivar(request, pk):
     """CU-05 Inactivando proveedor (no se elimina, se desactiva)."""
     proveedor = get_object_or_404(Proveedor, pk=pk)
@@ -196,6 +198,7 @@ def proveedor_material_editar(request, pk):
 
 
 @rol_requerido("ENCARGADO_ADQUISICIONES")
+@require_POST
 def proveedor_material_disponibilidad(request, pk):
     """RF-06: marcar / reactivar un material como (no) disponible, sin borrarlo."""
     material = get_object_or_404(ProveedorMaterial, pk=pk)

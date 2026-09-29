@@ -8,22 +8,60 @@ from .models import Material, MovimientoInventario, PrestamoHerramienta
 
 
 class MaterialForm(forms.ModelForm):
+    """
+    CU-61 (RF-58): alta de un ítem en el catálogo maestro.
+
+    La clasificación Material / Herramienta **no viene preseleccionada**: el caso
+    de uso exige que se indique explícitamente y bloquea el registro si no se
+    hace (Excepción 1). Un desplegable que ya trae "Material consumible" marcado
+    no es una decisión del usuario, es un descuido esperando a pasar — y de ese
+    campo dependen el préstamo de herramientas, el stock mínimo y el prefijo del
+    código interno.
+    """
     class Meta:
         model = Material
-        fields = ["nombre", "unidad_medida", "stock_actual", "stock_minimo", "ubicacion",
-                  "precio_referencia", "tipo", "codigo_activo", "fecha_vencimiento", "activo"]
+        fields = ["nombre", "tipo", "categoria", "unidad_medida", "stock_actual",
+                  "stock_minimo", "ubicacion", "precio_referencia",
+                  "codigo_activo", "fecha_vencimiento", "activo"]
         widgets = {
-            "nombre": forms.TextInput(attrs={"class": "form-control"}),
-            "unidad_medida": forms.TextInput(attrs={"class": "form-control"}),
+            "nombre": forms.TextInput(attrs={"class": "form-control",
+                                             "placeholder": "Ej: Cemento Portland 25 kg"}),
+            "unidad_medida": forms.TextInput(attrs={"class": "form-control",
+                                                    "placeholder": "saco, m3, un…"}),
             "stock_actual": forms.NumberInput(attrs={"class": "form-control"}),
             "stock_minimo": forms.NumberInput(attrs={"class": "form-control"}),
             "ubicacion": forms.TextInput(attrs={"class": "form-control", "placeholder": "Ej: Estante 3 - Bodega central"}),
             "precio_referencia": forms.NumberInput(attrs={"class": "form-control"}),
             "tipo": forms.Select(attrs={"class": "form-select"}),
+            "categoria": forms.Select(attrs={"class": "form-select"}),
             "codigo_activo": forms.TextInput(attrs={"class": "form-control"}),
             "fecha_vencimiento": forms.DateInput(attrs={"class": "form-control", "type": "date"}),
             "activo": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Sin opción preseleccionada: hay que elegir (Excepción 1 del CU-61)
+        self.fields["tipo"].choices = [("", "— Selecciona: material o herramienta —")] + list(Material.Tipo.choices)
+        self.fields["tipo"].required = True
+        self.fields["tipo"].error_messages["required"] = (
+            "Indica si el ítem es un material consumible o una herramienta.")
+        self.fields["stock_minimo"].required = False
+        self.fields["stock_minimo"].help_text = (
+            "Si lo dejas vacío toma el valor por defecto configurado por Administración.")
+
+    def clean(self):
+        cleaned = super().clean()
+        tipo = cleaned.get("tipo")
+        # Una herramienta no lleva stock mínimo: se controla por préstamo, no por saldo
+        if tipo == Material.Tipo.HERRAMIENTA:
+            cleaned["stock_minimo"] = 0
+            if not (cleaned.get("codigo_activo") or "").strip():
+                self.add_error("codigo_activo",
+                               "Una herramienta necesita su código de activo para poder prestarla.")
+        elif tipo == Material.Tipo.CONSUMIBLE and cleaned.get("fecha_vencimiento") is None:
+            pass  # el vencimiento es opcional en consumibles
+        return cleaned
 
 
 class EntradaForm(forms.Form):

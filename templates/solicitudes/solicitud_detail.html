@@ -2,7 +2,6 @@
 {% block title %}{{ solicitud.correlativo }}{% endblock %}
 {% block content %}
 
-{# --- Encabezado --- #}
 <div class="d-flex justify-content-between align-items-start mb-3">
   <div>
     <h1 class="h3 mb-0">{{ solicitud.correlativo }}</h1>
@@ -20,7 +19,13 @@
   </div>
 </div>
 
-{# --- Progreso de estados --- #}
+{% if solicitud.estado == 'RECHAZADA' and solicitud.motivo_rechazo %}
+<div class="alert alert-danger">
+  <strong>El Jefe de Proyecto rechazó esta solicitud.</strong><br>
+  {{ solicitud.motivo_rechazo }}
+</div>
+{% endif %}
+
 <div class="card shadow-sm mb-3">
   <div class="card-body py-3">
     <div class="d-flex align-items-center justify-content-between position-relative">
@@ -39,10 +44,8 @@
 </div>
 
 <div class="row g-3">
-  {# --- Columna principal --- #}
   <div class="col-lg-8">
 
-    {# Materiales --- #}
     <div class="card shadow-sm mb-3">
       <div class="card-header d-flex justify-content-between align-items-center py-2">
         <span class="fw-semibold">Materiales solicitados</span>
@@ -91,9 +94,11 @@
               </td>
               <td class="text-end">
                 {% if solicitud.editable and puede_gestionar %}
-                  <a href="{% url 'solicitudes:detalle_eliminar' d.pk %}"
-                     class="btn btn-sm btn-outline-danger"
-                     onclick="return confirm('¿Quitar este material?')">✕</a>
+                  <form method="post" action="{% url 'solicitudes:detalle_eliminar' d.pk %}" class="d-inline"
+                  onsubmit="return confirm('¿Quitar este material de la solicitud?')">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-danger">✕</button>
+              </form>
                 {% endif %}
               </td>
             </tr>
@@ -114,7 +119,6 @@
       </div>
     </div>
 
-    {# Agregar material (borrador + encargado o admin) — RF-16 --- #}
     {% if solicitud.editable and puede_gestionar %}
     <div class="card shadow-sm mb-3">
       <div class="card-header py-2 fw-semibold">Agregar material</div>
@@ -122,8 +126,6 @@
         <form method="post">
           {% csrf_token %}
           <input type="hidden" name="accion" value="agregar_material">
-          {# data-proyecto: el buscador lo usa para pedir las partidas del
-             itemizado por API y traer el saldo de cada una (CU-13). #}
           <div class="row g-2 formset-row" data-proyecto="{{ solicitud.proyecto_id }}">
             <div class="col-md-3">
               <label class="form-label small mb-1">Proveedor</label>
@@ -161,7 +163,6 @@
             <div class="col-md-3 celda-partida">
               <label class="form-label small mb-1">Partida del itemizado</label>
               {{ form.partida }}
-              {# CU-13: alerta visual cuando la cantidad supera el saldo #}
               <div class="alerta-itemizado alert alert-warning py-1 px-2 mt-1 mb-0 small" style="display:none;">
                 <strong>⚠ Excede el itemizado.</strong>
                 <span class="texto-exceso"></span>
@@ -179,7 +180,6 @@
     </div>
     {% endif %}
 
-    {# RF-17: adjuntos de respaldo --- #}
     <div class="card shadow-sm mb-3">
       <div class="card-header d-flex justify-content-between align-items-center py-2">
         <span class="fw-semibold">Archivos de respaldo</span>
@@ -195,8 +195,11 @@
               <span class="text-muted small ms-2">{{ a.subido_por.get_full_name|default:a.subido_por.username }} · {{ a.fecha|date:"d-m-Y H:i" }}</span>
             </span>
             {% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'JEFE_PROYECTO' or user.rol == 'ADMIN' %}
-            <a href="{% url 'solicitudes:adjunto_eliminar' a.pk %}" class="btn btn-sm btn-outline-danger"
-               onclick="return confirm('¿Eliminar este archivo?')">✕</a>
+            <form method="post" action="{% url 'solicitudes:adjunto_eliminar' a.pk %}" class="d-inline"
+                  onsubmit="return confirm('¿Eliminar este archivo adjunto?')">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-danger">✕</button>
+              </form>
             {% endif %}
           </li>
           {% empty %}
@@ -226,7 +229,6 @@
       </div>
     </div>
 
-    {# RF-39: órdenes de compra asociadas y su estado de recepción --- #}
     {% if ordenes_compra %}
     <div class="card shadow-sm mb-3">
       <div class="card-header py-2 fw-semibold">Órdenes de compra y recepción (RF-39)</div>
@@ -250,8 +252,7 @@
     </div>
     {% endif %}
 
-    {# Editar cabecera (borrador + encargado) --- #}
-    {% if solicitud.editable and user.rol == 'ENCARGADO_ADQUISICIONES' %}
+    {% if solicitud.editable and puede_gestionar %}
     <div class="card shadow-sm mb-3">
       <div class="card-header py-2 fw-semibold" role="button" data-bs-toggle="collapse" data-bs-target="#cab-collapse">
         ✏️ Editar datos de la solicitud <small class="text-muted">(clic para expandir)</small>
@@ -275,9 +276,8 @@
     </div>
     {% endif %}
 
-  </div>{# fin col-lg-8 #}
+  </div>
 
-  {# --- Panel lateral de acciones --- #}
   <div class="col-lg-4">
     <div class="card shadow-sm mb-3">
       <div class="card-header py-2 fw-semibold">Información</div>
@@ -307,23 +307,39 @@
             ✏ Editar datos generales
           </a>
           {% if solicitud.total_items > 0 %}
-            <a href="{% url 'solicitudes:enviar' solicitud.pk %}"
-               class="btn btn-success"
-               onclick="return confirm('¿Enviar esta solicitud para aprobación?')">
-              📤 Enviar para aprobación
-            </a>
+            <form method="post" action="{% url 'solicitudes:enviar' solicitud.pk %}"
+                  onsubmit="return confirm('¿Enviar esta solicitud para aprobación?')">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-success w-100">📤 Enviar para aprobación</button>
+            </form>
           {% else %}
             <button class="btn btn-success" disabled title="Agrega al menos un material">📤 Enviar para aprobación</button>
           {% endif %}
         {% endif %}
 
         {% if solicitud.estado == 'ENVIADA' and puede_resolver %}
-          <a href="{% url 'solicitudes:resolver' solicitud.pk 'aprobar' %}"
-             class="btn btn-success"
-             onclick="return confirm('¿Aprobar esta solicitud?')">✅ Aprobar</a>
-          <a href="{% url 'solicitudes:resolver' solicitud.pk 'rechazar' %}"
-             class="btn btn-danger"
-             onclick="return confirm('¿Rechazar esta solicitud?')">✗ Rechazar</a>
+          <form method="post" action="{% url 'solicitudes:resolver' solicitud.pk 'aprobar' %}"
+                onsubmit="return confirm('¿Aprobar esta solicitud?')">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-success w-100">✅ Aprobar</button>
+          </form>
+          <form method="post" action="{% url 'solicitudes:resolver' solicitud.pk 'rechazar' %}">
+            {% csrf_token %}
+            <label class="form-label small mb-1 mt-2">Motivo del rechazo</label>
+            <input type="text" name="motivo" class="form-control form-control-sm mb-2"
+                   placeholder="Ej: la cantidad de cemento no calza con el itemizado" required>
+            <button type="submit" class="btn btn-danger w-100">✗ Rechazar</button>
+          </form>
+        {% endif %}
+
+        {% if solicitud.estado == 'RECHAZADA' and puede_gestionar %}
+          <form method="post" action="{% url 'solicitudes:devolver_borrador' solicitud.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-warning w-100">↩ Corregir y volver a enviar</button>
+          </form>
+          <p class="small text-muted mb-0">
+            Vuelve a borrador conservando las líneas y los adjuntos.
+          </p>
         {% endif %}
 
         {% if solicitud.puede_cotizarse and puede_gestionar %}
@@ -337,6 +353,6 @@
     </div>
   </div>
 
-</div>{# fin row #}
+</div>
 {% if solicitud.editable and puede_gestionar %}{% include 'solicitudes/_buscador_material.html' %}{% endif %}
 {% endblock %}

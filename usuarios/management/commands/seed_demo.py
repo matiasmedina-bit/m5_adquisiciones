@@ -16,6 +16,7 @@ from solicitudes.models import SolicitudMaterial, SolicitudDetalle
 from adquisiciones.models import Cotizacion, CotizacionLinea, OrdenCompra, OrdenCompraLinea
 from facturacion.models import Factura
 from auditoria.models import RegistroAuditoria, registrar
+from usuarios.models import ParametrosSistema
 
 
 class Command(BaseCommand):
@@ -154,6 +155,13 @@ class Command(BaseCommand):
 
         # --- Materiales y herramientas ---
         # (nombre, unidad, precio_ref, tipo, stock, activo, codigo_activo)
+        # (nombre, unidad, precio_ref, tipo, stock, activo, codigo_activo)
+        CATEGORIAS = {
+            "Cemento Portland 25kg": "CEMENTOS", "Cal hidratada 25kg": "CEMENTOS",
+            "Fierro estriado 12mm": "FIERRO", "Fierro estriado 8mm": "FIERRO",
+            "Arena gruesa": "ARIDOS", "Gravilla": "ARIDOS",
+            "Ladrillo fiscal": "ALBANILERIA",
+        }
         materiales = [
             ("Cemento Portland 25kg",      "saco",   4500,  "CONSUMIBLE",  320, True,  ""),
             ("Fierro estriado 12mm",       "barra",  8900,  "CONSUMIBLE",  150, True,  ""),
@@ -179,6 +187,9 @@ class Command(BaseCommand):
         objs = {}
         for nombre, um, precio, tipo, stock, activo, cod in materiales:
             m, _ = Material.objects.get_or_create(nombre=nombre, defaults={
+                "categoria": CATEGORIAS.get(
+                    nombre,
+                    "HERRAMIENTA_ELECTRICA" if tipo == "HERRAMIENTA" else "OTROS"),
                 "unidad_medida": um, "precio_referencia": precio, "tipo": tipo,
                 "stock_actual": stock, "activo": activo, "codigo_activo": cod})
             objs[nombre] = m
@@ -334,6 +345,16 @@ class Command(BaseCommand):
 
             self.stdout.write("  Cadena Inc.2 creada: cotizaciones, OC, recepción y factura demo.")
             self.stdout.write("  Bitácora de auditoría poblada (CU-53).")
+
+        # --- CU-60: parámetros generales con valores de demostración ---
+        parametros = ParametrosSistema.actuales()
+        if parametros.actualizado_por is None:
+            parametros.tolerancia_factura_pct = 5
+            parametros.stock_minimo_defecto = 10
+            parametros.umbral_archivo_mb = 10
+            parametros.actualizado_por = Usuario.objects.get(username="admin")
+            parametros.save()
+            self.stdout.write("  Parámetros del sistema inicializados (CU-60).")
 
         self.stdout.write(self.style.SUCCESS("Datos de demostración cargados correctamente."))
         self.stdout.write("Usuarios: admin / jefe / encargado / bodega / contador  (clave: demo12345)")

@@ -43,7 +43,7 @@
             </a>
           </li>
         {% endif %}
-        {% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
+        {% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'CONTABILIDAD' or user.rol == 'ADMIN' %}
           <li class="nav-item">
             <a class="nav-link {% if request.resolver_match.app_name == 'proyectos' %}active{% endif %}"
                href="{% url 'proyectos:lista' %}">
@@ -75,9 +75,7 @@
             </a>
           </li>
         {% endif %}
-        {# CU-47: la trazabilidad la consulta todo el que tiene que responder
-           «¿dónde está esto?» — compras, obra, bodega y contabilidad. #}
-        {% if user.is_authenticated and user.rol != 'PROVEEDOR' %}
+        {% if user.is_authenticated %}
           <li class="nav-item">
             <a class="nav-link {% if request.resolver_match.url_name == 'trazabilidad' %}active{% endif %}"
                href="{% url 'adquisiciones:trazabilidad' %}">
@@ -93,7 +91,22 @@
             </a>
           </li>
         {% endif %}
-        {# CU-53: la bitácora la revisan Administración y Contabilidad #}
+        {% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
+          <li class="nav-item">
+            <a class="nav-link {% if request.resolver_match.app_name == 'reportes' %}active{% endif %}"
+               href="{% url 'reportes:panel' %}">
+              <i class="bi bi-bar-chart-line me-1"></i>Reportes
+            </a>
+          </li>
+        {% endif %}
+        {% if user.rol == 'ADMIN' %}
+          <li class="nav-item">
+            <a class="nav-link {% if request.resolver_match.url_name == 'parametros' %}active{% endif %}"
+               href="{% url 'usuarios:parametros' %}">
+              <i class="bi bi-sliders me-1"></i>Parámetros
+            </a>
+          </li>
+        {% endif %}
         {% if user.rol == 'CONTABILIDAD' or user.rol == 'ADMIN' %}
           <li class="nav-item">
             <a class="nav-link {% if request.resolver_match.app_name == 'auditoria' %}active{% endif %}"

@@ -12,4 +12,7 @@ urlpatterns = [
     path("<int:pk>/revisar/", views.revisar_solicitud, name="revisar"),
     path("<int:pk>/aprobar/", views.aprobar_registro, name="aprobar"),
     path("<int:pk>/rechazar/", views.rechazar_registro, name="rechazar"),
+    path("<int:pk>/reenviar-activacion/", views.reenviar_activacion, name="reenviar_activacion"),
+    # CU-60 — parámetros generales del sistema
+    path("parametros/", views.parametros_sistema, name="parametros"),
 ]

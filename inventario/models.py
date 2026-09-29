@@ -22,7 +22,31 @@ class Material(models.Model):
         CONSUMIBLE = "CONSUMIBLE", "Material consumible"
         HERRAMIENTA = "HERRAMIENTA", "Herramienta"
 
+    class Categoria(models.TextChoices):
+        """RF-60: categoría por la que se filtra el catálogo. Son las familias
+        con que se ordena una bodega de obra, no una taxonomía inventada."""
+        ARIDOS = "ARIDOS", "Áridos y hormigones"
+        CEMENTOS = "CEMENTOS", "Cementos y morteros"
+        FIERRO = "FIERRO", "Fierro y estructuras"
+        ALBANILERIA = "ALBANILERIA", "Albañilería"
+        MADERA = "MADERA", "Madera y moldajes"
+        ELECTRICIDAD = "ELECTRICIDAD", "Electricidad"
+        GASFITERIA = "GASFITERIA", "Gasfitería"
+        TERMINACIONES = "TERMINACIONES", "Terminaciones"
+        SEGURIDAD = "SEGURIDAD", "Seguridad y EPP"
+        HERRAMIENTA_MANUAL = "HERRAMIENTA_MANUAL", "Herramienta manual"
+        HERRAMIENTA_ELECTRICA = "HERRAMIENTA_ELECTRICA", "Herramienta eléctrica"
+        OTROS = "OTROS", "Otros"
+
+    # RF-59 / CU-62: código interno del catálogo maestro. Es de la empresa y no
+    # tiene nada que ver con el código que cada proveedor use para el mismo ítem
+    # en sus cotizaciones — ese vive en ProveedorMaterial.codigo.
+    codigo_interno = models.CharField(
+        "Código interno", max_length=20, unique=True, blank=True, editable=False)
     nombre = models.CharField("Nombre del material", max_length=150)
+    categoria = models.CharField(
+        "Categoría", max_length=25, choices=Categoria.choices,
+        default=Categoria.OTROS, db_index=True)
     unidad_medida = models.CharField("Unidad de medida", max_length=20)
     stock_actual = models.DecimalField("Stock actual", max_digits=12, decimal_places=2, default=0)
     # RF-37: nivel de stock mínimo para la alerta de material crítico
@@ -42,7 +66,56 @@ class Material(models.Model):
         ordering = ["nombre"]
 
     def __str__(self):
+        if self.codigo_interno:
+            return f"{self.codigo_interno} · {self.nombre} ({self.unidad_medida})"
         return f"{self.nombre} ({self.unidad_medida})"
+
+    @property
+    def es_herramienta(self):
+        return self.tipo == self.Tipo.HERRAMIENTA
+
+    # Prefijo del código interno según la clasificación del ítem (CU-62)
+    PREFIJO_CODIGO = {Tipo.CONSUMIBLE: "MAT", Tipo.HERRAMIENTA: "HER"}
+
+    def _generar_codigo_interno(self):
+        """
+        CU-62: código único dentro del catálogo maestro.
+
+        Se numera por familia (MAT-00001, HER-00001) para que el código diga de
+        un vistazo qué clase de ítem es. Si el correlativo ya existe —porque dos
+        altas entraron a la vez, o porque se importó un catálogo— se avanza al
+        siguiente hasta encontrar uno libre, que es la Excepción 1 del caso de uso.
+        """
+        prefijo = self.PREFIJO_CODIGO.get(self.tipo, "MAT")
+        ultimo = (Material.objects
+                  .filter(codigo_interno__startswith=f"{prefijo}-")
+                  .order_by("-codigo_interno")
+                  .values_list("codigo_interno", flat=True)
+                  .first())
+        siguiente = 1
+        if ultimo:
+            try:
+                siguiente = int(ultimo.split("-")[1]) + 1
+            except (IndexError, ValueError):
+                siguiente = Material.objects.count() + 1
+        candidato = f"{prefijo}-{siguiente:05d}"
+        while Material.objects.filter(codigo_interno=candidato).exclude(pk=self.pk).exists():
+            siguiente += 1
+            candidato = f"{prefijo}-{siguiente:05d}"
+        return candidato
+
+    def save(self, *args, **kwargs):
+        # CU-60: un material nuevo sin mínimo propio hereda el valor por defecto
+        # que Administración configuró. Sin esto, cada material creado quedaba
+        # en 0 y nunca disparaba la alerta de material crítico (RF-37).
+        if self._state.adding and not self.stock_minimo:
+            from usuarios.models import ParametrosSistema
+            self.stock_minimo = ParametrosSistema.actuales().stock_minimo_defecto
+        # CU-62: el código se asigna solo y no se vuelve a tocar nunca. Que sea
+        # estable es el punto: se imprime en órdenes de compra y guías.
+        if not self.codigo_interno:
+            self.codigo_interno = self._generar_codigo_interno()
+        super().save(*args, **kwargs)
 
     @property
     def bajo_stock_minimo(self):

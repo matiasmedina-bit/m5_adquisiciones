@@ -16,4 +16,5 @@ urlpatterns = [
     path("adjunto/<int:pk>/eliminar/", views.adjunto_eliminar, name="adjunto_eliminar"),
     path("<int:pk>/enviar/", views.solicitud_enviar, name="enviar"),
     path("<int:pk>/resolver/<str:accion>/", views.solicitud_resolver, name="resolver"),
+    path("<int:pk>/devolver-borrador/", views.solicitud_devolver_borrador, name="devolver_borrador"),
 ]

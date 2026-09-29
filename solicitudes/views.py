@@ -8,6 +8,7 @@ CU-17 Visualizando estado de la solicitud
 Flujo de estados (enviar / aprobar / rechazar) que apoya la visualización del CU-17.
 """
 from django.contrib import messages
+from django.views.decorators.http import require_POST
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.generic import ListView
 
@@ -68,7 +69,7 @@ def solicitud_crear(request):
     return render(request, "solicitudes/solicitud_form.html", {"form": form, "formset": formset})
 
 
-@rol_requerido("ENCARGADO_ADQUISICIONES", "JEFE_PROYECTO", "ADMIN")
+@rol_requerido("ENCARGADO_ADQUISICIONES", "JEFE_PROYECTO", "CONTABILIDAD", "BODEGUERO")
 def solicitud_detalle(request, pk):
     """CU-17 Consultando solicitud (cabecera + líneas) y CU-12 agregar ítems.
     Inc.2: RF-16 (justificación por exceso de itemizado) y RF-17 (adjuntos)."""
@@ -155,6 +156,7 @@ def solicitud_detalle(request, pk):
 
 
 @rol_requerido("ENCARGADO_ADQUISICIONES", "JEFE_PROYECTO", "ADMIN")
+@require_POST
 def adjunto_eliminar(request, pk):
     """RF-17: quitar un archivo adjunto de la solicitud."""
     adjunto = get_object_or_404(SolicitudAdjunto, pk=pk)
@@ -184,6 +186,7 @@ def solicitud_editar(request, pk):
 
 
 @rol_requerido("ENCARGADO_ADQUISICIONES")
+@require_POST
 def detalle_eliminar(request, pk):
     """CU-14: quitar una línea de la solicitud mientras está en borrador."""
     detalle = get_object_or_404(SolicitudDetalle, pk=pk)
@@ -197,6 +200,7 @@ def detalle_eliminar(request, pk):
 
 
 @rol_requerido("ENCARGADO_ADQUISICIONES")
+@require_POST
 def solicitud_enviar(request, pk):
     """CU-16: enviar la solicitud para aprobación (BORRADOR -> ENVIADA)."""
     solicitud = get_object_or_404(SolicitudMaterial, pk=pk)
@@ -216,6 +220,7 @@ def solicitud_enviar(request, pk):
 
 
 @rol_requerido("JEFE_PROYECTO")
+@require_POST
 def solicitud_resolver(request, pk, accion):
     """CU-16: el Jefe de Proyecto aprueba o rechaza (ENVIADA -> APROBADA/RECHAZADA)."""
     solicitud = get_object_or_404(SolicitudMaterial, pk=pk)
@@ -230,9 +235,37 @@ def solicitud_resolver(request, pk, accion):
         messages.success(request, f"Solicitud {solicitud.correlativo} aprobada.")
     elif accion == "rechazar":
         solicitud.estado = SolicitudMaterial.Estado.RECHAZADA
+        solicitud.motivo_rechazo = (request.POST.get("motivo") or "").strip()
         solicitud.save()
         registrar(request.user, RegistroAuditoria.Accion.SM_RECHAZADA,
-                  f"Rechazó la solicitud de {solicitud.proyecto.nombre}.",
+                  f"Rechazó la solicitud de {solicitud.proyecto.nombre}"
+                  + (f": {solicitud.motivo_rechazo}" if solicitud.motivo_rechazo else "."),
                   solicitud.correlativo)
         messages.warning(request, f"Solicitud {solicitud.correlativo} rechazada.")
+    return redirect("solicitudes:detalle", pk=solicitud.pk)
+
+
+@rol_requerido("ENCARGADO_ADQUISICIONES")
+@require_POST
+def solicitud_devolver_borrador(request, pk):
+    """
+    Una SM rechazada vuelve a borrador para corregirla.
+
+    El Jefe de Proyecto rechaza casi siempre por un detalle —una cantidad mal
+    puesta, una justificación que falta— y antes de esto la única salida era
+    rehacer la solicitud entera: se perdía el correlativo, las líneas y los
+    adjuntos. La Orden de Compra ya tenía esta vuelta; la Solicitud no, y no
+    había ninguna razón para la asimetría.
+    """
+    solicitud = get_object_or_404(SolicitudMaterial, pk=pk)
+    if solicitud.estado != SolicitudMaterial.Estado.RECHAZADA:
+        messages.error(request, "Sólo se corrige una solicitud rechazada.")
+    else:
+        solicitud.estado = SolicitudMaterial.Estado.BORRADOR
+        solicitud.motivo_rechazo = ""
+        solicitud.save(update_fields=["estado", "motivo_rechazo"])
+        messages.success(
+            request,
+            f"Solicitud {solicitud.correlativo} devuelta a borrador. "
+            f"Corrige lo que corresponda y vuelve a enviarla.")
     return redirect("solicitudes:detalle", pk=solicitud.pk)

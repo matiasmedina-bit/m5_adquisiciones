@@ -8,6 +8,7 @@ RF-37 alerta de stock mínimo.
 from datetime import date
 
 from django.contrib import messages
+from django.views.decorators.http import require_POST
 from django.contrib.messages.views import SuccessMessageMixin
 from django.core.mail import EmailMessage
 from django.db.models import Sum, F, Q, DecimalField, ExpressionWrapper
@@ -30,34 +31,51 @@ ROLES_BODEGA = ["BODEGUERO", "ENCARGADO_ADQUISICIONES"]
 
 # ---------------------------------------------------------------- catálogo
 class MaterialListView(RolRequeridoMixin, ListView):
-    roles_permitidos = ROLES
+    """CU-63 (RF-60): catálogo maestro con búsqueda y filtros."""
+    roles_permitidos = ROLES + ["JEFE_PROYECTO"]
     model = Material
     template_name = "inventario/material_list.html"
     context_object_name = "materiales"
+    paginate_by = 40
 
+    # CU-63 (RF-60): los cinco ejes de búsqueda que pide el requisito
     def _filtros(self):
         return {
             "q": self.request.GET.get("q", "").strip(),
             "tipo": self.request.GET.get("tipo", "").strip(),
+            "categoria": self.request.GET.get("categoria", "").strip(),
+            "ubicacion": self.request.GET.get("ubicacion", "").strip(),
             "estado": self.request.GET.get("estado", "").strip(),
         }
 
     def get_queryset(self):
         qs = Material.objects.all()
         f = self._filtros()
+        # La caja de búsqueda cubre código y descripción a la vez: quien busca
+        # "MAT-00012" y quien busca "cemento" escriben en el mismo lugar.
         if f["q"]:
             qs = qs.filter(
-                Q(nombre__icontains=f["q"])
+                Q(codigo_interno__icontains=f["q"])
+                | Q(nombre__icontains=f["q"])
                 | Q(unidad_medida__icontains=f["q"])
                 | Q(codigo_activo__icontains=f["q"])
                 | Q(ubicacion__icontains=f["q"])
             )
         if f["tipo"] in (Material.Tipo.CONSUMIBLE, Material.Tipo.HERRAMIENTA):
             qs = qs.filter(tipo=f["tipo"])
+        if f["categoria"] in Material.Categoria.values:
+            qs = qs.filter(categoria=f["categoria"])
+        if f["ubicacion"]:
+            qs = qs.filter(ubicacion__icontains=f["ubicacion"])
+        # Disponibilidad: qué se puede usar hoy, que no es lo mismo que "activo"
         if f["estado"] == "activo":
             qs = qs.filter(activo=True)
         elif f["estado"] == "inactivo":
             qs = qs.filter(activo=False)
+        elif f["estado"] == "disponible":
+            qs = qs.filter(activo=True, stock_actual__gt=0)
+        elif f["estado"] == "agotado":
+            qs = qs.filter(activo=True, stock_actual__lte=0)
         elif f["estado"] == "critico":  # RF-37
             qs = qs.filter(stock_minimo__gt=0, stock_actual__lte=F("stock_minimo"))
         return qs
@@ -88,8 +106,16 @@ class MaterialListView(RolRequeridoMixin, ListView):
         ctx["total_filtrado"] = ctx["materiales"].count() if hasattr(ctx["materiales"], "count") else len(ctx["materiales"])
         ctx["f_q"] = f["q"]
         ctx["f_tipo"] = f["tipo"]
+        ctx["f_categoria"] = f["categoria"]
+        ctx["f_ubicacion"] = f["ubicacion"]
         ctx["f_estado"] = f["estado"]
-        ctx["hay_filtros"] = bool(f["q"] or f["tipo"] or f["estado"])
+        ctx["categorias"] = Material.Categoria.choices
+        # Sólo las ubicaciones que existen de verdad: un desplegable con
+        # ubicaciones vacías o inventadas no filtra nada.
+        ctx["ubicaciones"] = (Material.objects.exclude(ubicacion="")
+                              .values_list("ubicacion", flat=True)
+                              .distinct().order_by("ubicacion"))
+        ctx["hay_filtros"] = any(f.values())
         ctx["oculta_precios"] = self.request.user.rol == "BODEGUERO"  # RF-53
         return ctx
 
@@ -282,6 +308,7 @@ def prestamo_crear(request):
 
 
 @rol_requerido(*ROLES_BODEGA)
+@require_POST
 def prestamo_devolver(request, pk):
     """RF-34: registrar la devolución de una herramienta prestada."""
     prestamo = get_object_or_404(PrestamoHerramienta, pk=pk)

@@ -17,3 +17,20 @@ class UsuarioAdmin(UserAdmin):
 admin.site.register(PerfilJefeProyecto)
 admin.site.register(PerfilEncargadoAdquisiciones)
 admin.site.register(PerfilBodeguero)
+
+
+# --- CU-60: parámetros generales del sistema ---
+from .models import ParametrosSistema
+
+
+@admin.register(ParametrosSistema)
+class ParametrosSistemaAdmin(admin.ModelAdmin):
+    """Fila única: no se agrega ni se borra, sólo se edita."""
+    list_display = ("tolerancia_factura_pct", "stock_minimo_defecto",
+                    "umbral_archivo_mb", "actualizado", "actualizado_por")
+
+    def has_add_permission(self, request):
+        return not ParametrosSistema.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False

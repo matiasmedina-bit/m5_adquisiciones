@@ -4,6 +4,8 @@ Entidad Usuario del MERE, con sus subtipos (Jefe_Proyecto, Encargado_Adquisicion
 Bodeguero). Cubre los CU-50, CU-51 y CU-52.
 """
 from django.contrib.auth.models import AbstractUser
+from decimal import Decimal
+from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 
 
@@ -117,3 +119,80 @@ def con_seleccion_actual(queryset, instancia, campo):
             models.Q(pk__in=queryset.values("pk")) | models.Q(pk=actual_id)
         )
     return queryset
+
+
+# ==========================================================================
+#  CU-60 (RF-57) — Configurando parámetros generales del sistema
+# ==========================================================================
+
+class ParametrosSistema(models.Model):
+    """
+    Los cuatro valores que Administración tiene que poder cambiar sin tocar
+    código ni reiniciar el servidor.
+
+    Antes vivían como constantes en settings.py y en el .env: para subir la
+    tolerancia de facturación de 5% a 8% había que entrar por SSH a la VM,
+    editar un archivo y reiniciar gunicorn. Eso no es configurable, es
+    modificable por el que tenga la llave del servidor.
+
+    Es una fila única (singleton): `ParametrosSistema.actuales()` la crea con
+    los valores por defecto la primera vez que alguien la pide, así el sistema
+    nunca queda sin parámetros aunque la tabla esté vacía.
+    """
+
+    tolerancia_factura_pct = models.DecimalField(
+        "Tolerancia de facturación (%)", max_digits=5, decimal_places=2, default=5,
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Diferencia máxima aceptada entre el monto de la factura y el "
+                  "total de la orden de compra antes de bloquearla.",
+    )
+    stock_minimo_defecto = models.DecimalField(
+        "Stock mínimo por defecto", max_digits=12, decimal_places=2, default=0,
+        validators=[MinValueValidator(Decimal("0"))],
+        help_text="Valor que toma el stock mínimo de un material nuevo cuando no "
+                  "se indica otro. Alimenta la alerta de materiales críticos.",
+    )
+    umbral_archivo_mb = models.PositiveIntegerField(
+        "Umbral de tamaño de archivo (MB)", default=10,
+        validators=[MinValueValidator(1), MaxValueValidator(500)],
+        help_text="Sobre este tamaño el sistema advierte antes de completar la carga.",
+    )
+
+    actualizado = models.DateTimeField("Última modificación", auto_now=True)
+    actualizado_por = models.ForeignKey(
+        "usuarios.Usuario", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="parametros_actualizados", verbose_name="Modificado por",
+    )
+
+    class Meta:
+        verbose_name = "Parámetros del sistema"
+        verbose_name_plural = "Parámetros del sistema"
+
+    def __str__(self):
+        return "Parámetros generales del sistema"
+
+    def save(self, *args, **kwargs):
+        # Una sola fila, siempre. Si alguien crea otra por el admin o por la
+        # shell, se escribe encima de la que ya existe en vez de dejar dos
+        # configuraciones compitiendo.
+        self.pk = 1
+        kwargs.pop("force_insert", None)
+        # Con la pk fijada y `adding` en False, Django intenta UPDATE y, si no
+        # había fila, cae solo al INSERT. Sin esto un `objects.create()` revienta
+        # contra la clave primaria en vez de reemplazar la configuración.
+        self._state.adding = False
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        """No se borra: el sistema quedaría sin parámetros a mitad de operación."""
+        return (0, {})
+
+    @classmethod
+    def actuales(cls):
+        """La configuración vigente, creándola con los valores por defecto si falta."""
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    @property
+    def umbral_archivo_bytes(self):
+        return self.umbral_archivo_mb * 1024 * 1024

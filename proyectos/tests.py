@@ -7,7 +7,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, Client, override_settings
 from django.db import IntegrityError
 from django.urls import reverse
-from usuarios.models import Usuario
+from usuarios.models import Usuario, ParametrosSistema
 from .models import Proyecto, Itemizado, TipoDocumento, ArchivoProyecto
 from .forms import ProyectoForm, ArchivoProyectoForm
 
@@ -321,3 +321,171 @@ class ArchivoProyectoCU54Test(TestCase):
         archivo = ArchivoProyecto.objects.get()
         self.client.post(reverse("proyectos:archivo_eliminar", args=[archivo.pk]))
         self.assertEqual(ArchivoProyecto.objects.count(), 0)
+
+
+# ==========================================================================
+#  CU-57 / CU-58 / CU-59 — Umbral de tamaño y edición offline con bloqueo
+# ==========================================================================
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class EdicionOfflineTest(TestCase):
+    """
+    CU-58 (RF-55) y CU-59 (RF-56): el archivo se bloquea mientras alguien lo
+    tiene fuera del sistema, y se libera al subir la versión editada.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.jefe = Usuario.objects.create_user(
+            "jp_off", password="clave12345", email="j@m5.cl", rol="JEFE_PROYECTO")
+        self.conta = Usuario.objects.create_user(
+            "cont_off", password="clave12345", email="c@m5.cl", rol="CONTABILIDAD")
+        self.admin = Usuario.objects.create_user(
+            "adm_off", password="clave12345", email="a@m5.cl", rol="ADMIN")
+        self.proyecto = Proyecto.objects.create(
+            nombre="Obra Offline", mandante="M5", fecha_inicio=date(2026, 6, 1))
+        self.tipo = TipoDocumento.objects.create(nombre="Plano")
+        self.archivo = ArchivoProyecto.objects.create(
+            proyecto=self.proyecto, tipo=self.tipo, nombre="Plano estructura",
+            archivo=SimpleUploadedFile("plano.dwg", b"contenido dwg"),
+            subido_por=self.jefe)
+        self.client.login(username="jp_off", password="clave12345")
+
+    # --- CU-58 ---
+
+    def test_bloquear_deja_el_archivo_a_nombre_del_actor(self):
+        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        self.archivo.refresh_from_db()
+        self.assertEqual(self.archivo.bloqueado_por, self.jefe)
+        self.assertIsNotNone(self.archivo.bloqueado_desde)
+        self.assertTrue(self.archivo.bloqueado)
+
+    def test_la_ficha_muestra_quien_lo_tiene(self):
+        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        self.client.login(username="cont_off", password="clave12345")
+        resp = self.client.get(reverse("proyectos:detalle", args=[self.proyecto.pk]))
+        self.assertContains(resp, "jp_off")
+
+    # --- Excepción 1 del CU-58: ya bloqueado por otro ---
+
+    def test_otro_usuario_no_lo_puede_tomar_y_se_le_dice_quien_lo_tiene(self):
+        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        self.client.login(username="cont_off", password="clave12345")
+        resp = self.client.post(
+            reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]), follow=True)
+        self.assertContains(resp, "jp_off")
+        self.archivo.refresh_from_db()
+        self.assertEqual(self.archivo.bloqueado_por, self.jefe)   # no cambió de dueño
+
+    # --- CU-59 ---
+
+    def test_subir_la_version_editada_reemplaza_y_libera(self):
+        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        resp = self.client.post(
+            reverse("proyectos:archivo_version", args=[self.archivo.pk]),
+            {"archivo": SimpleUploadedFile("plano.dwg", b"version corregida")},
+            follow=True)
+        self.archivo.refresh_from_db()
+        self.assertFalse(self.archivo.bloqueado)
+        self.assertEqual(self.archivo.version, 2)
+        self.assertContains(resp, "versión 2")
+
+    def test_no_se_puede_subir_sin_haber_bloqueado(self):
+        resp = self.client.post(
+            reverse("proyectos:archivo_version", args=[self.archivo.pk]),
+            {"archivo": SimpleUploadedFile("plano.dwg", b"x")}, follow=True)
+        self.assertContains(resp, "Primero tienes que bloquear")
+        self.archivo.refresh_from_db()
+        self.assertEqual(self.archivo.version, 1)
+
+    def test_no_se_puede_subir_sobre_el_bloqueo_de_otro(self):
+        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        self.client.login(username="cont_off", password="clave12345")
+        self.client.post(reverse("proyectos:archivo_version", args=[self.archivo.pk]),
+                         {"archivo": SimpleUploadedFile("plano.dwg", b"x")})
+        self.archivo.refresh_from_db()
+        self.assertEqual(self.archivo.version, 1)
+
+    # --- Excepción 1 del CU-59: formato distinto ---
+
+    def test_una_version_en_otro_formato_se_rechaza(self):
+        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        resp = self.client.post(
+            reverse("proyectos:archivo_version", args=[self.archivo.pk]),
+            {"archivo": SimpleUploadedFile("plano.pdf", b"%PDF-1.4")}, follow=True)
+        self.assertContains(resp, "tiene que venir en .dwg")
+        self.archivo.refresh_from_db()
+        self.assertEqual(self.archivo.version, 1)
+        self.assertTrue(self.archivo.bloqueado)   # sigue tomado
+
+    # --- liberar sin subir ---
+
+    def test_se_puede_liberar_sin_subir_nada(self):
+        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        self.client.post(reverse("proyectos:archivo_liberar", args=[self.archivo.pk]))
+        self.archivo.refresh_from_db()
+        self.assertFalse(self.archivo.bloqueado)
+
+    def test_el_administrador_destraba_un_archivo_ajeno(self):
+        """Alguien se fue de la empresa con un archivo tomado: hay que poder soltarlo."""
+        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        self.client.login(username="adm_off", password="clave12345")
+        self.client.post(reverse("proyectos:archivo_liberar", args=[self.archivo.pk]))
+        self.archivo.refresh_from_db()
+        self.assertFalse(self.archivo.bloqueado)
+
+    def test_un_usuario_cualquiera_no_destraba_lo_ajeno(self):
+        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        self.client.login(username="cont_off", password="clave12345")
+        self.client.post(reverse("proyectos:archivo_liberar", args=[self.archivo.pk]))
+        self.archivo.refresh_from_db()
+        self.assertTrue(self.archivo.bloqueado)
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class UmbralTamanoCU57Test(TestCase):
+    """CU-57 (RF-54): advertir sobre el umbral, sin prohibir."""
+
+    def setUp(self):
+        self.client = Client()
+        self.jefe = Usuario.objects.create_user(
+            "jp57", password="clave12345", email="j57@m5.cl", rol="JEFE_PROYECTO")
+        self.proyecto = Proyecto.objects.create(
+            nombre="Obra Umbral", mandante="M5", fecha_inicio=date(2026, 6, 1))
+        self.tipo = TipoDocumento.objects.create(nombre="Plano")
+        # Umbral bajo para no tener que generar archivos enormes en la prueba
+        parametros = ParametrosSistema.actuales()
+        parametros.umbral_archivo_mb = 1
+        parametros.save()
+        self.client.login(username="jp57", password="clave12345")
+
+    def _subir(self, tamano_bytes, **extra):
+        datos = {"tipo": self.tipo.pk, "nombre": "Plano pesado",
+                 "archivo": SimpleUploadedFile("grande.pdf", b"x" * tamano_bytes)}
+        datos.update(extra)
+        return self.client.post(
+            reverse("proyectos:archivo_subir", args=[self.proyecto.pk]), datos, follow=True)
+
+    def test_bajo_el_umbral_sube_sin_molestar(self):
+        self._subir(1000)
+        self.assertEqual(ArchivoProyecto.objects.count(), 1)
+
+    # --- Excepción 1: sobre el umbral se advierte ---
+
+    def test_sobre_el_umbral_advierte_y_no_sube_todavia(self):
+        resp = self._subir(2 * 1024 * 1024)
+        self.assertEqual(ArchivoProyecto.objects.count(), 0)
+        self.assertContains(resp, "comprimirlo")
+        self.assertContains(resp, "subir de todas formas")
+
+    def test_confirmando_sube_igual(self):
+        """Advertir no es prohibir: un plano pesado a veces tiene que subir pesado."""
+        self._subir(2 * 1024 * 1024, confirmar_tamano="1")
+        self.assertEqual(ArchivoProyecto.objects.count(), 1)
+
+    def test_el_umbral_sale_de_los_parametros_configurados(self):
+        parametros = ParametrosSistema.actuales()
+        parametros.umbral_archivo_mb = 50
+        parametros.save()
+        self._subir(2 * 1024 * 1024)
+        self.assertEqual(ArchivoProyecto.objects.count(), 1)   # ya no lo advierte

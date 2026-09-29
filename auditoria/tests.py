@@ -114,7 +114,7 @@ class AuditoriaDeAccionesTest(TestCase):
         SolicitudDetalle.objects.create(
             solicitud=sol, material=self.material, cantidad_solicitada=5)
         self.client.login(username="ea53", password="clave12345")
-        self.client.get(reverse("solicitudes:enviar", args=[sol.pk]))
+        self.client.post(reverse("solicitudes:enviar", args=[sol.pk]))
         reg = RegistroAuditoria.objects.get(accion=RegistroAuditoria.Accion.SM_EMITIDA)
         self.assertEqual(reg.usuario, self.ea)
         self.assertEqual(reg.referencia, sol.correlativo)
@@ -126,7 +126,7 @@ class AuditoriaDeAccionesTest(TestCase):
         SolicitudDetalle.objects.create(
             solicitud=sol, material=self.material, cantidad_solicitada=5)
         self.client.login(username="jp53", password="clave12345")
-        self.client.get(reverse("solicitudes:resolver", args=[sol.pk, "aprobar"]))
+        self.client.post(reverse("solicitudes:resolver", args=[sol.pk, "aprobar"]))
         reg = RegistroAuditoria.objects.get(accion=RegistroAuditoria.Accion.SM_APROBADA)
         self.assertEqual(reg.usuario, self.jp)
 
@@ -134,7 +134,7 @@ class AuditoriaDeAccionesTest(TestCase):
         """Excepción 1 en la práctica: si la acción no ocurre, no hay registro."""
         sol = SolicitudMaterial.objects.create(proyecto=self.proyecto, emisor=self.ea)
         self.client.login(username="ea53", password="clave12345")
-        self.client.get(reverse("solicitudes:enviar", args=[sol.pk]))  # sin ítems
+        self.client.post(reverse("solicitudes:enviar", args=[sol.pk]))  # sin ítems
         self.assertEqual(RegistroAuditoria.objects.count(), 0)
 
     # --- gestión de cuentas ---
@@ -152,7 +152,7 @@ class AuditoriaDeAccionesTest(TestCase):
 
     def test_activar_o_inactivar_una_cuenta_queda_registrado(self):
         self.client.login(username="admin53", password="clave12345")
-        self.client.get(reverse("usuarios:cambiar_estado", args=[self.bodeguero.pk]))
+        self.client.post(reverse("usuarios:cambiar_estado", args=[self.bodeguero.pk]))
         self.assertTrue(RegistroAuditoria.objects.filter(
             accion=RegistroAuditoria.Accion.USUARIO_MODIFICADO).exists())
 

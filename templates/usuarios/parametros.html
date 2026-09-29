@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+{% block title %}Parámetros del sistema{% endblock %}
+{% block content %}
+<div class="mb-3">
+  <h1 class="h3 mb-0">Parámetros del sistema</h1>
+  <small class="text-muted">
+    Los valores que gobiernan las validaciones automáticas. Se aplican de inmediato,
+    sin reiniciar nada.
+  </small>
+</div>
+
+<form method="post">
+  {% csrf_token %}
+  <div class="row g-3">
+
+    <div class="col-lg-4">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <label class="form-label fw-semibold mb-1" for="{{ form.tolerancia_factura_pct.id_for_label }}">
+            Tolerancia de facturación
+          </label>
+          <div class="input-group">
+            {{ form.tolerancia_factura_pct }}
+            <span class="input-group-text">%</span>
+          </div>
+          {% if form.tolerancia_factura_pct.errors %}
+            <div class="text-danger small mt-1">{{ form.tolerancia_factura_pct.errors|striptags }}</div>
+          {% endif %}
+          <p class="small text-muted mt-2 mb-0">
+            Una factura que se pase de este porcentaje respecto al total de su orden
+            de compra queda <strong>bloqueada</strong> hasta que Administración la
+            desbloquee con una justificación.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <label class="form-label fw-semibold mb-1" for="{{ form.stock_minimo_defecto.id_for_label }}">
+            Stock mínimo por defecto
+          </label>
+          {{ form.stock_minimo_defecto }}
+          {% if form.stock_minimo_defecto.errors %}
+            <div class="text-danger small mt-1">{{ form.stock_minimo_defecto.errors|striptags }}</div>
+          {% endif %}
+          <p class="small text-muted mt-2 mb-0">
+            El mínimo que toma un material nuevo cuando nadie le define uno propio.
+            Es lo que hace que aparezca en la alerta de <strong>materiales críticos</strong>
+            antes de quedarse en cero.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <label class="form-label fw-semibold mb-1" for="{{ form.umbral_archivo_mb.id_for_label }}">
+            Umbral de tamaño de archivo
+          </label>
+          <div class="input-group">
+            {{ form.umbral_archivo_mb }}
+            <span class="input-group-text">MB</span>
+          </div>
+          {% if form.umbral_archivo_mb.errors %}
+            <div class="text-danger small mt-1">{{ form.umbral_archivo_mb.errors|striptags }}</div>
+          {% endif %}
+          <p class="small text-muted mt-2 mb-0">
+            Sobre este tamaño el sistema advierte antes de completar la carga y
+            sugiere comprimir o bajar la resolución.
+          </p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center mt-3">
+    <span class="small text-muted">
+      {% if parametros.actualizado_por %}
+        Última modificación: {{ parametros.actualizado|date:"d/m/Y H:i" }}
+        por {{ parametros.actualizado_por.get_full_name|default:parametros.actualizado_por.username }}
+      {% else %}
+        Valores por defecto, nunca modificados.
+      {% endif %}
+    </span>
+    <button type="submit" class="btn btn-primary">Guardar parámetros</button>
+  </div>
+</form>
+
+<div class="card shadow-sm mt-4">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <span class="fw-semibold">Catálogo de tipos de documento</span>
+    <a href="{% url 'proyectos:tipos_documento' %}" class="btn btn-sm btn-outline-primary">
+      Administrar catálogo
+    </a>
+  </div>
+  <div class="card-body">
+    {% if tipos_activos %}
+      <p class="small text-muted mb-2">
+        {{ tipos_activos }} tipo{{ tipos_activos|pluralize }} habilitado{{ tipos_activos|pluralize }}
+        para clasificar los archivos de proyecto.
+      </p>
+      <div class="d-flex flex-wrap gap-1">
+        {% for t in tipos_documento %}
+          <span class="badge {% if t.activo %}bg-info text-dark{% else %}bg-secondary{% endif %}">
+            {{ t.nombre }}{% if not t.activo %} · inactivo{% endif %}
+          </span>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="alert alert-warning mb-0">
+        <strong>El catálogo está vacío.</strong>
+        Mientras no tenga al menos un tipo habilitado, los proyectos no admiten
+        archivos: un documento sin clasificar no se puede almacenar.
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<a href="{% url 'home' %}" class="btn btn-outline-secondary mt-3">← Volver al inicio</a>
+{% endblock %}

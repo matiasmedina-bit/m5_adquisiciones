@@ -15,11 +15,12 @@ from django.views.decorators.http import require_POST
 from django.views.generic import ListView, CreateView, UpdateView, DetailView
 
 from auditoria.models import RegistroAuditoria, registrar
-from .models import Usuario
+from .models import Usuario, ParametrosSistema
 from .forms import (
     UsuarioCreateForm, UsuarioUpdateForm, RegistroSolicitudForm,
-    RevisionSolicitudForm,
+    RevisionSolicitudForm, ParametrosSistemaForm,
 )
+from .correos import enviar_enlace_activacion
 from .permisos import RolRequeridoMixin, rol_requerido
 
 
@@ -134,30 +135,73 @@ def revisar_solicitud(request, pk):
 
 @login_required
 def home(request):
-    """Dashboard de inicio (CU-50)."""
+    """
+    Dashboard de inicio (CU-50).
+
+    Cada rol ve lo que le toca hacer hoy. Antes todos veían las mismas cuatro
+    métricas, que sólo aplicaban a Administración, Adquisiciones y Jefatura:
+    Bodega y Contabilidad entraban a una fila vacía y tenían que adivinar por
+    dónde empezar. Los conteos además se calculan sólo para el rol que los va a
+    ver, en vez de consultar nueve tablas para todos.
+    """
     from django.db.models import F
     from proveedores.models import Proveedor
     from proyectos.models import Proyecto
     from solicitudes.models import SolicitudMaterial
-    from inventario.models import Material
+    from inventario.models import Material, PrestamoHerramienta
     from adquisiciones.models import OrdenCompra
     from facturacion.models import Factura
-    stats = {
-        "usuarios": Usuario.objects.count(),
-        "pendientes": Usuario.objects.filter(pendiente_aprobacion=True).count(),
-        "proveedores": Proveedor.objects.count(),
-        "proyectos": Proyecto.objects.exclude(estado="FINALIZADO").count(),
-        "solicitudes_pendientes": SolicitudMaterial.objects.filter(estado=SolicitudMaterial.Estado.ENVIADA).count(),
-        # Incremento 2
-        "cotizar": SolicitudMaterial.objects.filter(
-            estado__in=[SolicitudMaterial.Estado.APROBADA, SolicitudMaterial.Estado.EN_COTIZACION]).count(),
-        "oc_borrador": OrdenCompra.objects.filter(estado=OrdenCompra.Estado.BORRADOR).count(),
-        "materiales_criticos": Material.objects.filter(
-            stock_minimo__gt=0, stock_actual__lte=F("stock_minimo")).count(),
-        "facturas_bloqueadas": Factura.objects.filter(estado=Factura.Estado.BLOQUEADA).count(),
-    }
-    pendientes_count = stats["pendientes"] if request.user.rol == "ADMIN" else 0
-    return render(request, "home.html", {"stats": stats, "pendientes_count": pendientes_count})
+
+    rol = request.user.rol
+    es_admin = rol == "ADMIN"
+    stats = {}
+
+    if es_admin:
+        stats["usuarios"] = Usuario.objects.count()
+        stats["pendientes"] = Usuario.objects.filter(pendiente_aprobacion=True).count()
+
+    if rol in ("ENCARGADO_ADQUISICIONES",) or es_admin:
+        stats["proveedores"] = Proveedor.objects.count()
+        stats["cotizar"] = SolicitudMaterial.objects.filter(
+            estado__in=[SolicitudMaterial.Estado.APROBADA,
+                        SolicitudMaterial.Estado.EN_COTIZACION]).count()
+        stats["oc_borrador"] = OrdenCompra.objects.filter(
+            estado=OrdenCompra.Estado.BORRADOR).count()
+
+    if rol in ("JEFE_PROYECTO", "ENCARGADO_ADQUISICIONES", "CONTABILIDAD") or es_admin:
+        proyectos = Proyecto.objects.exclude(estado="FINALIZADO")
+        if rol == "JEFE_PROYECTO":
+            proyectos = proyectos.filter(jefe_proyecto=request.user)
+        stats["proyectos"] = proyectos.count()
+
+    if rol in ("JEFE_PROYECTO", "ENCARGADO_ADQUISICIONES") or es_admin:
+        stats["solicitudes_pendientes"] = SolicitudMaterial.objects.filter(
+            estado=SolicitudMaterial.Estado.ENVIADA).count()
+
+    if rol in ("BODEGUERO", "ENCARGADO_ADQUISICIONES") or es_admin:
+        stats["materiales_criticos"] = Material.objects.filter(
+            stock_minimo__gt=0, stock_actual__lte=F("stock_minimo")).count()
+
+    if rol == "BODEGUERO" or es_admin:
+        stats["prestamos_activos"] = PrestamoHerramienta.objects.filter(
+            estado=PrestamoHerramienta.Estado.PRESTADA).count()
+        stats["por_recibir"] = OrdenCompra.objects.filter(
+            estado__in=[OrdenCompra.Estado.ENVIADA,
+                        OrdenCompra.Estado.RECEPCION_PARCIAL]).count()
+
+    if rol == "CONTABILIDAD" or es_admin:
+        stats["facturas_bloqueadas"] = Factura.objects.filter(
+            estado=Factura.Estado.BLOQUEADA).count()
+        stats["facturas_total"] = Factura.objects.count()
+        stats["por_facturar"] = OrdenCompra.objects.filter(
+            estado__in=[OrdenCompra.Estado.RECIBIDA,
+                        OrdenCompra.Estado.RECEPCION_PARCIAL],
+            facturada=False).count()
+
+    return render(request, "home.html", {
+        "stats": stats,
+        "pendientes_count": stats.get("pendientes", 0) if es_admin else 0,
+    })
 
 
 class UsuarioListView(RolRequeridoMixin, ListView):
@@ -245,6 +289,17 @@ class UsuarioCreateView(RolRequeridoMixin, SuccessMessageMixin, CreateView):
         registrar(self.request.user, RegistroAuditoria.Accion.USUARIO_CREADO,
                   f"Creó la cuenta de {self.object.username} "
                   f"({self.object.get_rol_display()}).", self.object.username)
+        # CU-52: el sistema manda el enlace temporal para definir la contraseña
+        if enviar_enlace_activacion(self.request, self.object, creado_por=self.request.user):
+            messages.info(
+                self.request,
+                f"Se envió a {self.object.email} el enlace para definir su contraseña.")
+        else:
+            messages.warning(
+                self.request,
+                f"La cuenta quedó creada, pero no se pudo enviar el enlace a "
+                f"{self.object.email or 'su correo'}. Puedes reenviarlo desde la ficha "
+                f"de la cuenta.")
         return respuesta
 
 
@@ -274,6 +329,7 @@ class UsuarioDetailView(RolRequeridoMixin, DetailView):
 
 
 @rol_requerido("ADMIN")
+@require_POST
 def usuario_cambiar_estado(request, pk):
     """CU-51: Activar/Inactivar una cuenta (en lugar de eliminarla)."""
     usuario = get_object_or_404(Usuario, pk=pk)
@@ -284,3 +340,67 @@ def usuario_cambiar_estado(request, pk):
               f"Cuenta de {usuario.username} {estado_txt}.", usuario.username)
     messages.success(request, f"Cuenta {usuario.username} {estado_txt}.")
     return redirect("usuarios:lista")
+
+
+# --------------------------------------------------------------------------
+# CU-60 (RF-57) — Configurando parámetros generales del sistema
+# --------------------------------------------------------------------------
+@rol_requerido("ADMIN")
+def parametros_sistema(request):
+    """
+    Los cuatro parámetros que el RF-57 exige poder configurar, en una pantalla.
+
+    El catálogo de tipos de documento es el cuarto parámetro, pero se administra
+    desde su propia pantalla (ya existe, CU-54); acá se muestra el resumen y el
+    enlace, en vez de duplicar el CRUD.
+    """
+    from proyectos.models import TipoDocumento
+
+    parametros = ParametrosSistema.actuales()
+    if request.method == "POST":
+        form = ParametrosSistemaForm(request.POST, instance=parametros)
+        if form.is_valid():
+            guardado = form.save(commit=False)
+            guardado.actualizado_por = request.user
+            guardado.save()
+            registrar(request.user, RegistroAuditoria.Accion.PARAMETROS_MODIFICADOS,
+                      "Actualizó los parámetros generales: "
+                      + ", ".join(form.changed_data) if form.changed_data
+                      else "Guardó los parámetros generales sin cambios.",
+                      "Parámetros")
+            messages.success(
+                request,
+                "Parámetros actualizados. Se aplican de inmediato a las validaciones "
+                "de factura, a las alertas de stock y a las cargas de archivo.")
+            return redirect("usuarios:parametros")
+        messages.error(request, "Revisa los valores marcados: alguno está fuera de rango.")
+    else:
+        form = ParametrosSistemaForm(instance=parametros)
+
+    return render(request, "usuarios/parametros.html", {
+        "form": form,
+        "parametros": parametros,
+        "tipos_documento": TipoDocumento.objects.all(),
+        "tipos_activos": TipoDocumento.objects.filter(activo=True).count(),
+    })
+
+
+@rol_requerido("ADMIN")
+@require_POST
+def reenviar_activacion(request, pk):
+    """
+    Vuelve a mandar el enlace de activación.
+
+    Hace falta porque el correo se cae (SMTP mal configurado, buzón lleno, un
+    typo en la dirección que se corrigió después) y sin esto la única salida
+    era borrar la cuenta y crearla de nuevo, perdiendo su historial.
+    """
+    usuario = get_object_or_404(Usuario, pk=pk)
+    if enviar_enlace_activacion(request, usuario, creado_por=request.user):
+        messages.success(request, f"Enlace reenviado a {usuario.email}.")
+    else:
+        messages.error(
+            request,
+            f"No se pudo enviar el correo a {usuario.email or 'la cuenta'}. "
+            f"Revisa la configuración de correo del servidor.")
+    return redirect("usuarios:detalle", pk=usuario.pk)

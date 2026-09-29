@@ -17,6 +17,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from auditoria.models import RegistroAuditoria, registrar
+from usuarios.models import ParametrosSistema
 from usuarios.permisos import rol_requerido
 from .models import Factura
 from .forms import FacturaForm, DesbloqueoForm
@@ -62,7 +63,8 @@ def factura_crear(request):
                     dif = 0
                 factura.diferencia_pct = round(dif, 2)
 
-                if dif > settings.FACTURA_TOLERANCIA_PCT:
+                tolerancia = ParametrosSistema.actuales().tolerancia_factura_pct
+                if dif > tolerancia:
                     factura.estado = Factura.Estado.BLOQUEADA
                     factura.save(update_fields=["diferencia_pct", "estado"])
                     registrar(request.user, RegistroAuditoria.Accion.FACTURA_BLOQUEADA,
@@ -71,7 +73,7 @@ def factura_crear(request):
                     messages.warning(
                         request,
                         f"Factura registrada pero BLOQUEADA: la diferencia con las OC es "
-                        f"{factura.diferencia_pct}% (tolerancia {settings.FACTURA_TOLERANCIA_PCT}%). "
+                        f"{factura.diferencia_pct}% (tolerancia {tolerancia}%). "
                         f"Administración debe desbloquearla.",
                     )
                 else:
@@ -82,7 +84,7 @@ def factura_crear(request):
     else:
         form = FacturaForm()
     return render(request, "facturacion/factura_form.html", {
-        "form": form, "tolerancia": settings.FACTURA_TOLERANCIA_PCT,
+        "form": form, "tolerancia": ParametrosSistema.actuales().tolerancia_factura_pct,
     })
 
 
@@ -93,7 +95,7 @@ def factura_detalle(request, pk):
     return render(request, "facturacion/factura_detalle.html", {
         "factura": factura,
         "desbloqueo_form": DesbloqueoForm(),
-        "tolerancia": settings.FACTURA_TOLERANCIA_PCT,
+        "tolerancia": ParametrosSistema.actuales().tolerancia_factura_pct,
     })
 
 

@@ -44,6 +44,8 @@ class RegistroAuditoria(models.Model):
         USUARIO_APROBADO = "USUARIO_APROBADO", "Cuenta de usuario aprobada"
         USUARIO_RECHAZADO = "USUARIO_RECHAZADO", "Cuenta de usuario rechazada"
         USUARIO_MODIFICADO = "USUARIO_MODIFICADO", "Cuenta de usuario modificada"
+        # --- Configuración (RF-57) ---
+        PARAMETROS_MODIFICADOS = "PARAMETROS_MODIFICADOS", "Parámetros del sistema modificados"
 
     class Modulo(models.TextChoices):
         INVENTARIO = "INVENTARIO", "Inventario"
@@ -51,6 +53,7 @@ class RegistroAuditoria(models.Model):
         ADQUISICIONES = "ADQUISICIONES", "Adquisiciones"
         FACTURACION = "FACTURACION", "Facturación"
         USUARIOS = "Usuarios", "Usuarios"
+        CONFIGURACION = "CONFIGURACION", "Configuración"
 
     # Qué módulo agrupa cada acción. Se deduce sola, para que quien llama a
     # registrar() no tenga que acordarse.
@@ -70,6 +73,7 @@ class RegistroAuditoria(models.Model):
         Accion.USUARIO_APROBADO: Modulo.USUARIOS,
         Accion.USUARIO_RECHAZADO: Modulo.USUARIOS,
         Accion.USUARIO_MODIFICADO: Modulo.USUARIOS,
+        Accion.PARAMETROS_MODIFICADOS: Modulo.CONFIGURACION,
     }
 
     # El usuario puede quedar en null: si se da de baja la cuenta, la bitácora

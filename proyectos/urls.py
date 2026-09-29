@@ -14,6 +14,10 @@ urlpatterns = [
     # CU-54 — archivos del proyecto clasificados por tipo de documento
     path("<int:proyecto_pk>/archivos/subir/", views.archivo_subir, name="archivo_subir"),
     path("archivo/<int:pk>/eliminar/", views.archivo_eliminar, name="archivo_eliminar"),
+    # CU-58 / CU-59 — edición offline con bloqueo
+    path("archivo/<int:pk>/bloquear/", views.archivo_bloquear, name="archivo_bloquear"),
+    path("archivo/<int:pk>/liberar/", views.archivo_liberar, name="archivo_liberar"),
+    path("archivo/<int:pk>/version/", views.archivo_subir_version, name="archivo_version"),
     path("tipos-documento/", views.TipoDocumentoListView.as_view(), name="tipos_documento"),
     path("tipos-documento/nuevo/", views.tipo_documento_crear, name="tipo_documento_crear"),
 ]

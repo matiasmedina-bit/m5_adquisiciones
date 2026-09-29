@@ -52,7 +52,7 @@ class ProveedorVistaTest(TestCase):
 
     def test_inactivar_cambia_estado(self):
         self.assertTrue(self.prov.estado)
-        self.client.get(reverse("proveedores:inactivar", args=[self.prov.pk]))
+        self.client.post(reverse("proveedores:inactivar", args=[self.prov.pk]))
         self.prov.refresh_from_db()
         self.assertFalse(self.prov.estado)
 
@@ -87,7 +87,7 @@ class ProveedorMaterialTest(TestCase):
     def test_rf06_marcar_no_disponible_no_borra(self):
         m = ProveedorMaterial.objects.create(proveedor=self.prov, codigo="A-1",
                                              descripcion="X", unidad_medida="un")
-        self.client.get(reverse("proveedores:material_disponibilidad", args=[m.pk]))
+        self.client.post(reverse("proveedores:material_disponibilidad", args=[m.pk]))
         m.refresh_from_db()
         self.assertFalse(m.disponible)
         self.assertTrue(ProveedorMaterial.objects.filter(pk=m.pk).exists())

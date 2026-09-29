@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "adquisiciones",  # Inc.2: RF-19 a RF-27, RF-38, RF-39 (cotizaciones y órdenes de compra)
     "facturacion",    # Inc.2: RF-40 a RF-44 (facturación y contabilidad)
     "auditoria",      # CU-53 (RF-50): bitácora de auditoría
+    "reportes",       # Inc.3: RF-41 a RF-45 (reportes y exportación)
 ]
 
 MIDDLEWARE = [
@@ -131,6 +132,15 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Redirecciones de autenticación
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/"
+
+# --- CU-55 (RF-52): cierre de sesión automático por inactividad ---
+# 30 minutos exactos, como pide el requisito. `SAVE_EVERY_REQUEST` es la mitad
+# que importa: sin él la sesión caduca 30 minutos después del *login*, no de la
+# última actividad, y echaría a alguien que está trabajando. Con él, cada
+# request renueva el plazo — que es la Excepción 1 del caso de uso.
+SESSION_COOKIE_AGE = 30 * 60
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 LOGOUT_REDIRECT_URL = "/login/"
 
 # --- Correo (RF-27 envío de OC al proveedor, RF-33 aviso a Administración) ---

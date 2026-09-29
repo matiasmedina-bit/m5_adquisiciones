@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+{% block title %}Reportes{% endblock %}
+{% block content %}
+<div class="mb-4">
+  <h1 class="h3 mb-0">Reportes</h1>
+  <small class="text-muted">
+    Los cuatro informes de gestión del sistema. Todos se pueden exportar a Excel o PDF.
+  </small>
+</div>
+
+<div class="row g-3">
+
+  <div class="col-md-6">
+    <a href="{% url 'reportes:consumo' %}" class="text-decoration-none">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <i class="bi bi-boxes fs-4 text-primary"></i>
+            <h2 class="h6 mb-0 text-body">Consumo consolidado por proyecto</h2>
+          </div>
+          <p class="small text-muted mb-0">
+            Material por material: cuánto se solicitó, cuánto salió efectivamente a
+            la obra y cuánto costó a la fecha. La diferencia entre solicitado y
+            despachado es material aprobado que sigue en bodega.
+          </p>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  <div class="col-md-6">
+    <a href="{% url 'reportes:desviacion' %}" class="text-decoration-none">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <i class="bi bi-graph-up-arrow fs-4 text-primary"></i>
+            <h2 class="h6 mb-0 text-body">Desviación presupuestaria</h2>
+          </div>
+          <p class="small text-muted mb-0">
+            El itemizado original contra lo realmente comprado y consumido, partida
+            por partida, con gráfico. Las partidas sobregiradas quedan marcadas.
+          </p>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  <div class="col-md-6">
+    <a href="{% url 'reportes:mermas' %}" class="text-decoration-none">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <i class="bi bi-exclamation-triangle fs-4 text-warning"></i>
+            <h2 class="h6 mb-0 text-body">Mermas y pérdidas</h2>
+          </div>
+          <p class="small text-muted mb-0">
+            Material perdido por daño o robo, filtrable por proyecto y por fechas,
+            valorizado en pesos. Una merma se registra en unidades; acá se ve
+            cuánto costó.
+          </p>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  {% if puede_compras %}
+  <div class="col-md-6">
+    <a href="{% url 'reportes:compras' %}" class="text-decoration-none">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <i class="bi bi-shop fs-4 text-primary"></i>
+            <h2 class="h6 mb-0 text-body">Historial de compras por proveedor</h2>
+          </div>
+          <p class="small text-muted mb-0">
+            Cuánto se le compró a cada proveedor en un periodo y en cuántas órdenes.
+            Sólo cuenta órdenes emitidas: un borrador no es una compra.
+          </p>
+        </div>
+      </div>
+    </a>
+  </div>
+  {% endif %}
+
+</div>
+
+{% if user.rol == 'JEFE_PROYECTO' %}
+<div class="alert alert-light border mt-3 small mb-0">
+  Como Jefe de Proyecto, los reportes se limitan a
+  {% if proyectos %}
+    {{ proyectos|length }} proyecto{{ proyectos|length|pluralize }} que tienes asignado{{ proyectos|length|pluralize }}.
+  {% else %}
+    los proyectos que tengas asignados. Todavía no tienes ninguno.
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

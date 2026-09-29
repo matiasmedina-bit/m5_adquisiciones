@@ -11,7 +11,6 @@
   </div>
 </div>
 
-{# ─── Métricas globales ─── #}
 <div class="row g-3 mb-4">
   {% if user.rol == 'ADMIN' %}
   <div class="col-6 col-md-3">
@@ -66,9 +65,96 @@
     </div>
   </div>
   {% endif %}
+
+  {% if user.rol == 'BODEGUERO' or user.rol == 'ADMIN' %}
+  <div class="col-6 col-md-3">
+    <a href="{% url 'inventario:entrada_crear' %}" class="text-decoration-none">
+      <div class="card h-100">
+        <div class="card-body d-flex align-items-center gap-3">
+          <div class="stat-icon is-blue"><i class="bi bi-box-arrow-in-down"></i></div>
+          <div>
+            <div class="text-muted small">Órdenes por recibir</div>
+            <div class="fw-bold fs-4 text-body">{{ stats.por_recibir|default:"0" }}</div>
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3">
+    <a href="{% url 'inventario:lista' %}?estado=critico" class="text-decoration-none">
+      <div class="card h-100">
+        <div class="card-body d-flex align-items-center gap-3">
+          <div class="stat-icon is-orange"><i class="bi bi-exclamation-triangle"></i></div>
+          <div>
+            <div class="text-muted small">Materiales críticos</div>
+            <div class="fw-bold fs-4 {% if stats.materiales_criticos %}text-danger{% else %}text-body{% endif %}">
+              {{ stats.materiales_criticos|default:"0" }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3">
+    <a href="{% url 'inventario:prestamo_lista' %}" class="text-decoration-none">
+      <div class="card h-100">
+        <div class="card-body d-flex align-items-center gap-3">
+          <div class="stat-icon is-ink"><i class="bi bi-tools"></i></div>
+          <div>
+            <div class="text-muted small">Herramientas prestadas</div>
+            <div class="fw-bold fs-4 text-body">{{ stats.prestamos_activos|default:"0" }}</div>
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
+  {% endif %}
+
+  {% if user.rol == 'CONTABILIDAD' or user.rol == 'ADMIN' %}
+  <div class="col-6 col-md-3">
+    <a href="{% url 'facturacion:lista' %}?estado=BLOQUEADA" class="text-decoration-none">
+      <div class="card h-100">
+        <div class="card-body d-flex align-items-center gap-3">
+          <div class="stat-icon is-orange"><i class="bi bi-lock"></i></div>
+          <div>
+            <div class="text-muted small">Facturas bloqueadas</div>
+            <div class="fw-bold fs-4 {% if stats.facturas_bloqueadas %}text-danger{% else %}text-body{% endif %}">
+              {{ stats.facturas_bloqueadas|default:"0" }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3">
+    <a href="{% url 'facturacion:crear' %}" class="text-decoration-none">
+      <div class="card h-100">
+        <div class="card-body d-flex align-items-center gap-3">
+          <div class="stat-icon is-blue"><i class="bi bi-receipt"></i></div>
+          <div>
+            <div class="text-muted small">OC por facturar</div>
+            <div class="fw-bold fs-4 text-body">{{ stats.por_facturar|default:"0" }}</div>
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3">
+    <a href="{% url 'facturacion:cuentas_por_pagar' %}" class="text-decoration-none">
+      <div class="card h-100">
+        <div class="card-body d-flex align-items-center gap-3">
+          <div class="stat-icon is-ink"><i class="bi bi-cash-stack"></i></div>
+          <div>
+            <div class="text-muted small">Facturas registradas</div>
+            <div class="fw-bold fs-4 text-body">{{ stats.facturas_total|default:"0" }}</div>
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
+  {% endif %}
 </div>
 
-{# ─── Accesos rápidos ─── #}
 <h2 class="h6 text-muted text-uppercase fw-semibold mb-3" style="letter-spacing:.06em;">Módulos disponibles</h2>
 <div class="row g-3">
   {% if user.rol == 'ADMIN' %}
@@ -137,6 +223,44 @@
       <div class="fw-semibold">Facturación</div>
       <div class="small text-muted mt-1">Facturas y cuentas por pagar</div>
       {% if stats.facturas_bloqueadas %}<div class="mt-2"><span class="badge bg-danger">{{ stats.facturas_bloqueadas }} bloqueada{{ stats.facturas_bloqueadas|pluralize:"s" }}</span></div>{% endif %}
+    </a>
+  </div>
+  {% endif %}
+
+  {% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
+  <div class="col-md-4 col-lg-3">
+    <a href="{% url 'reportes:panel' %}" class="module-card p-3 h-100">
+      <div class="icon text-primary"><i class="bi bi-bar-chart-line"></i></div>
+      <div class="fw-semibold">Reportes</div>
+      <div class="small text-muted mt-1">Consumo, desviación, mermas y compras</div>
+    </a>
+  </div>
+  {% endif %}
+
+  <div class="col-md-4 col-lg-3">
+    <a href="{% url 'adquisiciones:trazabilidad' %}" class="module-card p-3 h-100">
+      <div class="icon text-secondary"><i class="bi bi-diagram-3"></i></div>
+      <div class="fw-semibold">Trazabilidad</div>
+      <div class="small text-muted mt-1">Qué pasó con un material o una compra</div>
+    </a>
+  </div>
+
+  {% if user.rol == 'CONTABILIDAD' or user.rol == 'ADMIN' %}
+  <div class="col-md-4 col-lg-3">
+    <a href="{% url 'auditoria:bitacora' %}" class="module-card p-3 h-100">
+      <div class="icon text-secondary"><i class="bi bi-shield-check"></i></div>
+      <div class="fw-semibold">Auditoría</div>
+      <div class="small text-muted mt-1">Quién hizo qué y cuándo</div>
+    </a>
+  </div>
+  {% endif %}
+
+  {% if user.rol == 'ADMIN' %}
+  <div class="col-md-4 col-lg-3">
+    <a href="{% url 'usuarios:parametros' %}" class="module-card p-3 h-100">
+      <div class="icon text-secondary"><i class="bi bi-sliders"></i></div>
+      <div class="fw-semibold">Parámetros</div>
+      <div class="small text-muted mt-1">Tolerancias, umbrales y catálogos</div>
     </a>
   </div>
   {% endif %}

@@ -1,0 +1,173 @@
+{% extends 'base.html' %}
+{% load reporte_extras %}
+{% block title %}{{ titulo_pantalla }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h1 class="h3 mb-0">{{ titulo_pantalla }}</h1>
+    <small class="text-muted">{{ ayuda }}</small>
+  </div>
+  <a href="{% url 'reportes:panel' %}" class="btn btn-outline-secondary btn-sm">← Reportes</a>
+</div>
+
+<form method="get" class="card shadow-sm mb-3">
+  <div class="card-body py-3">
+    <div class="row g-2 align-items-end">
+      {% if pide_proyecto %}
+      <div class="col-12 col-lg-5">
+        <label class="form-label small mb-1">
+          Proyecto {% if not proyecto_opcional %}<span class="text-danger">*</span>{% endif %}
+        </label>
+        <select name="proyecto" class="form-select" {% if not proyecto_opcional %}required{% endif %}>
+          <option value="">{% if proyecto_opcional %}Todos los proyectos{% else %}— Elige un proyecto —{% endif %}</option>
+          {% for p in proyectos %}
+            <option value="{{ p.pk }}" {% if proyecto_sel and proyecto_sel.pk == p.pk %}selected{% endif %}>
+              {{ p.nombre }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+
+      {% if pide_fechas %}
+      <div class="col-6 col-lg-3">
+        <label class="form-label small mb-1">Desde</label>
+        <input type="date" name="desde" value="{{ f_desde }}" class="form-control">
+      </div>
+      <div class="col-6 col-lg-3">
+        <label class="form-label small mb-1">Hasta</label>
+        <input type="date" name="hasta" value="{{ f_hasta }}" class="form-control">
+      </div>
+      {% endif %}
+
+      <div class="col-12 col-lg-{% if pide_proyecto and pide_fechas %}1{% else %}3{% endif %} d-grid">
+        <button type="submit" class="btn btn-primary">Generar</button>
+      </div>
+    </div>
+  </div>
+</form>
+
+{% if reporte %}
+
+  {% if not reporte.vacio %}
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+    <span class="text-muted small">
+      {{ reporte.filas|length }} registro{{ reporte.filas|length|pluralize }}
+      {% for etiqueta, valor in reporte.filtros %} · {{ etiqueta }}: {{ valor }}{% endfor %}
+    </span>
+    <div class="btn-group btn-group-sm">
+      <a href="?{{ request.GET.urlencode }}{% if request.GET %}&{% endif %}formato=xlsx"
+         class="btn btn-outline-success">
+        <i class="bi bi-file-earmark-excel me-1"></i>Excel
+      </a>
+      <a href="?{{ request.GET.urlencode }}{% if request.GET %}&{% endif %}formato=pdf"
+         class="btn btn-outline-danger">
+        <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+      </a>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if reporte.vacio %}
+    <div class="alert {% if reporte.sin_datos_de_entrada %}alert-warning{% else %}alert-light border{% endif %}">
+      {{ reporte.mensaje_vacio }}
+      {% if reporte.sin_datos_de_entrada and proyecto_sel %}
+        <a href="{% url 'proyectos:detalle' proyecto_sel.pk %}" class="alert-link">
+          Ir al proyecto a cargar el itemizado
+        </a>.
+      {% endif %}
+    </div>
+  {% else %}
+
+    {% if reporte.grafico %}
+    <div class="card shadow-sm mb-3">
+      <div class="card-header py-2 fw-semibold">{{ reporte.grafico.titulo }}</div>
+      <div class="card-body">
+        <div class="d-flex gap-3 small text-muted mb-3">
+          <span><span class="d-inline-block rounded" style="width:12px;height:12px;background:#2E5FA3;"></span> Presupuestado</span>
+          <span><span class="d-inline-block rounded" style="width:12px;height:12px;background:#37704a;"></span> Consumido</span>
+          <span><span class="d-inline-block rounded" style="width:12px;height:12px;background:#9c352a;"></span> Sobregirada</span>
+        </div>
+        {% for b in reporte.grafico.barras %}
+        <div class="mb-3">
+          <div class="d-flex justify-content-between small">
+            <span class="fw-semibold">{{ b.etiqueta }}</span>
+            <span class="text-muted text-truncate ms-2" style="max-width:60%">{{ b.descripcion }}</span>
+          </div>
+          <div class="d-flex align-items-center gap-2 mt-1">
+            <div class="flex-grow-1 rounded" style="background:#e9ecef;height:14px;overflow:hidden;">
+              <div style="width:{{ b.pct_presupuestado }}%;height:100%;background:#2E5FA3;"></div>
+            </div>
+            <span class="small text-muted text-nowrap" style="min-width:74px;">{{ b.presupuestado|floatformat:"-2" }}</span>
+          </div>
+          <div class="d-flex align-items-center gap-2 mt-1">
+            <div class="flex-grow-1 rounded" style="background:#e9ecef;height:14px;overflow:hidden;">
+              <div style="width:{{ b.pct_consumido }}%;height:100%;background:{% if b.sobregirada %}#9c352a{% else %}#37704a{% endif %};"></div>
+            </div>
+            <span class="small {% if b.sobregirada %}text-danger fw-semibold{% else %}text-muted{% endif %} text-nowrap" style="min-width:74px;">
+              {{ b.consumido|floatformat:"-2" }}
+            </span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card shadow-sm">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              {% for c in reporte.columnas %}
+                <th class="{% if c.tipo == 'numero' or c.tipo == 'moneda' %}text-end{% endif %}">{{ c.titulo }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for fila in reporte.filas %}
+            <tr{% if fila.sobregirada %} class="table-warning"{% endif %}>
+              {% for c in reporte.columnas %}
+                <td class="{% if c.tipo == 'numero' or c.tipo == 'moneda' %}text-end{% endif %}">
+                  {% with valor=fila|dictkey:c.clave %}
+                    {% if c.tipo == 'moneda' %}${{ valor|floatformat:0 }}
+                    {% elif c.tipo == 'numero' %}{{ valor|floatformat:"-2" }}
+                    {% else %}{{ valor|default:"—" }}{% endif %}
+                  {% endwith %}
+                </td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+          {% if reporte.totales %}
+          <tfoot class="table-secondary fw-semibold">
+            <tr>
+              {% for c in reporte.columnas %}
+                <td class="{% if c.tipo == 'numero' or c.tipo == 'moneda' %}text-end{% endif %}">
+                  {% with valor=reporte.totales|dictkey:c.clave %}
+                    {% if valor is None %}{% else %}
+                      {% if c.tipo == 'moneda' %}${{ valor|floatformat:0 }}
+                      {% elif c.tipo == 'numero' %}{{ valor|floatformat:"-2" }}
+                      {% else %}{{ valor }}{% endif %}
+                    {% endif %}
+                  {% endwith %}
+                </td>
+              {% endfor %}
+            </tr>
+          </tfoot>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+
+  {% endif %}
+
+{% elif pide_proyecto and not proyecto_opcional %}
+  <div class="alert alert-light border">
+    Elige un proyecto arriba y presiona <strong>Generar</strong>.
+    {% if not proyectos %}
+      <br><span class="text-muted">No tienes proyectos asignados todavía.</span>
+    {% endif %}
+  </div>
+{% endif %}
+{% endblock %}

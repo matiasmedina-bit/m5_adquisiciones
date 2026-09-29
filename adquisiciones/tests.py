@@ -12,7 +12,7 @@ from proveedores.models import Proveedor
 from proyectos.models import Proyecto
 from inventario.models import Material
 from solicitudes.models import SolicitudMaterial, SolicitudDetalle
-from .models import Cotizacion, CotizacionLinea, OrdenCompra
+from .models import Cotizacion, CotizacionLinea, OrdenCompra, OrdenCompraLinea
 
 
 class BaseAdq(TestCase):
@@ -265,3 +265,169 @@ class TrazabilidadCU47Test(BaseAdq):
     def test_la_trazabilidad_exige_sesion(self):
         self.client.logout()
         self.assertNotEqual(self._buscar("cemento").status_code, 200)
+
+
+# ==========================================================================
+#  Cortes de flujo corregidos — cadena de estados SM / OC
+# ==========================================================================
+
+class CortesDeFlujoTest(BaseAdq):
+    """
+    Los tres puntos donde la cadena de estados se quedaba sin salida.
+    Cada prueba fija un comportamiento que antes dejaba trabajo atascado.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from proveedores.models import Proveedor
+        self.sin_correo = Proveedor.objects.create(
+            nombre="Áridos Sin Correo", rut="22222222-2", correo="")
+        self.client.login(username="jp", password="clave12345")
+
+    def _oc(self, proveedor, estado=None):
+        orden = OrdenCompra.objects.create(
+            solicitud=self.sm, proveedor=proveedor, creada_por=self.ea,
+            estado=estado or OrdenCompra.Estado.BORRADOR)
+        OrdenCompraLinea.objects.create(
+            orden=orden, material=self.mat_a, descripcion="Cemento",
+            cantidad=10, unidad_medida="saco", valor_unitario=5000)
+        return orden
+
+    # --- Corte 1: proveedor sin correo dejaba la OC congelada en APROBADA ---
+
+    def test_una_oc_sin_correo_de_proveedor_igual_queda_emitida(self):
+        orden = self._oc(self.sin_correo)
+        self.client.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
+                         {"accion": "aprobar"})
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado, OrdenCompra.Estado.ENVIADA)
+        self.assertIsNotNone(orden.fecha_envio)
+
+    def test_esa_oc_sí_se_puede_recepcionar_despues(self):
+        """Era el síntoma real: bodega no podía recibir el material."""
+        orden = self._oc(self.sin_correo)
+        self.client.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
+                         {"accion": "aprobar"})
+        self.client.login(username="ea", password="clave12345")
+        self.client.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
+                         {"accion": "recepcion", "estado": OrdenCompra.Estado.RECIBIDA})
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado, OrdenCompra.Estado.RECIBIDA)
+
+    def test_el_sistema_avisa_que_hay_que_entregarla_por_otra_via(self):
+        orden = self._oc(self.sin_correo)
+        resp = self.client.post(
+            reverse("adquisiciones:orden_detalle", args=[orden.pk]),
+            {"accion": "aprobar"}, follow=True)
+        self.assertContains(resp, "no tiene correo registrado")
+
+    # --- Corte 2: NO_RECIBIDA era terminal ---
+
+    def test_una_oc_no_recibida_admite_la_entrega_atrasada(self):
+        orden = self._oc(self.prov1, estado=OrdenCompra.Estado.NO_RECIBIDA)
+        self.client.login(username="ea", password="clave12345")
+        self.client.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
+                         {"accion": "recepcion", "estado": OrdenCompra.Estado.RECIBIDA})
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado, OrdenCompra.Estado.RECIBIDA)
+
+    def test_una_oc_no_recibida_deja_la_sm_pendiente_no_muda(self):
+        from adquisiciones.views import _refrescar_estado_recepcion_sm
+        self._oc(self.prov1, estado=OrdenCompra.Estado.NO_RECIBIDA)
+        _refrescar_estado_recepcion_sm(self.sm)
+        self.sm.refresh_from_db()
+        self.assertEqual(self.sm.estado, SolicitudMaterial.Estado.OC_GENERADA)
+
+
+class SolicitudRechazadaTest(BaseAdq):
+    """Corte 3: una SM rechazada no se podía corregir y había que rehacerla."""
+
+    def setUp(self):
+        super().setUp()
+        self.sm.estado = SolicitudMaterial.Estado.ENVIADA
+        self.sm.save()
+
+    def test_el_rechazo_guarda_el_motivo(self):
+        self.client.login(username="jp", password="clave12345")
+        self.client.post(reverse("solicitudes:resolver", args=[self.sm.pk, "rechazar"]),
+                         {"motivo": "La cantidad de cemento no calza con el itemizado"})
+        self.sm.refresh_from_db()
+        self.assertEqual(self.sm.estado, SolicitudMaterial.Estado.RECHAZADA)
+        self.assertIn("no calza", self.sm.motivo_rechazo)
+
+    def test_el_encargado_ve_por_qué_se_la_rechazaron(self):
+        self.client.login(username="jp", password="clave12345")
+        self.client.post(reverse("solicitudes:resolver", args=[self.sm.pk, "rechazar"]),
+                         {"motivo": "Falta la justificación de la partida OG-02"})
+        self.client.login(username="ea", password="clave12345")
+        resp = self.client.get(reverse("solicitudes:detalle", args=[self.sm.pk]))
+        self.assertContains(resp, "Falta la justificación")
+
+    def test_puede_devolverla_a_borrador_conservando_todo(self):
+        self.sm.estado = SolicitudMaterial.Estado.RECHAZADA
+        self.sm.motivo_rechazo = "corregir cantidades"
+        self.sm.save()
+        lineas_antes = self.sm.detalles.count()
+        correlativo = self.sm.correlativo
+
+        self.client.login(username="ea", password="clave12345")
+        self.client.post(reverse("solicitudes:devolver_borrador", args=[self.sm.pk]))
+
+        self.sm.refresh_from_db()
+        self.assertEqual(self.sm.estado, SolicitudMaterial.Estado.BORRADOR)
+        self.assertEqual(self.sm.motivo_rechazo, "")
+        self.assertEqual(self.sm.correlativo, correlativo)      # no se pierde
+        self.assertEqual(self.sm.detalles.count(), lineas_antes)
+
+    def test_solo_se_devuelve_una_rechazada(self):
+        self.client.login(username="ea", password="clave12345")
+        self.client.post(reverse("solicitudes:devolver_borrador", args=[self.sm.pk]))
+        self.sm.refresh_from_db()
+        self.assertEqual(self.sm.estado, SolicitudMaterial.Estado.ENVIADA)  # sin cambios
+
+    def test_el_boton_aparece_en_la_pantalla(self):
+        self.sm.estado = SolicitudMaterial.Estado.RECHAZADA
+        self.sm.save()
+        self.client.login(username="ea", password="clave12345")
+        resp = self.client.get(reverse("solicitudes:detalle", args=[self.sm.pk]))
+        self.assertContains(resp, "Corregir y volver a enviar")
+
+
+class LecturaEntreModulosTest(BaseAdq):
+    """
+    Bodega y Contabilidad llegaban desde la trazabilidad y desde la factura a
+    pantallas que les devolvían 403. Ahora pueden leer lo que necesitan.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.bodeguero = Usuario.objects.create_user(
+            "bod_lec", password="clave12345", email="b@m5.cl", rol="BODEGUERO")
+        self.contador = Usuario.objects.create_user(
+            "cont_lec", password="clave12345", email="c@m5.cl", rol="CONTABILIDAD")
+        self.orden = OrdenCompra.objects.create(
+            solicitud=self.sm, proveedor=self.prov1, creada_por=self.ea,
+            estado=OrdenCompra.Estado.ENVIADA)
+
+    def test_bodega_abre_la_solicitud_desde_la_trazabilidad(self):
+        self.client.login(username="bod_lec", password="clave12345")
+        self.assertEqual(
+            self.client.get(reverse("solicitudes:detalle", args=[self.sm.pk])).status_code, 200)
+
+    def test_bodega_abre_la_orden_de_compra(self):
+        self.client.login(username="bod_lec", password="clave12345")
+        self.assertEqual(
+            self.client.get(reverse("adquisiciones:orden_detalle", args=[self.orden.pk])).status_code, 200)
+
+    def test_contabilidad_abre_la_oc_que_tiene_que_validar(self):
+        self.client.login(username="cont_lec", password="clave12345")
+        self.assertEqual(
+            self.client.get(reverse("adquisiciones:orden_detalle", args=[self.orden.pk])).status_code, 200)
+
+    def test_pero_bodega_no_puede_aprobar_una_oc(self):
+        """Abrir para leer no es poder actuar."""
+        self.client.login(username="bod_lec", password="clave12345")
+        self.client.post(reverse("adquisiciones:orden_detalle", args=[self.orden.pk]),
+                         {"accion": "aprobar"})
+        self.orden.refresh_from_db()
+        self.assertEqual(self.orden.estado, OrdenCompra.Estado.ENVIADA)

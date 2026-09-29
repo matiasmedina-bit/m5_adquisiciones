@@ -10,7 +10,6 @@
   <a href="{% url 'usuarios:crear' %}" class="btn btn-primary"><i class="bi bi-person-plus me-1"></i>Nueva cuenta</a>
 </div>
 
-{# ─── Solicitudes de registro pendientes ─── #}
 {% if pendientes %}
 <div class="card border-warning shadow-sm mb-4">
   <div class="card-header d-flex align-items-center gap-2 py-2" style="background:#fff8e1;border-color:#ffe082;">
@@ -60,7 +59,6 @@
 </div>
 {% endif %}
 
-{# ─── Resumen por rol (clic = filtrar) ─── #}
 <div class="row g-2 mb-3">
   <div class="col-6 col-md">
     <a href="{% url 'usuarios:lista' %}"
@@ -90,7 +88,6 @@
   {% endfor %}
 </div>
 
-{# ─── Barra de búsqueda y filtros ─── #}
 <form method="get" class="card shadow-sm mb-3">
   <div class="card-body py-3">
     <div class="row g-2 align-items-end">
@@ -135,7 +132,6 @@
 </p>
 {% endif %}
 
-{# ─── Usuarios seccionados por rol ─── #}
 {% for g in grupos %}
 <div class="card shadow-sm mb-3">
   <div class="card-header d-flex justify-content-between align-items-center py-2" role="button"
@@ -177,12 +173,15 @@
               <a href="{% url 'usuarios:editar' u.pk %}" class="btn btn-sm btn-outline-primary me-1" title="Editar">
                 <i class="bi bi-pencil"></i>
               </a>
-              <a href="{% url 'usuarios:cambiar_estado' u.pk %}"
-                 class="btn btn-sm {% if u.estado %}btn-outline-warning{% else %}btn-outline-success{% endif %}"
-                 title="{% if u.estado %}Inactivar{% else %}Activar{% endif %}"
-                 onclick="return confirm('¿{% if u.estado %}Inactivar{% else %}Activar{% endif %} la cuenta de {{ u.username }}?')">
-                {% if u.estado %}<i class="bi bi-person-x"></i>{% else %}<i class="bi bi-person-check"></i>{% endif %}
-              </a>
+              <form method="post" action="{% url 'usuarios:cambiar_estado' u.pk %}" class="d-inline"
+                    onsubmit="return confirm('¿{% if u.estado %}Inactivar{% else %}Activar{% endif %} la cuenta de {{ u.username }}?')">
+                {% csrf_token %}
+                <button type="submit"
+                        class="btn btn-sm {% if u.estado %}btn-outline-warning{% else %}btn-outline-success{% endif %}"
+                        title="{% if u.estado %}Inactivar{% else %}Activar{% endif %}">
+                  {% if u.estado %}<i class="bi bi-person-x"></i>{% else %}<i class="bi bi-person-check"></i>{% endif %}
+                </button>
+              </form>
             </td>
           </tr>
         {% endfor %}

@@ -190,7 +190,7 @@ def orden_lista(request):
     })
 
 
-@rol_requerido(EA, "JEFE_PROYECTO")
+@rol_requerido(EA, "JEFE_PROYECTO", "CONTABILIDAD", "BODEGUERO")
 def orden_detalle(request, pk):
     orden = get_object_or_404(
         OrdenCompra.objects.select_related("proveedor", "solicitud__proyecto"), pk=pk)
@@ -246,8 +246,15 @@ def orden_detalle(request, pk):
         # RF-38: actualizar el estado de recepción
         if accion == "recepcion" and request.user.rol in (EA, "ADMIN"):
             recepcion_form = RecepcionEstadoForm(request.POST)
-            if orden.estado not in (OrdenCompra.Estado.ENVIADA, OrdenCompra.Estado.RECEPCION_PARCIAL):
-                messages.error(request, "Solo se actualiza la recepción de una OC enviada.")
+            # NO_RECIBIDA se incluye a propósito: es el estado que se pone cuando
+            # el proveedor no entregó a tiempo, y la entrega atrasada es el caso
+            # normal. Si fuera terminal, una entrega tardía no se podría registrar.
+            if orden.estado not in (OrdenCompra.Estado.ENVIADA,
+                                    OrdenCompra.Estado.RECEPCION_PARCIAL,
+                                    OrdenCompra.Estado.NO_RECIBIDA):
+                messages.error(
+                    request,
+                    "La recepción sólo se actualiza sobre una OC ya emitida al proveedor.")
             elif recepcion_form.is_valid():
                 nuevo = recepcion_form.cleaned_data["estado"]
                 orden.estado = nuevo
@@ -343,6 +350,14 @@ def _enviar_orden_al_proveedor(request, orden):
     except ReportlabNoInstalado:
         messages.warning(request, "Se envió la OC sin PDF adjunto (falta la librería reportlab).")
 
+    # La OC se da por emitida aunque el correo falle. Antes el cambio de estado
+    # vivía dentro del "if hay correo", así que un proveedor sin correo dejaba la
+    # orden congelada en APROBADA: no se podía recepcionar en bodega, ni facturar,
+    # ni devolver a borrador. El correo es el medio de aviso, no el acto de emitir.
+    orden.estado = OrdenCompra.Estado.ENVIADA
+    orden.fecha_envio = timezone.now()
+    orden.save(update_fields=["estado", "fecha_envio"])
+
     if orden.proveedor.correo:
         _notificar(
             [orden.proveedor.correo],
@@ -351,24 +366,26 @@ def _enviar_orden_al_proveedor(request, orden):
             f"por un total de ${orden.total:,.0f}.\n\nSaludos,\nDepartamento de Adquisiciones — M5 SpA",
             adjunto=adjunto,
         )
-        orden.estado = OrdenCompra.Estado.ENVIADA
-        orden.fecha_envio = timezone.now()
-        orden.save(update_fields=["estado", "fecha_envio"])
         registrar(request.user, RegistroAuditoria.Accion.OC_ENVIADA,
                   f"Envió la orden de compra a {orden.proveedor.nombre} "
                   f"({orden.proveedor.correo}).", orden.correlativo)
-        # La SM queda con OC generada/enviada
-        if orden.solicitud.estado in (SolicitudMaterial.Estado.EN_COTIZACION,
-                                      SolicitudMaterial.Estado.APROBADA,
-                                      SolicitudMaterial.Estado.OC_GENERADA):
-            orden.solicitud.estado = SolicitudMaterial.Estado.OC_GENERADA
-            orden.solicitud.save(update_fields=["estado"])
         messages.success(request, f"OC {orden.correlativo} aprobada y enviada a {orden.proveedor.correo}.")
     else:
+        registrar(request.user, RegistroAuditoria.Accion.OC_ENVIADA,
+                  f"Emitió la orden de compra a {orden.proveedor.nombre} sin envío por correo "
+                  f"(el proveedor no tiene correo registrado).", orden.correlativo)
         messages.warning(
             request,
-            f"OC {orden.correlativo} aprobada, pero el proveedor no tiene correo registrado. No se envió.",
+            f"OC {orden.correlativo} emitida, pero {orden.proveedor.nombre} no tiene correo registrado: "
+            f"hay que hacérsela llegar por otra vía. Puedes descargar el PDF desde esta misma pantalla.",
         )
+
+    # La SM queda con OC generada, haya salido el correo o no
+    if orden.solicitud.estado in (SolicitudMaterial.Estado.EN_COTIZACION,
+                                  SolicitudMaterial.Estado.APROBADA,
+                                  SolicitudMaterial.Estado.OC_GENERADA):
+        orden.solicitud.estado = SolicitudMaterial.Estado.OC_GENERADA
+        orden.solicitud.save(update_fields=["estado"])
 
 
 def _refrescar_estado_recepcion_sm(solicitud):
@@ -381,6 +398,10 @@ def _refrescar_estado_recepcion_sm(solicitud):
         solicitud.estado = SolicitudMaterial.Estado.RECIBIDA
     elif estados & {OrdenCompra.Estado.RECEPCION_PARCIAL, OrdenCompra.Estado.RECIBIDA}:
         solicitud.estado = SolicitudMaterial.Estado.RECEPCION_PARCIAL
+    elif estados & {OrdenCompra.Estado.NO_RECIBIDA}:
+        # Alguna OC no llegó: la SM vuelve a OC_GENERADA para que se vea que
+        # sigue pendiente, en vez de quedarse muda esperando.
+        solicitud.estado = SolicitudMaterial.Estado.OC_GENERADA
     else:
         return
     solicitud.save(update_fields=["estado"])
