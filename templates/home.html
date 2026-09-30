@@ -11,6 +11,7 @@
   </div>
 </div>
 
+{# ─── Métricas globales ─── #}
 <div class="row g-3 mb-4">
   {% if user.rol == 'ADMIN' %}
   <div class="col-6 col-md-3">
@@ -66,6 +67,7 @@
   </div>
   {% endif %}
 
+  {# --- Bodega: lo suyo es lo que hay que recibir y lo que se está acabando --- #}
   {% if user.rol == 'BODEGUERO' or user.rol == 'ADMIN' %}
   <div class="col-6 col-md-3">
     <a href="{% url 'inventario:entrada_crear' %}" class="text-decoration-none">
@@ -110,6 +112,7 @@
   </div>
   {% endif %}
 
+  {# --- Contabilidad: lo bloqueado primero, que es lo que frena pagos --- #}
   {% if user.rol == 'CONTABILIDAD' or user.rol == 'ADMIN' %}
   <div class="col-6 col-md-3">
     <a href="{% url 'facturacion:lista' %}?estado=BLOQUEADA" class="text-decoration-none">
@@ -155,6 +158,7 @@
   {% endif %}
 </div>
 
+{# ─── Accesos rápidos ─── #}
 <h2 class="h6 text-muted text-uppercase fw-semibold mb-3" style="letter-spacing:.06em;">Módulos disponibles</h2>
 <div class="row g-3">
   {% if user.rol == 'ADMIN' %}
@@ -227,6 +231,7 @@
   </div>
   {% endif %}
 
+  {# --- Módulos del Incremento 3 y 4 --- #}
   {% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
   <div class="col-md-4 col-lg-3">
     <a href="{% url 'reportes:panel' %}" class="module-card p-3 h-100">

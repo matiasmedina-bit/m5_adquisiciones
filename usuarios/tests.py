@@ -11,6 +11,7 @@ from django.conf import settings
 from django.core import mail
 from decimal import Decimal
 from usuarios.models import ParametrosSistema
+from io import StringIO
 
 
 class ValidadorRutTest(TestCase):
@@ -404,3 +405,116 @@ class SesionPorInactividadCU55Test(TestCase):
         resp = cliente.get(reverse("home"))
         self.assertEqual(resp.status_code, 302)
         self.assertIn("/login/", resp.url)
+
+
+class PrepararProduccionTest(TestCase):
+    """
+    El comando que se corre una sola vez, en el servidor del cliente, para
+    dejar el sistema limpio con su administrador real. Se prueba a conciencia
+    porque no hay segunda oportunidad: si borra de más o deja al admin sin
+    permisos, el sistema queda arriba y nadie puede administrarlo.
+    """
+
+    def setUp(self):
+        from django.core.management import call_command
+        call_command("seed_demo", verbosity=0)
+
+    def _correr(self, **respuestas):
+        """Corre el comando simulando lo que escribiría el operador."""
+        from django.core.management import call_command
+        from unittest.mock import patch
+        entradas = iter([
+            respuestas.get("confirmacion", "BORRAR DEMO"),
+            respuestas.get("username", "m.medina"),
+            respuestas.get("nombre", "Matías"),
+            respuestas.get("apellido", "Medina"),
+            respuestas.get("email", "admin@constructoram5.cl"),
+            respuestas.get("telefono", "+56912345678"),
+        ])
+        claves = iter([respuestas.get("password", "ObraM5-2026!")] * 2)
+        salida = StringIO()
+        with patch("builtins.input", lambda *a: next(entradas)), \
+             patch("usuarios.management.commands.preparar_produccion.getpass",
+                   lambda *a: next(claves)):
+            call_command("preparar_produccion", stdout=salida, stderr=StringIO())
+        return salida.getvalue()
+
+    def test_borra_todos_los_datos_de_demostracion(self):
+        from proyectos.models import Proyecto
+        from solicitudes.models import SolicitudMaterial
+        from adquisiciones.models import OrdenCompra
+        from facturacion.models import Factura
+        from inventario.models import MovimientoInventario
+
+        self.assertTrue(Proyecto.objects.exists())   # la demo estaba cargada
+        self._correr()
+
+        self.assertFalse(Proyecto.objects.exists())
+        self.assertFalse(SolicitudMaterial.objects.exists())
+        self.assertFalse(OrdenCompra.objects.exists())
+        self.assertFalse(Factura.objects.exists())
+        self.assertFalse(MovimientoInventario.objects.exists())
+
+    def test_no_queda_ninguna_cuenta_de_demostracion(self):
+        self._correr()
+        for demo in ["admin", "jefe", "encargado", "bodega", "contador"]:
+            self.assertFalse(Usuario.objects.filter(username=demo).exists(), demo)
+
+    def test_el_administrador_queda_con_rol_ADMIN(self):
+        """El error clásico: createsuperuser lo dejaba como BODEGUERO."""
+        self._correr()
+        admin = Usuario.objects.get(username="m.medina")
+        self.assertEqual(admin.rol, Usuario.Rol.ADMIN)
+        self.assertTrue(admin.is_superuser)
+        self.assertTrue(admin.estado)
+        self.assertFalse(admin.pendiente_aprobacion)
+
+    def test_el_administrador_puede_entrar_de_inmediato(self):
+        self._correr()
+        cliente = Client()
+        self.assertTrue(cliente.login(username="m.medina", password="ObraM5-2026!"))
+        # y llega a las dos pantallas que sólo ve un administrador
+        self.assertEqual(cliente.get(reverse("usuarios:lista")).status_code, 200)
+        self.assertEqual(cliente.get(reverse("usuarios:parametros")).status_code, 200)
+
+    def test_queda_una_sola_cuenta(self):
+        self._correr()
+        self.assertEqual(Usuario.objects.count(), 1)
+
+    def test_los_parametros_sobreviven_con_sus_valores_por_defecto(self):
+        self._correr()
+        self.assertTrue(ParametrosSistema.objects.exists())
+
+    def test_sin_la_frase_exacta_no_borra_nada(self):
+        from proyectos.models import Proyecto
+        from django.core.management.base import CommandError
+        antes = Proyecto.objects.count()
+        with self.assertRaises(CommandError):
+            self._correr(confirmacion="si")
+        self.assertEqual(Proyecto.objects.count(), antes)
+
+    def test_la_bitacora_de_la_demo_no_viaja_al_cliente(self):
+        """Son acciones que nunca ocurrieron en M5: ensucian la evidencia."""
+        from auditoria.models import RegistroAuditoria
+        self.assertTrue(RegistroAuditoria.objects.exists())
+        self._correr()
+        self.assertFalse(RegistroAuditoria.objects.exists())
+
+    def test_se_puede_conservar_el_catalogo(self):
+        from django.core.management import call_command
+        from unittest.mock import patch
+        from inventario.models import Material
+        entradas = iter(["BORRAR DEMO", "m.medina", "Matías", "Medina",
+                         "admin@constructoram5.cl", ""])
+        claves = iter(["ObraM5-2026!"] * 2)
+        with patch("builtins.input", lambda *a: next(entradas)), \
+             patch("usuarios.management.commands.preparar_produccion.getpass",
+                   lambda *a: next(claves)):
+            call_command("preparar_produccion", conservar_catalogo=True,
+                         stdout=StringIO(), stderr=StringIO())
+        self.assertTrue(Material.objects.exists())
+
+    def test_imprime_lo_que_falta_por_hacer(self):
+        salida = self._correr()
+        self.assertIn("Rotar la contraseña de PostgreSQL", salida)
+        self.assertIn("EMAIL_", salida)

@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Parámetros del sistema{% endblock %}
 {% block content %}
+{# CU-60 (RF-57) — Configurando parámetros generales del sistema #}
 <div class="mb-3">
   <h1 class="h3 mb-0">Parámetros del sistema</h1>
   <small class="text-muted">
@@ -90,6 +91,8 @@
   </div>
 </form>
 
+{# Cuarto parámetro del RF-57: el catálogo de tipos de documento. Vive en su
+   propia pantalla desde el CU-54; acá va el resumen y el acceso. #}
 <div class="card shadow-sm mt-4">
   <div class="card-header d-flex justify-content-between align-items-center py-2">
     <span class="fw-semibold">Catálogo de tipos de documento</span>

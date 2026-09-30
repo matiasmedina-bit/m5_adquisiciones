@@ -33,6 +33,12 @@ class Usuario(AbstractUser):
     estado = models.BooleanField("Activo", default=True)
     pendiente_aprobacion = models.BooleanField("Pendiente de aprobación", default=False)
 
+    # `createsuperuser` sólo pregunta por lo que esté acá. Sin `rol`, el primer
+    # administrador del sistema quedaba creado como BODEGUERO —el default del
+    # campo— y no podía entrar a Usuarios ni a Parámetros. Es el clásico error
+    # de día de instalación: el sistema queda arriba y nadie puede administrarlo.
+    REQUIRED_FIELDS = ["email", "rol"]
+
     class Meta:
         verbose_name = "Usuario"
         verbose_name_plural = "Usuarios"

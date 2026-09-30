@@ -12,6 +12,7 @@
   {% endif %}
 </div>
 
+{# --- Métricas --- #}
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-3">
     <a href="?estado=" class="text-decoration-none">
@@ -75,6 +76,7 @@
   </div>
 </div>
 
+{# --- Filtro por estado --- #}
 <div class="mb-3 d-flex gap-2 flex-wrap">
   <a href="?" class="btn btn-sm {% if not estado_filtro %}btn-secondary{% else %}btn-outline-secondary{% endif %}">Todas</a>
   <a href="?estado=BORRADOR" class="btn btn-sm {% if estado_filtro == 'BORRADOR' %}btn-secondary{% else %}btn-outline-secondary{% endif %}">Borrador</a>
@@ -83,6 +85,7 @@
   <a href="?estado=RECHAZADA" class="btn btn-sm {% if estado_filtro == 'RECHAZADA' %}btn-danger{% else %}btn-outline-danger{% endif %}">Rechazadas</a>
 </div>
 
+{# --- Tabla --- #}
 <div class="card shadow-sm">
   <div class="card-header d-flex justify-content-between align-items-center py-2">
     <span class="fw-semibold">Listado{% if estado_filtro %} — {{ estado_filtro|capfirst }}{% endif %}</span>

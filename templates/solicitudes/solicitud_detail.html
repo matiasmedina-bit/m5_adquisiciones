@@ -2,6 +2,7 @@
 {% block title %}{{ solicitud.correlativo }}{% endblock %}
 {% block content %}
 
+{# --- Encabezado --- #}
 <div class="d-flex justify-content-between align-items-start mb-3">
   <div>
     <h1 class="h3 mb-0">{{ solicitud.correlativo }}</h1>
@@ -26,6 +27,7 @@
 </div>
 {% endif %}
 
+{# --- Progreso de estados --- #}
 <div class="card shadow-sm mb-3">
   <div class="card-body py-3">
     <div class="d-flex align-items-center justify-content-between position-relative">
@@ -44,8 +46,10 @@
 </div>
 
 <div class="row g-3">
+  {# --- Columna principal --- #}
   <div class="col-lg-8">
 
+    {# Materiales --- #}
     <div class="card shadow-sm mb-3">
       <div class="card-header d-flex justify-content-between align-items-center py-2">
         <span class="fw-semibold">Materiales solicitados</span>
@@ -119,6 +123,7 @@
       </div>
     </div>
 
+    {# Agregar material (borrador + encargado o admin) — RF-16 --- #}
     {% if solicitud.editable and puede_gestionar %}
     <div class="card shadow-sm mb-3">
       <div class="card-header py-2 fw-semibold">Agregar material</div>
@@ -126,6 +131,8 @@
         <form method="post">
           {% csrf_token %}
           <input type="hidden" name="accion" value="agregar_material">
+          {# data-proyecto: el buscador lo usa para pedir las partidas del
+             itemizado por API y traer el saldo de cada una (CU-13). #}
           <div class="row g-2 formset-row" data-proyecto="{{ solicitud.proyecto_id }}">
             <div class="col-md-3">
               <label class="form-label small mb-1">Proveedor</label>
@@ -163,6 +170,7 @@
             <div class="col-md-3 celda-partida">
               <label class="form-label small mb-1">Partida del itemizado</label>
               {{ form.partida }}
+              {# CU-13: alerta visual cuando la cantidad supera el saldo #}
               <div class="alerta-itemizado alert alert-warning py-1 px-2 mt-1 mb-0 small" style="display:none;">
                 <strong>⚠ Excede el itemizado.</strong>
                 <span class="texto-exceso"></span>
@@ -180,6 +188,7 @@
     </div>
     {% endif %}
 
+    {# RF-17: adjuntos de respaldo --- #}
     <div class="card shadow-sm mb-3">
       <div class="card-header d-flex justify-content-between align-items-center py-2">
         <span class="fw-semibold">Archivos de respaldo</span>
@@ -229,6 +238,7 @@
       </div>
     </div>
 
+    {# RF-39: órdenes de compra asociadas y su estado de recepción --- #}
     {% if ordenes_compra %}
     <div class="card shadow-sm mb-3">
       <div class="card-header py-2 fw-semibold">Órdenes de compra y recepción (RF-39)</div>
@@ -252,6 +262,7 @@
     </div>
     {% endif %}
 
+    {# Editar cabecera (borrador + encargado) --- #}
     {% if solicitud.editable and puede_gestionar %}
     <div class="card shadow-sm mb-3">
       <div class="card-header py-2 fw-semibold" role="button" data-bs-toggle="collapse" data-bs-target="#cab-collapse">
@@ -276,8 +287,9 @@
     </div>
     {% endif %}
 
-  </div>
+  </div>{# fin col-lg-8 #}
 
+  {# --- Panel lateral de acciones --- #}
   <div class="col-lg-4">
     <div class="card shadow-sm mb-3">
       <div class="card-header py-2 fw-semibold">Información</div>
@@ -307,6 +319,7 @@
             ✏ Editar datos generales
           </a>
           {% if solicitud.total_items > 0 %}
+            {# Cambia el estado del sistema: va por POST y con CSRF, no por un enlace #}
             <form method="post" action="{% url 'solicitudes:enviar' solicitud.pk %}"
                   onsubmit="return confirm('¿Enviar esta solicitud para aprobación?')">
               {% csrf_token %}
@@ -325,6 +338,7 @@
           </form>
           <form method="post" action="{% url 'solicitudes:resolver' solicitud.pk 'rechazar' %}">
             {% csrf_token %}
+            {# El motivo no es adorno: es lo que el Encargado lee para saber qué corregir #}
             <label class="form-label small mb-1 mt-2">Motivo del rechazo</label>
             <input type="text" name="motivo" class="form-control form-control-sm mb-2"
                    placeholder="Ej: la cantidad de cemento no calza con el itemizado" required>
@@ -333,6 +347,7 @@
         {% endif %}
 
         {% if solicitud.estado == 'RECHAZADA' and puede_gestionar %}
+          {# Sin esto la solicitud rechazada era un callejón sin salida #}
           <form method="post" action="{% url 'solicitudes:devolver_borrador' solicitud.pk %}">
             {% csrf_token %}
             <button type="submit" class="btn btn-warning w-100">↩ Corregir y volver a enviar</button>
@@ -353,6 +368,6 @@
     </div>
   </div>
 
-</div>
+</div>{# fin row #}
 {% if solicitud.editable and puede_gestionar %}{% include 'solicitudes/_buscador_material.html' %}{% endif %}
 {% endblock %}

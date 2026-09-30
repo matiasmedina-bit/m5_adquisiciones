@@ -10,6 +10,7 @@
   <a href="{% url 'inventario:lista' %}" class="btn btn-outline-secondary">Catálogo</a>
 </div>
 
+{# --- Acciones rápidas --- #}
 <div class="row g-2 mb-4">
   <div class="col-6 col-md-3"><a href="{% url 'inventario:entrada_crear' %}" class="btn btn-primary w-100"><i class="bi bi-box-arrow-in-down me-1"></i>Entrada</a></div>
   <div class="col-6 col-md-3"><a href="{% url 'inventario:salida_crear' %}" class="btn btn-primary w-100"><i class="bi bi-box-arrow-up me-1"></i>Salida a obra</a></div>
@@ -20,6 +21,7 @@
   <div class="col-6 col-md-3"><a href="{% url 'inventario:movimiento_lista' %}" class="btn btn-outline-secondary w-100">Historial de movimientos</a></div>
 </div>
 
+{# --- RF-37: alertas de stock mínimo --- #}
 <div class="card shadow-sm mb-3">
   <div class="card-header py-2 fw-semibold">
     <i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>Materiales en o bajo su stock mínimo (RF-37)
@@ -43,6 +45,7 @@
   </div>
 </div>
 
+{# --- Últimos movimientos --- #}
 <div class="card shadow-sm">
   <div class="card-header py-2 fw-semibold">Últimos movimientos</div>
   <div class="table-responsive">
