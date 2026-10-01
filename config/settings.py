@@ -162,7 +162,7 @@ EMPRESA_RUT = os.getenv("EMPRESA_RUT", "76.123.456-7")
 EMPRESA_GIRO = os.getenv("EMPRESA_GIRO", "Construcción y habilitación de espacios")
 EMPRESA_DIRECCION = os.getenv("EMPRESA_DIRECCION", "Ictinos 716, La Reina, Santiago")
 
-# --- Parámetro de negocio (RF-41): tolerancia % entre el monto de la factura y
-# el de la(s) OC asociada(s). Si se excede, la factura queda BLOQUEADA hasta que
-# Administración la desbloquee (RF-42). Configurable por .env. ---
-FACTURA_TOLERANCIA_PCT = float(os.getenv("FACTURA_TOLERANCIA_PCT", "5"))
+# La tolerancia de facturación ya no se configura acá. Desde el CU-60 (RF-57)
+# vive en ParametrosSistema y se cambia desde la pantalla de Parámetros, sin
+# tocar archivos ni reiniciar el servidor. Si esta constante siguiera existiendo,
+# alguien la cambiaría en el .env y se preguntaría por qué no pasa nada.

@@ -75,8 +75,7 @@
             </a>
           </li>
         {% endif %}
-        {# CU-47: la trazabilidad la consulta todo el que tiene que responder
-           «¿dónde está esto?» — compras, obra, bodega y contabilidad. #}
+
         {% if user.is_authenticated %}
           <li class="nav-item">
             <a class="nav-link {% if request.resolver_match.url_name == 'trazabilidad' %}active{% endif %}"
@@ -93,7 +92,7 @@
             </a>
           </li>
         {% endif %}
-        {# Reportes: los roles que nombran RF-41 a RF-44 #}
+
         {% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
           <li class="nav-item">
             <a class="nav-link {% if request.resolver_match.app_name == 'reportes' %}active{% endif %}"
@@ -110,7 +109,7 @@
             </a>
           </li>
         {% endif %}
-        {# CU-53: la bitácora la revisan Administración y Contabilidad #}
+
         {% if user.rol == 'CONTABILIDAD' or user.rol == 'ADMIN' %}
           <li class="nav-item">
             <a class="nav-link {% if request.resolver_match.app_name == 'auditoria' %}active{% endif %}"

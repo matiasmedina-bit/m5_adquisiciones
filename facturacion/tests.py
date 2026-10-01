@@ -17,7 +17,6 @@ from adquisiciones.models import OrdenCompra, OrdenCompraLinea
 from .models import Factura
 
 
-@override_settings(FACTURA_TOLERANCIA_PCT=5)
 class FacturaTest(TestCase):
 
     def setUp(self):
