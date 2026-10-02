@@ -11,7 +11,10 @@ Columnas reconocidas (basta con 'código' y 'descripción'):
     descripción -> descripcion, detalle, material, producto, nombre, glosa
     unidad      -> unidad de medida, um, u.m., medida
     precio      -> valor, valor unitario, precio unitario, neto, $
-    condición   -> condicion de pago, forma de pago, pago
+
+La condición de pago no se lee de la planilla: se acuerda con el proveedor y
+se guarda en su ficha. Si la lista de precios trae una columna de condiciones,
+simplemente se ignora.
 """
 from decimal import Decimal, InvalidOperation
 
@@ -29,28 +32,9 @@ SINONIMOS = {
     "unidad": ("unidad", "unidad de medida", "um", "u m", "medida", "un"),
     "precio": ("precio", "valor", "valor unitario", "precio unitario", "neto",
                "precio neto", "valor neto", "$", "monto"),
-    "condicion": ("condicion", "condicion de pago", "forma de pago", "pago",
-                  "condiciones", "condiciones de pago"),
 }
 
 _TILDES = str.maketrans("áéíóúüñÁÉÍÓÚÜÑ", "aeiouunAEIOUUN")
-
-CONDICIONES = {
-    "contado": "CONTADO",
-    "al contado": "CONTADO",
-    "efectivo": "CONTADO",
-    "0": "CONTADO",
-    "30": "30_DIAS",
-    "30 dias": "30_DIAS",
-    "30 d": "30_DIAS",
-    "60": "60_DIAS",
-    "60 dias": "60_DIAS",
-    "60 d": "60_DIAS",
-    "90": "90_DIAS",
-    "90 dias": "90_DIAS",
-    "90 d": "90_DIAS",
-}
-
 
 def _normalizar(texto):
     """minúsculas, sin tildes, sin puntuación de separación, sin espacios dobles."""
@@ -98,22 +82,6 @@ def _a_entero(valor):
         return int(round(float(Decimal(txt))))
     except (InvalidOperation, ValueError):
         return 0
-
-
-def _a_condicion(valor):
-    """Mapea el texto de la planilla a una de las opciones del modelo."""
-    clave = _normalizar(valor)
-    if not clave:
-        return ""
-    if clave in CONDICIONES:
-        return CONDICIONES[clave]
-    # '30 dias corridos', 'a 60 dias', 'pago 90 dias'...
-    for numero, opcion in (("30", "30_DIAS"), ("60", "60_DIAS"), ("90", "90_DIAS")):
-        if numero in clave:
-            return opcion
-    if "contado" in clave or "efectivo" in clave:
-        return "CONTADO"
-    return ""
 
 
 # --------------------------------------------------------------------------
@@ -206,7 +174,6 @@ def importar_catalogo(proveedor: Proveedor, archivo, reemplazar=False) -> Result
     i_desc = columnas["descripcion"]
     i_uni = columnas.get("unidad")
     i_pre = columnas.get("precio")
-    i_con = columnas.get("condicion")
 
     codigos_vistos = set()
 
@@ -244,7 +211,6 @@ def importar_catalogo(proveedor: Proveedor, archivo, reemplazar=False) -> Result
             "descripcion": descripcion[:200],
             "unidad_medida": (str(celda(i_uni) or "").strip() or "un")[:20],
             "precio": _a_entero(celda(i_pre)),
-            "condicion_pago": _a_condicion(celda(i_con)),
             "disponible": True,
         }
 
@@ -287,7 +253,7 @@ def generar_plantilla() -> bytes:
     hoja = libro.active
     hoja.title = "Catálogo"
 
-    encabezados = ["Código", "Descripción", "Unidad", "Precio", "Condición de pago"]
+    encabezados = ["Código", "Descripción", "Unidad", "Precio"]
     hoja.append(encabezados)
 
     relleno = PatternFill("solid", fgColor="1F3B4D")
@@ -297,10 +263,10 @@ def generar_plantilla() -> bytes:
         celda.fill = relleno
         celda.alignment = Alignment(horizontal="center")
 
-    hoja.append(["CEM-001", "Cemento Portland 25 kg", "saco", 5490, "30 días"])
-    hoja.append(["FIE-014", "Fierro estriado 8 mm x 6 m", "un", 3990, "Contado"])
+    hoja.append(["CEM-001", "Cemento Portland 25 kg", "saco", 5490])
+    hoja.append(["FIE-014", "Fierro estriado 8 mm x 6 m", "un", 3990])
 
-    for col, ancho in zip("ABCDE", (14, 42, 10, 12, 20)):
+    for col, ancho in zip("ABCD", (14, 42, 10, 12)):
         hoja.column_dimensions[col].width = ancho
     hoja.freeze_panes = "A2"
 

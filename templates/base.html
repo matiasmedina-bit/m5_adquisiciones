@@ -120,16 +120,18 @@
         {% endif %}
       </ul>
       <div class="d-flex align-items-center gap-2 mt-2 mt-lg-0">
-        <div class="d-flex align-items-center gap-2 pe-2 border-end border-white border-opacity-25">
-          <div class="rounded-circle bg-white bg-opacity-25 d-flex align-items-center justify-content-center"
-               style="width:30px;height:30px;font-size:.8rem;color:#fff;font-weight:700;">
-            {{ user.username|first|upper }}
-          </div>
-          <div class="lh-1">
-            <div class="navbar-text" style="font-size:.8rem;color:#fff;">{{ user.get_full_name|default:user.username }}</div>
-            <div style="font-size:.7rem;color:rgba(255,255,255,.6);">{{ user.get_rol_display }}</div>
-          </div>
-        </div>
+        <a href="{% url 'usuarios:mi_perfil' %}"
+           class="m5-perfil-link d-flex align-items-center gap-2 pe-2 border-end border-white border-opacity-25"
+           title="Mi perfil">
+          <span class="m5-avatar-nav">
+            {% if user.foto %}<img src="{{ user.foto.url }}" alt="">
+            {% else %}{{ user.iniciales }}{% endif %}
+          </span>
+          <span class="lh-1">
+            <span class="navbar-text d-block" style="font-size:.8rem;color:#fff;">{{ user.get_full_name|default:user.username }}</span>
+            <span class="d-block" style="font-size:.7rem;color:rgba(255,255,255,.6);">{{ user.get_rol_display }}</span>
+          </span>
+        </a>
         <form method="post" action="{% url 'logout' %}" class="d-inline">
           {% csrf_token %}
           <button type="submit" class="btn-logout btn"><i class="bi bi-box-arrow-right me-1"></i>Salir</button>

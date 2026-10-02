@@ -154,13 +154,22 @@ EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True").lower() == "true"
-DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "adquisiciones@m5.cl")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "adquisiciones@m-5.cl")
 
-# --- Datos de facturación de Constructora M5 SpA (RF-23 autocompletado de la OC) ---
+# --- Datos de la empresa: encabezado de la orden de compra ---
+# Tomados de las órdenes de compra que M5 emite hoy, para que el documento que
+# genera el sistema sea el mismo que sus proveedores ya reconocen. Se pueden
+# sobrescribir desde el .env sin tocar código.
 EMPRESA_RAZON_SOCIAL = os.getenv("EMPRESA_RAZON_SOCIAL", "Constructora M5 SpA")
-EMPRESA_RUT = os.getenv("EMPRESA_RUT", "76.123.456-7")
-EMPRESA_GIRO = os.getenv("EMPRESA_GIRO", "Construcción y habilitación de espacios")
+EMPRESA_RUT = os.getenv("EMPRESA_RUT", "76.025.801-6")
+EMPRESA_GIRO = os.getenv(
+    "EMPRESA_GIRO",
+    "Ingeniería, construcción, proyectos y montajes eléctricos",
+)
 EMPRESA_DIRECCION = os.getenv("EMPRESA_DIRECCION", "Ictinos 716, La Reina, Santiago")
+EMPRESA_TELEFONO = os.getenv("EMPRESA_TELEFONO", "(56 2) 227 31 13")
+EMPRESA_EMAIL = os.getenv("EMPRESA_EMAIL", "adquisiciones@m-5.cl")
+EMPRESA_WEB = os.getenv("EMPRESA_WEB", "www.m-5.cl")
 
 # La tolerancia de facturación ya no se configura acá. Desde el CU-60 (RF-57)
 # vive en ParametrosSistema y se cambia desde la pantalla de Parámetros, sin

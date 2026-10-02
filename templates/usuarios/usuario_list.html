@@ -59,6 +59,54 @@
 </div>
 {% endif %}
 
+{% if cambios_pendientes %}
+<div class="card border-info shadow-sm mb-4">
+  <div class="card-header d-flex align-items-center gap-2 py-2" style="background:#e7f5f8;border-color:#b6e0ea;">
+    <i class="bi bi-pencil-square text-info fs-5"></i>
+    <span class="fw-semibold">Cambios de datos pedidos por los usuarios</span>
+    <span class="badge bg-info text-dark ms-1">{{ cambios_pendientes|length }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead class="table-light">
+        <tr><th>Usuario</th><th>Dato</th><th>Ahora</th><th>Pide</th><th>Motivo</th><th class="text-center">Acción</th></tr>
+      </thead>
+      <tbody>
+      {% for c in cambios_pendientes %}
+        <tr>
+          <td class="fw-semibold">
+            {{ c.usuario.username }}
+            <div class="text-muted fw-normal" style="font-size:.75rem;">{{ c.creada|date:"d-m-Y H:i" }}</div>
+          </td>
+          <td>{{ c.get_campo_display }}</td>
+          <td class="text-muted small">{{ c.valor_actual|default:"—" }}</td>
+          <td class="fw-semibold small">{{ c.valor_solicitado }}</td>
+          <td class="text-muted small">{{ c.motivo|default:"—"|truncatechars:70 }}</td>
+          <td class="text-center text-nowrap">
+            <form method="post" action="{% url 'usuarios:resolver_cambio' c.pk %}" class="d-inline">
+              {% csrf_token %}
+              <input type="hidden" name="decision" value="aprobar">
+              <button type="submit" class="btn btn-sm btn-success me-1"
+                      onclick="return confirm('¿Aplicar el cambio a {{ c.usuario.username }}?')">
+                <i class="bi bi-check-lg"></i> Aprobar
+              </button>
+            </form>
+            <form method="post" action="{% url 'usuarios:resolver_cambio' c.pk %}" class="d-inline">
+              {% csrf_token %}
+              <input type="hidden" name="decision" value="rechazar">
+              <button type="submit" class="btn btn-sm btn-outline-danger">
+                <i class="bi bi-x-lg"></i> Rechazar
+              </button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 <div class="row g-2 mb-3">
   <div class="col-6 col-md">
     <a href="{% url 'usuarios:lista' %}"
@@ -158,7 +206,10 @@
           <tr>
             <td>
               <div class="d-flex align-items-center gap-2">
-                <span class="m5-avatar">{{ u.username|first|upper }}</span>
+                <span class="m5-avatar">
+                  {% if u.foto %}<img src="{{ u.foto.url }}" alt="">
+                  {% else %}{{ u.iniciales }}{% endif %}
+                </span>
                 <span class="fw-semibold">{{ u.username }}</span>
               </div>
             </td>
@@ -177,11 +228,20 @@
                     onsubmit="return confirm('¿{% if u.estado %}Inactivar{% else %}Activar{% endif %} la cuenta de {{ u.username }}?')">
                 {% csrf_token %}
                 <button type="submit"
-                        class="btn btn-sm {% if u.estado %}btn-outline-warning{% else %}btn-outline-success{% endif %}"
+                        class="btn btn-sm {% if u.estado %}btn-outline-warning{% else %}btn-outline-success{% endif %} me-1"
                         title="{% if u.estado %}Inactivar{% else %}Activar{% endif %}">
                   {% if u.estado %}<i class="bi bi-person-x"></i>{% else %}<i class="bi bi-person-check"></i>{% endif %}
                 </button>
               </form>
+              {% if u.pk != user.pk %}
+              <form method="post" action="{% url 'usuarios:eliminar' u.pk %}" class="d-inline"
+                    onsubmit="return confirm('Eliminar borra la cuenta de {{ u.username }} para siempre y no se puede deshacer.\n\nSi la persona ya trabajó en el sistema, no se va a poder borrar: en ese caso inactívala.\n\n¿Continuar?')">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar cuenta">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+              {% endif %}
             </td>
           </tr>
         {% endfor %}

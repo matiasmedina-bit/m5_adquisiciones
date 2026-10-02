@@ -1,7 +1,7 @@
 """Formularios del módulo de usuarios (CU-51 Gestionando cuentas)."""
 from django import forms
 from django.contrib.auth.forms import UserCreationForm, UserChangeForm
-from .models import Usuario, ParametrosSistema
+from .models import Usuario, ParametrosSistema, SolicitudCambioPerfil
 
 
 class RegistroSolicitudForm(UserCreationForm):
@@ -181,3 +181,116 @@ class ParametrosSistemaForm(forms.ModelForm):
             "umbral_archivo_mb": forms.NumberInput(attrs={
                 "class": "form-control", "step": "1", "min": "1", "max": "500"}),
         }
+
+
+class MiPerfilForm(forms.ModelForm):
+    """
+    Lo que cada persona puede cambiar de su cuenta sin pedirle permiso a nadie.
+
+    Nombre, apellido, teléfono y foto son datos de contacto: equivocarse en
+    ellos no le da acceso a nada a nadie. El correo, el nombre de usuario y el
+    rol quedan fuera a propósito y se piden por SolicitudCambioPerfil.
+    """
+    class Meta:
+        model = Usuario
+        fields = ["first_name", "last_name", "telefono", "foto"]
+        widgets = {
+            "first_name": forms.TextInput(attrs={"class": "form-control"}),
+            "last_name": forms.TextInput(attrs={"class": "form-control"}),
+            "telefono": forms.TextInput(attrs={
+                "class": "form-control", "placeholder": "+56 9 xxxx xxxx"}),
+            "foto": forms.ClearableFileInput(attrs={
+                "class": "form-control", "accept": "image/*"}),
+        }
+
+    EXT_PERMITIDAS = (".jpg", ".jpeg", ".png", ".webp")
+    TAM_MAX_MB = 3
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["first_name"].required = True
+        self.fields["last_name"].required = True
+        self.fields["first_name"].label = "Nombre"
+        self.fields["last_name"].label = "Apellido"
+
+    def clean_foto(self):
+        foto = self.cleaned_data.get("foto")
+        # Si no la tocó, viene el archivo que ya estaba guardado: no hay nada
+        # que validar y `name` puede traer la ruta completa de media/.
+        if not foto or not hasattr(foto, "content_type"):
+            return foto
+        import os
+        ext = os.path.splitext(foto.name)[1].lower()
+        if ext not in self.EXT_PERMITIDAS:
+            raise forms.ValidationError(
+                "La foto debe ser JPG, PNG o WEBP."
+            )
+        if foto.size > self.TAM_MAX_MB * 1024 * 1024:
+            raise forms.ValidationError(
+                f"La foto supera los {self.TAM_MAX_MB} MB. "
+                "Sácale una captura más chica o bájale la resolución."
+            )
+        return foto
+
+
+class SolicitudCambioPerfilForm(forms.ModelForm):
+    """Pedido de cambio de un dato que decide el administrador."""
+
+    class Meta:
+        model = SolicitudCambioPerfil
+        fields = ["campo", "valor_solicitado", "motivo"]
+        widgets = {
+            "campo": forms.Select(attrs={"class": "form-select"}),
+            "valor_solicitado": forms.TextInput(attrs={
+                "class": "form-control", "placeholder": "El valor nuevo"}),
+            "motivo": forms.Textarea(attrs={
+                "class": "form-control", "rows": 2,
+                "placeholder": "Por qué lo necesitas. Le ayuda al administrador a decidir."}),
+        }
+        labels = {"valor_solicitado": "Valor que pides"}
+
+    def __init__(self, *args, usuario=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.usuario = usuario
+        self.fields["motivo"].required = True
+
+    def clean_valor_solicitado(self):
+        valor = (self.cleaned_data.get("valor_solicitado") or "").strip()
+        if not valor:
+            raise forms.ValidationError("Escribe el valor que necesitas.")
+        return valor
+
+    def clean(self):
+        datos = super().clean()
+        campo = datos.get("campo")
+        valor = datos.get("valor_solicitado")
+        if not campo or not valor or self.usuario is None:
+            return datos
+
+        actual = getattr(self.usuario, campo, "")
+        if str(actual).strip().lower() == valor.strip().lower():
+            self.add_error("valor_solicitado",
+                           "Ese es el valor que ya tienes.")
+            return datos
+
+        if campo == SolicitudCambioPerfil.Campo.EMAIL:
+            try:
+                forms.EmailField().clean(valor)
+            except forms.ValidationError:
+                self.add_error("valor_solicitado", "No parece un correo válido.")
+                return datos
+            if Usuario.objects.filter(email__iexact=valor).exclude(pk=self.usuario.pk).exists():
+                self.add_error("valor_solicitado",
+                               "Ese correo ya está en otra cuenta.")
+        elif campo == SolicitudCambioPerfil.Campo.USERNAME:
+            if Usuario.objects.filter(username__iexact=valor).exclude(pk=self.usuario.pk).exists():
+                self.add_error("valor_solicitado",
+                               "Ese nombre de usuario ya está tomado.")
+        elif campo == SolicitudCambioPerfil.Campo.ROL:
+            validos = dict(Usuario.Rol.choices)
+            if valor.upper() not in validos:
+                self.add_error(
+                    "valor_solicitado",
+                    "Rol desconocido. Son: " + ", ".join(validos),
+                )
+        return datos

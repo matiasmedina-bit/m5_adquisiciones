@@ -12,6 +12,33 @@ class ReportlabNoInstalado(RuntimeError):
     pass
 
 
+def _cantidad(valor):
+    """10.00 se imprime «10»; 2.50 se imprime «2.5». Los decimales sólo
+    aparecen cuando el material realmente se pide fraccionado."""
+    texto = f"{valor:f}"
+    if "." in texto:
+        texto = texto.rstrip("0").rstrip(".")
+    return texto or "0"
+
+
+def _fecha_larga(valor):
+    """«jueves, 23 de julio de 2026», en la zona horaria de Chile.
+
+    Es el formato que usan las órdenes de compra que M5 emite hoy. Si la
+    localización fallara por cualquier motivo, cae a dd-mm-aaaa antes que
+    dejar la orden sin fecha.
+    """
+    from django.utils import timezone
+    from django.utils.formats import date_format
+
+    if timezone.is_aware(valor):
+        valor = timezone.localtime(valor)
+    try:
+        return date_format(valor, r"l, j \d\e F \d\e Y")
+    except Exception:  # pragma: no cover
+        return valor.strftime("%d-%m-%Y")
+
+
 def generar_pdf_orden(orden) -> bytes:
     """Devuelve el PDF de la orden como bytes. Lanza ReportlabNoInstalado si falta la librería."""
     try:
@@ -50,37 +77,46 @@ def generar_pdf_orden(orden) -> bytes:
             encabezado_izq = []
     encabezado_der = Paragraph(
         f"<b>{settings.EMPRESA_RAZON_SOCIAL}</b><br/>"
-        f"RUT: {settings.EMPRESA_RUT}<br/>"
-        f"Giro: {settings.EMPRESA_GIRO}<br/>"
-        f"{settings.EMPRESA_DIRECCION}",
+        f"R.U.T.: {settings.EMPRESA_RUT}<br/>"
+        f"{settings.EMPRESA_GIRO}<br/>"
+        f"{settings.EMPRESA_DIRECCION}<br/>"
+        f"Teléfono: {settings.EMPRESA_TELEFONO}<br/>"
+        f"{settings.EMPRESA_EMAIL} &nbsp;·&nbsp; {settings.EMPRESA_WEB}",
         normal,
     )
     tabla_enc = Table([[encabezado_izq or "", encabezado_der]], colWidths=[45 * mm, None])
     tabla_enc.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
     elementos += [tabla_enc, Spacer(1, 8 * mm)]
 
-    elementos.append(Paragraph(f"ORDEN DE COMPRA {orden.correlativo}", h1))
+    elementos.append(Paragraph("ORDEN DE COMPRA ELECTRÓNICA", h1))
+    elementos.append(Paragraph(f"<b>Folio N°: {orden.correlativo}</b>", normal))
+
+    # La obra se identifica por centro de costo + nombre, igual que en las
+    # órdenes que M5 emite hoy: es el dato con que el proveedor despacha.
+    proyecto = orden.solicitud.proyecto
+    obra = f"{proyecto.centro_costo} {proyecto.nombre}".strip()
     elementos.append(Paragraph(
-        f"Fecha: {orden.fecha:%d-%m-%Y} &nbsp;&nbsp; Solicitud: {orden.solicitud.correlativo} "
-        f"&nbsp;&nbsp; Proyecto: {orden.solicitud.proyecto.nombre}",
+        f"Fecha: {_fecha_larga(orden.fecha)}<br/>"
+        f"Obra: {obra}<br/>"
+        f"Solicitud: {orden.solicitud.correlativo}",
         normal,
     ))
     elementos.append(Spacer(1, 5 * mm))
 
-    elementos.append(Paragraph("Proveedor", h2))
+    elementos.append(Paragraph("Datos del proveedor", h2))
     elementos.append(Paragraph(
-        f"{orden.proveedor_razon_social or orden.proveedor.nombre}<br/>"
-        f"RUT: {orden.proveedor_rut or orden.proveedor.rut_formateado}<br/>"
-        f"Condición de pago: {orden.proveedor_condicion_pago or orden.proveedor.get_condicion_pago_display()}",
+        f"Señores: <b>{orden.proveedor_razon_social or orden.proveedor.nombre}</b><br/>"
+        f"R.U.T.: {orden.proveedor_rut or orden.proveedor.rut_formateado}<br/>"
+        f"Cond. pago: {orden.proveedor_condicion_pago or orden.proveedor.get_condicion_pago_display()}",
         normal,
     ))
     elementos.append(Spacer(1, 5 * mm))
 
     # Tabla de líneas
-    filas = [["#", "Material", "Cantidad", "Unidad", "V. Unitario", "V. Total"]]
+    filas = [["ITEM", "DESCRIPCIÓN", "CANTIDAD", "UNIDAD", "PRECIO", "TOTAL"]]
     for i, l in enumerate(orden.lineas.all(), start=1):
         filas.append([
-            str(i), l.descripcion, f"{l.cantidad:g}", l.unidad_medida or "",
+            str(i), l.descripcion, _cantidad(l.cantidad), l.unidad_medida or "",
             f"${l.valor_unitario:,.0f}", f"${l.valor_total:,.0f}",
         ])
     filas.append(["", "", "", "", "Despacho", f"${orden.costo_despacho:,.0f}"])

@@ -44,6 +44,9 @@ class RegistroAuditoria(models.Model):
         USUARIO_APROBADO = "USUARIO_APROBADO", "Cuenta de usuario aprobada"
         USUARIO_RECHAZADO = "USUARIO_RECHAZADO", "Cuenta de usuario rechazada"
         USUARIO_MODIFICADO = "USUARIO_MODIFICADO", "Cuenta de usuario modificada"
+        USUARIO_ELIMINADO = "USUARIO_ELIMINADO", "Cuenta de usuario eliminada"
+        CAMBIO_PERFIL_PEDIDO = "CAMBIO_PERFIL_PEDIDO", "Cambio de datos solicitado"
+        CAMBIO_PERFIL_RESUELTO = "CAMBIO_PERFIL_RESUELTO", "Cambio de datos resuelto"
         # --- Configuración (RF-57) ---
         PARAMETROS_MODIFICADOS = "PARAMETROS_MODIFICADOS", "Parámetros del sistema modificados"
 
@@ -73,6 +76,9 @@ class RegistroAuditoria(models.Model):
         Accion.USUARIO_APROBADO: Modulo.USUARIOS,
         Accion.USUARIO_RECHAZADO: Modulo.USUARIOS,
         Accion.USUARIO_MODIFICADO: Modulo.USUARIOS,
+        Accion.USUARIO_ELIMINADO: Modulo.USUARIOS,
+        Accion.CAMBIO_PERFIL_PEDIDO: Modulo.USUARIOS,
+        Accion.CAMBIO_PERFIL_RESUELTO: Modulo.USUARIOS,
         Accion.PARAMETROS_MODIFICADOS: Modulo.CONFIGURACION,
     }
 

@@ -7,13 +7,12 @@ from usuarios.validators import validar_rut, limpiar_rut
 
 class ProveedorForm(forms.ModelForm):
     """
-    CU-01 / CU-04. El registro pide sólo los datos identificatorios del
-    proveedor. La condición de pago dejó de pedirse aquí: se negocia por
-    material, en el catálogo (ver ProveedorMaterial.condicion_pago). El campo
-    del modelo se conserva como valor por defecto para las órdenes de compra.
+    CU-01 / CU-04. Pide los datos identificatorios del proveedor y la
+    condición de pago que se acordó con él, que es la que después queda
+    impresa en cada orden de compra.
 
-    En su lugar se ofrece cargar el catálogo del proveedor desde una planilla
-    Excel, que es como los proveedores envían sus listas de precios.
+    Además ofrece cargar el catálogo desde una planilla Excel, que es como los
+    proveedores envían sus listas de precios.
     """
 
     EXT_PERMITIDAS = (".xlsx",)
@@ -28,18 +27,19 @@ class ProveedorForm(forms.ModelForm):
         }),
         help_text=(
             "Opcional. Planilla .xlsx con las columnas: código, descripción, "
-            "unidad, precio y condición de pago."
+            "unidad y precio."
         ),
     )
 
     class Meta:
         model = Proveedor
-        fields = ["nombre", "rut", "correo", "telefono", "estado"]
+        fields = ["nombre", "rut", "correo", "telefono", "condicion_pago", "estado"]
         widgets = {
             "nombre": forms.TextInput(attrs={"class": "form-control", "placeholder": "Razón social"}),
             "rut": forms.TextInput(attrs={"class": "form-control", "placeholder": "12.345.678-9"}),
             "correo": forms.EmailInput(attrs={"class": "form-control"}),
             "telefono": forms.TextInput(attrs={"class": "form-control"}),
+            "condicion_pago": forms.Select(attrs={"class": "form-select"}),
             "estado": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }
 
@@ -81,14 +81,12 @@ class ProveedorMaterialForm(forms.ModelForm):
     """
     class Meta:
         model = ProveedorMaterial
-        fields = ["codigo", "descripcion", "unidad_medida", "precio",
-                  "condicion_pago", "disponible"]
+        fields = ["codigo", "descripcion", "unidad_medida", "precio", "disponible"]
         widgets = {
             "codigo": forms.TextInput(attrs={"class": "form-control form-control-sm", "placeholder": "Cód. proveedor"}),
             "descripcion": forms.TextInput(attrs={"class": "form-control form-control-sm", "placeholder": "Descripción del material"}),
             "unidad_medida": forms.TextInput(attrs={"class": "form-control form-control-sm", "placeholder": "un, kg, m2..."}),
             "precio": forms.NumberInput(attrs={"class": "form-control form-control-sm", "min": "0", "step": "1"}),
-            "condicion_pago": forms.Select(attrs={"class": "form-select form-select-sm"}),
             "disponible": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }
 
@@ -97,14 +95,9 @@ class ProveedorMaterialForm(forms.ModelForm):
         self._proveedor = proveedor
         if self._proveedor is None and getattr(self.instance, "proveedor_id", None):
             self._proveedor = self.instance.proveedor
-        self.fields["condicion_pago"].required = False
         # El precio puede no conocerse al dar de alta el material (se completa
         # al recibir la lista del proveedor o al cotizar): queda en 0.
         self.fields["precio"].required = False
-        if self._proveedor is not None:
-            self.fields["condicion_pago"].widget.choices = [
-                ("", f"— Usar la del proveedor ({self._proveedor.get_condicion_pago_display()}) —"),
-            ] + list(ProveedorMaterial._meta.get_field("condicion_pago").choices)
 
     def clean_codigo(self):
         codigo = (self.cleaned_data.get("codigo") or "").strip()

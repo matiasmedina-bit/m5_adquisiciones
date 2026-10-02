@@ -25,6 +25,13 @@ urlpatterns = [
         success_url="/clave/listo/"), name="password_reset_confirm"),
     path("clave/listo/", auth_views.PasswordResetCompleteView.as_view(
         template_name="registration/password_reset_complete.html"), name="password_reset_complete"),
+    # Cambio de contraseña con la sesión abierta: el usuario ya demostró quién
+    # es, así que no tiene por qué esperar un correo para cambiarla.
+    path("clave/cambiar/", auth_views.PasswordChangeView.as_view(
+        template_name="registration/password_change_form.html",
+        success_url="/clave/cambiada/"), name="password_change"),
+    path("clave/cambiada/", auth_views.PasswordChangeDoneView.as_view(
+        template_name="registration/password_change_done.html"), name="password_change_done"),
     path("registro/", registro_solicitud, name="registro"),
     # Página de inicio (dashboard)
     path("", home, name="home"),

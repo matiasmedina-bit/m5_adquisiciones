@@ -518,3 +518,290 @@ class PrepararProduccionTest(TestCase):
         salida = self._correr()
         self.assertIn("Rotar la contraseña de PostgreSQL", salida)
         self.assertIn("EMAIL_", salida)
+
+
+# ==========================================================================
+#  Mi perfil: lo que cada usuario cambia solo
+# ==========================================================================
+
+class MiPerfilTest(TestCase):
+    """Cada persona corrige sus propios datos de contacto sin pedir permiso."""
+
+    def setUp(self):
+        self.usuario = Usuario.objects.create_user(
+            username="bodega1", password="clave12345", email="bodega1@m-5.cl",
+            rol="BODEGUERO", first_name="Ana", last_name="Soto",
+        )
+        self.client = Client()
+        self.client.login(username="bodega1", password="clave12345")
+
+    def test_la_barra_superior_lleva_al_perfil(self):
+        resp = self.client.get(reverse("home"))
+        self.assertContains(resp, reverse("usuarios:mi_perfil"))
+
+    def test_cualquier_rol_entra_a_su_perfil(self):
+        self.assertEqual(self.client.get(reverse("usuarios:mi_perfil")).status_code, 200)
+
+    def test_cambia_su_nombre_y_telefono(self):
+        self.client.post(reverse("usuarios:mi_perfil"), {
+            "first_name": "Ana María", "last_name": "Soto", "telefono": "+56 9 1111 2222",
+        })
+        self.usuario.refresh_from_db()
+        self.assertEqual(self.usuario.first_name, "Ana María")
+        self.assertEqual(self.usuario.telefono, "+56 9 1111 2222")
+
+    def test_no_puede_cambiarse_el_rol_por_el_formulario_de_perfil(self):
+        """El rol no es un campo del formulario: mandarlo no debe tener efecto."""
+        self.client.post(reverse("usuarios:mi_perfil"), {
+            "first_name": "Ana", "last_name": "Soto", "rol": "ADMIN",
+        })
+        self.usuario.refresh_from_db()
+        self.assertEqual(self.usuario.rol, "BODEGUERO")
+
+    def test_no_puede_cambiarse_el_correo_por_el_formulario_de_perfil(self):
+        self.client.post(reverse("usuarios:mi_perfil"), {
+            "first_name": "Ana", "last_name": "Soto", "email": "otro@m-5.cl",
+        })
+        self.usuario.refresh_from_db()
+        self.assertEqual(self.usuario.email, "bodega1@m-5.cl")
+
+    def test_sin_foto_muestra_las_iniciales(self):
+        self.assertEqual(self.usuario.iniciales, "AS")
+
+    def test_sin_nombre_cargado_usa_la_inicial_del_usuario(self):
+        self.usuario.first_name = ""
+        self.usuario.last_name = ""
+        self.assertEqual(self.usuario.iniciales, "B")
+
+    def test_un_anonimo_no_entra_al_perfil(self):
+        self.client.logout()
+        resp = self.client.get(reverse("usuarios:mi_perfil"))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("/login/", resp["Location"])
+
+    def test_puede_cambiar_su_contrasena_con_la_sesion_abierta(self):
+        resp = self.client.post(reverse("password_change"), {
+            "old_password": "clave12345",
+            "new_password1": "OtraClave.2026",
+            "new_password2": "OtraClave.2026",
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.usuario.refresh_from_db()
+        self.assertTrue(self.usuario.check_password("OtraClave.2026"))
+
+
+class SolicitudCambioPerfilTest(TestCase):
+    """Correo, usuario y rol los resuelve el administrador, no el interesado."""
+
+    def setUp(self):
+        from .models import SolicitudCambioPerfil
+        self.SolicitudCambioPerfil = SolicitudCambioPerfil
+        self.usuario = Usuario.objects.create_user(
+            username="jefe1", password="clave12345", email="jefe1@m-5.cl",
+            rol="JEFE_PROYECTO", first_name="Luis", last_name="Pérez",
+        )
+        self.admin = Usuario.objects.create_user(
+            username="admin1", password="clave12345", email="admin1@m-5.cl", rol="ADMIN",
+        )
+        self.client = Client()
+
+    def _pedir(self, **extra):
+        self.client.login(username="jefe1", password="clave12345")
+        datos = {"accion": "pedir_cambio", "campo": "email",
+                 "valor_solicitado": "luis.perez@m-5.cl", "motivo": "Cambió mi correo"}
+        datos.update(extra)
+        return self.client.post(reverse("usuarios:mi_perfil"), datos, follow=True)
+
+    def test_el_pedido_queda_pendiente_y_no_cambia_el_dato(self):
+        self._pedir()
+        self.usuario.refresh_from_db()
+        self.assertEqual(self.usuario.email, "jefe1@m-5.cl")
+        solicitud = self.SolicitudCambioPerfil.objects.get()
+        self.assertEqual(solicitud.estado, "PENDIENTE")
+        self.assertEqual(solicitud.valor_actual, "jefe1@m-5.cl")
+
+    def test_el_motivo_es_obligatorio(self):
+        self._pedir(motivo="")
+        self.assertEqual(self.SolicitudCambioPerfil.objects.count(), 0)
+
+    def test_no_deja_pedir_el_valor_que_ya_tiene(self):
+        self._pedir(valor_solicitado="jefe1@m-5.cl")
+        self.assertEqual(self.SolicitudCambioPerfil.objects.count(), 0)
+
+    def test_no_deja_pedir_un_correo_de_otra_cuenta(self):
+        self._pedir(valor_solicitado="admin1@m-5.cl")
+        self.assertEqual(self.SolicitudCambioPerfil.objects.count(), 0)
+
+    def test_un_segundo_pedido_del_mismo_dato_reemplaza_al_primero(self):
+        self._pedir(valor_solicitado="uno@m-5.cl")
+        self._pedir(valor_solicitado="dos@m-5.cl")
+        self.assertEqual(self.SolicitudCambioPerfil.objects.count(), 1)
+        self.assertEqual(
+            self.SolicitudCambioPerfil.objects.get().valor_solicitado, "dos@m-5.cl")
+
+    def test_el_administrador_aprueba_y_el_dato_cambia(self):
+        self._pedir()
+        solicitud = self.SolicitudCambioPerfil.objects.get()
+        self.client.logout()
+        self.client.login(username="admin1", password="clave12345")
+        self.client.post(reverse("usuarios:resolver_cambio", args=[solicitud.pk]),
+                         {"decision": "aprobar"})
+        self.usuario.refresh_from_db()
+        solicitud.refresh_from_db()
+        self.assertEqual(self.usuario.email, "luis.perez@m-5.cl")
+        self.assertEqual(solicitud.estado, "APROBADA")
+        self.assertEqual(solicitud.resuelta_por, self.admin)
+
+    def test_al_rechazar_el_dato_queda_igual(self):
+        self._pedir()
+        solicitud = self.SolicitudCambioPerfil.objects.get()
+        self.client.logout()
+        self.client.login(username="admin1", password="clave12345")
+        self.client.post(reverse("usuarios:resolver_cambio", args=[solicitud.pk]),
+                         {"decision": "rechazar", "comentario": "Usa el correo institucional"})
+        self.usuario.refresh_from_db()
+        solicitud.refresh_from_db()
+        self.assertEqual(self.usuario.email, "jefe1@m-5.cl")
+        self.assertEqual(solicitud.estado, "RECHAZADA")
+        self.assertIn("institucional", solicitud.comentario)
+
+    # --- Excepción: el valor se ocupó entre el pedido y la aprobación ---
+
+    def test_no_aprueba_si_el_correo_se_ocupo_mientras_tanto(self):
+        self._pedir()
+        solicitud = self.SolicitudCambioPerfil.objects.get()
+        Usuario.objects.create_user(
+            username="otro", password="clave12345",
+            email="luis.perez@m-5.cl", rol="BODEGUERO")
+        self.client.logout()
+        self.client.login(username="admin1", password="clave12345")
+        self.client.post(reverse("usuarios:resolver_cambio", args=[solicitud.pk]),
+                         {"decision": "aprobar"})
+        self.usuario.refresh_from_db()
+        solicitud.refresh_from_db()
+        self.assertEqual(self.usuario.email, "jefe1@m-5.cl")
+        self.assertEqual(solicitud.estado, "PENDIENTE")
+
+    def test_un_usuario_no_resuelve_sus_propios_pedidos(self):
+        self._pedir()
+        solicitud = self.SolicitudCambioPerfil.objects.get()
+        resp = self.client.post(
+            reverse("usuarios:resolver_cambio", args=[solicitud.pk]), {"decision": "aprobar"})
+        self.assertIn(resp.status_code, (302, 403))
+        self.usuario.refresh_from_db()
+        self.assertEqual(self.usuario.email, "jefe1@m-5.cl")
+
+    def test_el_solicitante_puede_cancelar_el_suyo(self):
+        self._pedir()
+        solicitud = self.SolicitudCambioPerfil.objects.get()
+        self.client.post(reverse("usuarios:cancelar_cambio", args=[solicitud.pk]))
+        self.assertEqual(self.SolicitudCambioPerfil.objects.count(), 0)
+
+    def test_nadie_cancela_el_pedido_de_otro(self):
+        self._pedir()
+        solicitud = self.SolicitudCambioPerfil.objects.get()
+        self.client.logout()
+        self.client.login(username="admin1", password="clave12345")
+        resp = self.client.post(reverse("usuarios:cancelar_cambio", args=[solicitud.pk]))
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(self.SolicitudCambioPerfil.objects.count(), 1)
+
+
+class EliminarCuentaTest(TestCase):
+    """
+    Eliminar es distinto de inactivar: borra la cuenta. Sólo procede cuando
+    no deja documentos huérfanos.
+    """
+
+    def setUp(self):
+        self.admin = Usuario.objects.create_user(
+            username="admin1", password="clave12345", email="admin1@m-5.cl", rol="ADMIN")
+        self.otro_admin = Usuario.objects.create_user(
+            username="admin2", password="clave12345", email="admin2@m-5.cl", rol="ADMIN")
+        self.nuevo = Usuario.objects.create_user(
+            username="recien", password="clave12345", email="recien@m-5.cl", rol="BODEGUERO")
+        self.client = Client()
+        self.client.login(username="admin1", password="clave12345")
+
+    def test_elimina_una_cuenta_sin_historial(self):
+        self.client.post(reverse("usuarios:eliminar", args=[self.nuevo.pk]))
+        self.assertFalse(Usuario.objects.filter(pk=self.nuevo.pk).exists())
+
+    def test_la_lista_ofrece_eliminar(self):
+        resp = self.client.get(reverse("usuarios:lista"))
+        self.assertContains(resp, reverse("usuarios:eliminar", args=[self.nuevo.pk]))
+
+    def test_no_se_elimina_a_si_mismo(self):
+        self.client.post(reverse("usuarios:eliminar", args=[self.admin.pk]))
+        self.assertTrue(Usuario.objects.filter(pk=self.admin.pk).exists())
+
+    def test_la_lista_no_ofrece_eliminarse_a_uno_mismo(self):
+        resp = self.client.get(reverse("usuarios:lista"))
+        self.assertNotContains(resp, reverse("usuarios:eliminar", args=[self.admin.pk]))
+
+    def test_no_elimina_al_ultimo_administrador(self):
+        self.otro_admin.delete()
+        self.client.logout()
+        # queda un solo ADMIN activo: él mismo no puede borrarse, así que se
+        # prueba con un segundo admin que inactiva al primero
+        tercero = Usuario.objects.create_user(
+            username="admin3", password="clave12345", email="admin3@m-5.cl", rol="ADMIN")
+        self.admin.estado = False
+        self.admin.save()
+        self.client.login(username="admin3", password="clave12345")
+        self.client.post(reverse("usuarios:eliminar", args=[tercero.pk]))
+        self.assertTrue(Usuario.objects.filter(pk=tercero.pk).exists())
+
+    def test_solo_el_administrador_elimina(self):
+        self.client.logout()
+        self.client.login(username="recien", password="clave12345")
+        resp = self.client.post(reverse("usuarios:eliminar", args=[self.otro_admin.pk]))
+        self.assertIn(resp.status_code, (302, 403))
+        self.assertTrue(Usuario.objects.filter(pk=self.otro_admin.pk).exists())
+
+    def test_no_se_elimina_por_GET(self):
+        resp = self.client.get(reverse("usuarios:eliminar", args=[self.nuevo.pk]))
+        self.assertEqual(resp.status_code, 405)
+        self.assertTrue(Usuario.objects.filter(pk=self.nuevo.pk).exists())
+
+    # --- Excepción 1: la cuenta dejó historial ---
+
+    def test_no_elimina_a_quien_tiene_historial_y_lo_explica(self):
+        from proyectos.models import Proyecto
+        from solicitudes.models import SolicitudMaterial
+        import datetime
+        jefe = Usuario.objects.create_user(
+            username="jefecito", password="clave12345", email="jefecito@m-5.cl",
+            rol="JEFE_PROYECTO")
+        proyecto = Proyecto.objects.create(
+            nombre="Obra con historial", centro_costo="CC-900",
+            mandante="M5", fecha_inicio=datetime.date(2026, 1, 1),
+            presupuesto_total=1000000)
+        SolicitudMaterial.objects.create(proyecto=proyecto, emisor=jefe)
+
+        resp = self.client.post(
+            reverse("usuarios:eliminar", args=[jefe.pk]), follow=True)
+
+        self.assertTrue(Usuario.objects.filter(pk=jefe.pk).exists())
+        self.assertContains(resp, "solicitudes de material")
+        self.assertContains(resp, "Inactiva la cuenta")
+
+    def test_el_recuento_nombra_lo_que_retiene_la_cuenta(self):
+        from proyectos.models import Proyecto
+        from solicitudes.models import SolicitudMaterial
+        import datetime
+        jefe = Usuario.objects.create_user(
+            username="jefe2", password="clave12345", email="jefe2@m-5.cl",
+            rol="JEFE_PROYECTO")
+        proyecto = Proyecto.objects.create(
+            nombre="Otra obra", centro_costo="CC-901",
+            mandante="M5", fecha_inicio=datetime.date(2026, 1, 1),
+            presupuesto_total=1000000)
+        SolicitudMaterial.objects.create(proyecto=proyecto, emisor=jefe)
+        SolicitudMaterial.objects.create(proyecto=proyecto, emisor=jefe)
+
+        self.assertEqual(
+            jefe.registros_que_impiden_borrarlo(), [("solicitudes de material", 2)])
+
+    def test_una_cuenta_limpia_no_tiene_nada_que_la_retenga(self):
+        self.assertEqual(self.nuevo.registros_que_impiden_borrarlo(), [])

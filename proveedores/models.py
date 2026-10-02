@@ -71,14 +71,6 @@ class ProveedorMaterial(models.Model):
     precio = models.DecimalField(
         "Precio unitario (CLP)", max_digits=12, decimal_places=0, default=0
     )
-    # La condición de pago se negocia por producto, no por proveedor: un mismo
-    # proveedor puede vender cemento a 30 días y arriendo de maquinaria al
-    # contado. Si queda en blanco, la orden de compra usa la del proveedor.
-    condicion_pago = models.CharField(
-        "Condición de pago", max_length=10,
-        choices=Proveedor.CondicionPago.choices, blank=True,
-        help_text="Si se deja vacía, se usa la condición por defecto del proveedor.",
-    )
     # Puente hacia el catálogo general de materiales. Se deja vacío al cargar
     # el Excel y se completa la primera vez que este ítem se usa en una
     # solicitud: así el catálogo del proveedor y el de la constructora se van
@@ -104,9 +96,16 @@ class ProveedorMaterial(models.Model):
 
     @property
     def condicion_pago_efectiva(self):
-        """Condición propia del material; si no tiene, la del proveedor."""
-        if self.condicion_pago:
-            return self.get_condicion_pago_display()
+        """
+        La condición de pago del proveedor.
+
+        Antes se podía fijar una distinta por material. En la práctica el
+        catálogo se carga desde la lista de precios que el proveedor manda en
+        Excel —que sirve para registrar qué vende y a qué precio, no para
+        negociar plazos— así que la columna quedaba vacía o repetida en todas
+        las filas. La condición se acuerda con el proveedor y es la que va
+        impresa en la orden de compra.
+        """
         return self.proveedor.get_condicion_pago_display()
 
     def resolver_material(self):

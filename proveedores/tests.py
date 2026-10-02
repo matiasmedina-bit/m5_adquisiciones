@@ -117,30 +117,34 @@ class ProveedorMaterialTest(TestCase):
 # ==========================================================================
 #  Catálogo del proveedor: precio y condición por material + carga por Excel
 # ==========================================================================
-class CondicionPagoPorMaterialTest(TestCase):
-    """La condición de pago se negocia por material; el proveedor sólo aporta
-    un valor por defecto cuando el material no define el suyo."""
+class CondicionPagoDelProveedorTest(TestCase):
+    """La condición de pago se acuerda con el proveedor y vive en su ficha.
+
+    Se intentó manejarla por material y se revirtió: en la práctica M5 negocia
+    un plazo con cada proveedor, y es ese plazo el que va impreso en la orden de
+    compra. Pedirla además en cada línea del catálogo era llenar la planilla de
+    una columna que siempre decía lo mismo.
+    """
 
     def setUp(self):
         self.prov = Proveedor.objects.create(
             nombre="Ferretería Test", rut="11111111-1", condicion_pago="30_DIAS")
 
-    def test_registro_no_pide_condicion_de_pago(self):
-        self.assertNotIn("condicion_pago", ProveedorForm().fields)
+    def test_la_ficha_del_proveedor_si_pide_la_condicion(self):
+        """Es el dato que después sale impreso en la orden de compra."""
+        self.assertIn("condicion_pago", ProveedorForm().fields)
+
+    def test_el_material_no_guarda_condicion_propia(self):
+        campos = {f.name for f in ProveedorMaterial._meta.get_fields()}
+        self.assertNotIn("condicion_pago", campos)
 
     def test_registro_ofrece_carga_de_catalogo(self):
         self.assertIn("catalogo", ProveedorForm().fields)
 
-    def test_material_sin_condicion_hereda_la_del_proveedor(self):
+    def test_el_material_toma_la_condicion_de_su_proveedor(self):
         m = ProveedorMaterial.objects.create(
             proveedor=self.prov, codigo="A-1", descripcion="X", unidad_medida="un")
         self.assertEqual(m.condicion_pago_efectiva, "30 días")
-
-    def test_material_con_condicion_propia_manda(self):
-        m = ProveedorMaterial.objects.create(
-            proveedor=self.prov, codigo="A-2", descripcion="Y", unidad_medida="un",
-            condicion_pago="CONTADO")
-        self.assertEqual(m.condicion_pago_efectiva, "Contado")
 
     def test_precio_es_opcional_al_agregar_material(self):
         form = ProveedorMaterialForm(
@@ -195,8 +199,18 @@ class CatalogoExcelTest(TestCase):
         self.assertEqual(self.prov.materiales.count(), 2)
         cemento = self.prov.materiales.get(codigo="CEM-001")
         self.assertEqual(cemento.precio, 5490)
-        self.assertEqual(cemento.condicion_pago, "30_DIAS")
         self.assertEqual(cemento.unidad_medida, "saco")
+
+    def test_la_columna_de_condicion_de_pago_se_ignora_sin_romper_la_carga(self):
+        """Las listas de precios reales suelen traerla. No es un error: se omite
+        y el material queda con la condición acordada con el proveedor."""
+        from .catalogo_excel import importar_catalogo
+        archivo = self._planilla([["CEM-001", "Cemento", "saco", 5490, "30 días"]])
+        resultado = importar_catalogo(self.prov, archivo)
+        self.assertEqual(resultado.creados, 1)
+        self.assertEqual(resultado.omitidos, [])
+        material = self.prov.materiales.get(codigo="CEM-001")
+        self.assertEqual(material.condicion_pago_efectiva, "Contado")  # la del proveedor
 
     def test_precio_con_formato_chileno(self):
         from .catalogo_excel import importar_catalogo
@@ -216,7 +230,6 @@ class CatalogoExcelTest(TestCase):
         self.assertEqual(resultado.creados, 1)
         material = self.prov.materiales.get(codigo="SKU-9")
         self.assertEqual(material.precio, 18990)
-        self.assertEqual(material.condicion_pago, "60_DIAS")
 
     def test_codigo_existente_se_actualiza_no_se_duplica(self):
         from .catalogo_excel import importar_catalogo
@@ -291,7 +304,7 @@ class CatalogoExcelVistasTest(TestCase):
         resp = self.client.post(reverse("proveedores:crear"), {
             "nombre": "Comercial Andes", "rut": "11.111.111-1",
             "correo": "ventas@andes.cl", "telefono": "+56 9 1111 1111",
-            "estado": "on",
+            "condicion_pago": "30_DIAS", "estado": "on",
             "catalogo": self._archivo([
                 ["AND-1", "Perfil metálico 100x50", "un", "12.900", "30 días"],
                 ["AND-2", "Plancha zinc 0.35", "un", "8.490", "contado"],
@@ -306,7 +319,8 @@ class CatalogoExcelVistasTest(TestCase):
 
     def test_registrar_proveedor_sin_catalogo_sigue_funcionando(self):
         resp = self.client.post(reverse("proveedores:crear"), {
-            "nombre": "Sin Catálogo", "rut": "11.111.111-1", "estado": "on",
+            "nombre": "Sin Catálogo", "rut": "11.111.111-1",
+            "condicion_pago": "CONTADO", "estado": "on",
         })
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(Proveedor.objects.filter(rut="111111111").exists())
@@ -329,3 +343,69 @@ class CatalogoExcelVistasTest(TestCase):
             {"archivo": malo},
         )
         self.assertEqual(proveedor.materiales.count(), 0)
+
+
+class CatalogoSinCondicionDePagoTest(TestCase):
+    """
+    La condición de pago se acuerda con el proveedor, no por material.
+
+    La planilla que el proveedor manda es su lista de precios: sirve para
+    registrar qué vende y a cuánto. El plazo de pago no se negocia renglón por
+    renglón, así que la columna salió del catálogo y quedó sólo en la ficha.
+    """
+
+    def setUp(self):
+        self.proveedor = Proveedor.objects.create(
+            nombre="Ferretería Austral", rut="76543210-k",
+            condicion_pago=Proveedor.CondicionPago.DIAS_30,
+        )
+
+    def test_la_condicion_del_material_es_la_del_proveedor(self):
+        material = ProveedorMaterial.objects.create(
+            proveedor=self.proveedor, codigo="A-1",
+            descripcion="Cemento", unidad_medida="saco", precio=5000)
+        self.assertEqual(material.condicion_pago_efectiva, "30 días")
+
+    def test_el_material_ya_no_tiene_campo_propio(self):
+        campos = {f.name for f in ProveedorMaterial._meta.get_fields()}
+        self.assertNotIn("condicion_pago", campos)
+
+    def test_la_plantilla_de_ejemplo_trae_cuatro_columnas(self):
+        from openpyxl import load_workbook
+        from io import BytesIO
+        from .catalogo_excel import generar_plantilla
+
+        hoja = load_workbook(BytesIO(generar_plantilla())).active
+        encabezados = [c.value for c in hoja[1] if c.value]
+        self.assertEqual(encabezados, ["Código", "Descripción", "Unidad", "Precio"])
+
+    def test_una_planilla_con_columna_de_condicion_se_carga_igual(self):
+        """Los proveedores mandan la columna igual; se ignora, no se cae."""
+        from openpyxl import Workbook
+        from io import BytesIO
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from .catalogo_excel import importar_catalogo
+
+        libro = Workbook()
+        hoja = libro.active
+        hoja.append(["Código", "Descripción", "Unidad", "Precio", "Condición de pago"])
+        hoja.append(["X-1", "Fierro 8mm", "un", 3990, "30 días"])
+        buffer = BytesIO()
+        libro.save(buffer)
+
+        archivo = SimpleUploadedFile("lista.xlsx", buffer.getvalue())
+        resultado = importar_catalogo(self.proveedor, archivo)
+
+        self.assertEqual(resultado.creados, 1)
+        material = ProveedorMaterial.objects.get(codigo="X-1")
+        self.assertEqual(material.precio, 3990)
+        self.assertEqual(material.condicion_pago_efectiva, "30 días")
+
+    def test_el_formulario_del_proveedor_pide_la_condicion(self):
+        """Si no se pidiera en ningún lado, nadie podría configurarla."""
+        from .forms import ProveedorForm
+        self.assertIn("condicion_pago", ProveedorForm().fields)
+
+    def test_el_formulario_del_material_ya_no_la_pide(self):
+        from .forms import ProveedorMaterialForm
+        self.assertNotIn("condicion_pago", ProveedorMaterialForm().fields)

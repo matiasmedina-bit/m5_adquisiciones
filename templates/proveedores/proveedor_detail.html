@@ -76,7 +76,7 @@
       <thead class="table-light">
         <tr>
           <th>Código</th><th>Descripción</th><th>Unidad</th>
-          <th class="text-end">Precio</th><th>Condición de pago</th>
+          <th class="text-end">Precio</th>
           <th class="text-center">Estado</th><th>Últ. modificación</th><th></th>
         </tr>
       </thead>
@@ -88,10 +88,6 @@
           <td class="text-muted">{{ m.unidad_medida }}</td>
           <td class="text-end">
             {% if m.precio %}${{ m.precio|floatformat:"0g" }}{% else %}<span class="text-muted">—</span>{% endif %}
-          </td>
-          <td class="small">
-            {{ m.condicion_pago_efectiva }}
-            {% if not m.condicion_pago %}<span class="text-muted">(del proveedor)</span>{% endif %}
           </td>
           <td class="text-center">
             {% if m.disponible %}<span class="badge bg-success">Disponible</span>
@@ -108,7 +104,7 @@
           </td>
         </tr>
       {% empty %}
-        <tr><td colspan="8" class="text-center text-muted py-3">
+        <tr><td colspan="7" class="text-center text-muted py-3">
           Este proveedor aún no tiene materiales en su listado.
           Carga su planilla arriba o agrégalos uno por uno.
         </td></tr>

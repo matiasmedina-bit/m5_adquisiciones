@@ -9,16 +9,18 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.contrib import messages
 from django.db.models import Q
+from django.utils import timezone
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
 from django.views.generic import ListView, CreateView, UpdateView, DetailView
 
 from auditoria.models import RegistroAuditoria, registrar
-from .models import Usuario, ParametrosSistema
+from .models import Usuario, ParametrosSistema, SolicitudCambioPerfil
 from .forms import (
     UsuarioCreateForm, UsuarioUpdateForm, RegistroSolicitudForm,
     RevisionSolicitudForm, ParametrosSistemaForm,
+    MiPerfilForm, SolicitudCambioPerfilForm,
 )
 from .correos import enviar_enlace_activacion
 from .permisos import RolRequeridoMixin, rol_requerido
@@ -272,6 +274,11 @@ class UsuarioListView(RolRequeridoMixin, ListView):
         ctx["f_estado"] = f["estado"]
         ctx["hay_filtros"] = bool(f["q"] or f["rol"] or f["estado"])
         ctx["pendientes"] = Usuario.objects.filter(pendiente_aprobacion=True)
+        ctx["cambios_pendientes"] = (
+            SolicitudCambioPerfil.objects
+            .filter(estado=SolicitudCambioPerfil.Estado.PENDIENTE)
+            .select_related("usuario")
+        )
         return ctx
 
 
@@ -404,3 +411,186 @@ def reenviar_activacion(request, pk):
             f"No se pudo enviar el correo a {usuario.email or 'la cuenta'}. "
             f"Revisa la configuración de correo del servidor.")
     return redirect("usuarios:detalle", pk=usuario.pk)
+
+
+# ==========================================================================
+#  Mi perfil
+# ==========================================================================
+
+@login_required
+def mi_perfil(request):
+    """
+    La cuenta vista por su propio dueño.
+
+    Acá cada uno corrige lo suyo —cómo se escribe su nombre, su teléfono, su
+    foto— sin tener que pedírselo a nadie. Lo que toca el acceso (correo,
+    nombre de usuario y rol) se pide con el formulario de más abajo y lo
+    resuelve un administrador.
+    """
+    form = MiPerfilForm(instance=request.user)
+    form_cambio = SolicitudCambioPerfilForm(usuario=request.user)
+
+    if request.method == "POST":
+        if request.POST.get("accion") == "pedir_cambio":
+            form_cambio = SolicitudCambioPerfilForm(request.POST, usuario=request.user)
+            if form_cambio.is_valid():
+                solicitud = form_cambio.save(commit=False)
+                solicitud.usuario = request.user
+                if solicitud.campo == SolicitudCambioPerfil.Campo.ROL:
+                    solicitud.valor_solicitado = solicitud.valor_solicitado.upper()
+                solicitud.valor_actual = str(
+                    getattr(request.user, solicitud.campo, "") or ""
+                )[:150]
+                # Si ya había un pedido pendiente del mismo dato, este lo
+                # reemplaza: al administrador le sirve el último, no los dos.
+                SolicitudCambioPerfil.objects.filter(
+                    usuario=request.user, campo=solicitud.campo,
+                    estado=SolicitudCambioPerfil.Estado.PENDIENTE,
+                ).delete()
+                solicitud.save()
+                registrar(request.user, RegistroAuditoria.Accion.CAMBIO_PERFIL_PEDIDO,
+                          f"{request.user.username} pide cambiar su "
+                          f"{solicitud.get_campo_display().lower()} a «{solicitud.valor_solicitado}»",
+                          referencia=str(solicitud.pk))
+                messages.success(
+                    request,
+                    "Pedido enviado. Un administrador lo va a revisar; mientras "
+                    "tanto tus datos quedan como están.",
+                )
+                return redirect("usuarios:mi_perfil")
+        else:
+            form = MiPerfilForm(request.POST, request.FILES, instance=request.user)
+            if form.is_valid():
+                form.save()
+                messages.success(request, "Perfil actualizado.")
+                return redirect("usuarios:mi_perfil")
+
+    return render(request, "usuarios/mi_perfil.html", {
+        "form": form,
+        "form_cambio": form_cambio,
+        "solicitudes": request.user.cambios_solicitados.all()[:10],
+        "pendientes_propias": request.user.cambios_solicitados.filter(
+            estado=SolicitudCambioPerfil.Estado.PENDIENTE),
+    })
+
+
+@login_required
+@require_POST
+def cancelar_cambio_perfil(request, pk):
+    """El propio solicitante se arrepiente antes de que lo resuelvan."""
+    solicitud = get_object_or_404(
+        SolicitudCambioPerfil, pk=pk, usuario=request.user,
+        estado=SolicitudCambioPerfil.Estado.PENDIENTE,
+    )
+    solicitud.delete()
+    messages.info(request, "Pedido cancelado.")
+    return redirect("usuarios:mi_perfil")
+
+
+@rol_requerido("ADMIN")
+@require_POST
+def resolver_cambio_perfil(request, pk):
+    """El administrador aprueba o rechaza un pedido de cambio de datos."""
+    solicitud = get_object_or_404(SolicitudCambioPerfil, pk=pk)
+    if not solicitud.pendiente:
+        messages.warning(request, "Ese pedido ya estaba resuelto.")
+        return redirect("usuarios:lista")
+
+    aprobar = request.POST.get("decision") == "aprobar"
+    comentario = (request.POST.get("comentario") or "").strip()[:250]
+    usuario = solicitud.usuario
+
+    if aprobar:
+        # Revalidar contra la base: entre que pidió y que el administrador
+        # aprueba, otro pudo tomarse ese correo o ese nombre de usuario.
+        valor = solicitud.valor_solicitado
+        campo = solicitud.campo
+        choque = None
+        if campo == SolicitudCambioPerfil.Campo.EMAIL:
+            choque = Usuario.objects.filter(email__iexact=valor).exclude(pk=usuario.pk).exists()
+        elif campo == SolicitudCambioPerfil.Campo.USERNAME:
+            choque = Usuario.objects.filter(username__iexact=valor).exclude(pk=usuario.pk).exists()
+        elif campo == SolicitudCambioPerfil.Campo.ROL:
+            if valor not in dict(Usuario.Rol.choices):
+                messages.error(request, f"«{valor}» no es un rol válido.")
+                return redirect("usuarios:lista")
+
+        if choque:
+            messages.error(
+                request,
+                f"No se pudo aprobar: «{valor}» ya está ocupado por otra cuenta. "
+                "El pedido queda pendiente.",
+            )
+            return redirect("usuarios:lista")
+
+        setattr(usuario, campo, valor)
+        usuario.save(update_fields=[campo])
+        solicitud.estado = SolicitudCambioPerfil.Estado.APROBADA
+        messages.success(
+            request,
+            f"{usuario.username}: {solicitud.get_campo_display().lower()} actualizado a «{valor}».",
+        )
+    else:
+        solicitud.estado = SolicitudCambioPerfil.Estado.RECHAZADA
+        messages.info(request, f"Pedido de {usuario.username} rechazado.")
+
+    solicitud.comentario = comentario
+    solicitud.resuelta = timezone.now()
+    solicitud.resuelta_por = request.user
+    solicitud.save()
+    registrar(request.user, RegistroAuditoria.Accion.CAMBIO_PERFIL_RESUELTO,
+              f"{solicitud.get_estado_display()}: {usuario.username} pedía cambiar su "
+              f"{solicitud.get_campo_display().lower()} a «{solicitud.valor_solicitado}»",
+              referencia=str(solicitud.pk))
+    return redirect("usuarios:lista")
+
+
+@rol_requerido("ADMIN")
+@require_POST
+def usuario_eliminar(request, pk):
+    """
+    Borrado definitivo de una cuenta.
+
+    Sólo procede si la cuenta no dejó nada escrito. Las relaciones hacia
+    Usuario son PROTECT porque una solicitud o una orden de compra tienen que
+    seguir diciendo quién las hizo; borrar a la persona dejaría documentos
+    huérfanos o, peor, arrastraría el historial con ella. Cuando hay historial
+    se explica qué la retiene y se ofrece inactivarla, que es lo que
+    corresponde: la persona deja de entrar, el registro queda.
+    """
+    usuario = get_object_or_404(Usuario, pk=pk)
+
+    if usuario.pk == request.user.pk:
+        messages.error(request, "No puedes eliminar tu propia cuenta.")
+        return redirect("usuarios:lista")
+
+    if usuario.rol == Usuario.Rol.ADMIN:
+        otros_admin = Usuario.objects.filter(
+            rol=Usuario.Rol.ADMIN, estado=True
+        ).exclude(pk=usuario.pk).count()
+        if not otros_admin:
+            messages.error(
+                request,
+                "Es el último administrador activo. Si lo eliminas, nadie puede "
+                "volver a administrar el sistema. Crea otro administrador primero.",
+            )
+            return redirect("usuarios:lista")
+
+    retienen = usuario.registros_que_impiden_borrarlo()
+    if retienen:
+        detalle = ", ".join(f"{total} {etiqueta}" for etiqueta, total in retienen)
+        messages.error(
+            request,
+            f"No se puede eliminar a {usuario.username}: tiene {detalle} a su nombre. "
+            "Esos registros tienen que seguir diciendo quién los hizo. "
+            "Inactiva la cuenta: la persona deja de entrar y el historial queda intacto.",
+        )
+        return redirect("usuarios:lista")
+
+    nombre = usuario.username
+    registrar(request.user, RegistroAuditoria.Accion.USUARIO_ELIMINADO,
+              f"Cuenta «{nombre}» ({usuario.get_rol_display()}) eliminada definitivamente",
+              referencia=str(usuario.pk))
+    usuario.delete()
+    messages.success(request, f"Cuenta «{nombre}» eliminada definitivamente.")
+    return redirect("usuarios:lista")

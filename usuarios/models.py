@@ -28,6 +28,9 @@ class Usuario(AbstractUser):
     # Usuario_correo (se usa el email heredado, pero lo hacemos único y obligatorio)
     email = models.EmailField("Correo electrónico", unique=True)
     telefono = models.CharField("Teléfono", max_length=20, blank=True)
+    # Foto de perfil. Opcional: mientras no haya una, la interfaz pinta la
+    # inicial del usuario, así que nadie queda obligado a subir nada.
+    foto = models.ImageField("Foto de perfil", upload_to="perfiles/", blank=True)
     rol = models.CharField("Rol", max_length=30, choices=Rol.choices, default=Rol.BODEGUERO)
     # Estado: True = activo, False = inactivo (CU-51)
     estado = models.BooleanField("Activo", default=True)
@@ -51,6 +54,113 @@ class Usuario(AbstractUser):
         # Mantener sincronizado is_active con el campo de negocio 'estado'
         self.is_active = self.estado
         super().save(*args, **kwargs)
+
+    @property
+    def iniciales(self):
+        """Dos letras para el avatar cuando no hay foto: iniciales del nombre
+        y apellido, o la primera del usuario si no tiene nombre cargado."""
+        partes = [p for p in (self.first_name, self.last_name) if p]
+        if partes:
+            return "".join(p[0] for p in partes[:2]).upper()
+        return (self.username[:1] or "?").upper()
+
+    def registros_que_impiden_borrarlo(self):
+        """
+        Cuenta lo que esta cuenta dejó escrito en el sistema.
+
+        Las relaciones hacia Usuario son PROTECT a propósito: una solicitud, una
+        orden de compra o un movimiento de bodega tienen que seguir diciendo
+        quién los hizo aunque la persona ya no trabaje en M5. Por eso una cuenta
+        con historial no se borra, se inactiva.
+
+        Devuelve [(etiqueta, cantidad)] con lo que la retiene, o [] si está
+        limpia y se puede eliminar de verdad.
+        """
+        relaciones = [
+            ("solicitudes de material", "solicitudes_emitidas"),
+            ("adjuntos de solicitudes", "adjuntos_subidos"),
+            ("cotizaciones", "cotizaciones_creadas"),
+            ("órdenes de compra emitidas", "ordenes_creadas"),
+            ("órdenes de compra aprobadas", "ordenes_aprobadas"),
+            ("movimientos de bodega", "movimientos_registrados"),
+            ("préstamos recibidos", "prestamos_recibidos"),
+            ("préstamos registrados", "prestamos_registrados"),
+            ("facturas registradas", "facturas_registradas"),
+            ("proyectos a su cargo", "proyectos_a_cargo"),
+            ("archivos de proyecto subidos", "archivos_proyecto_subidos"),
+        ]
+        encontrados = []
+        for etiqueta, acceso in relaciones:
+            gestor = getattr(self, acceso, None)
+            if gestor is None:
+                continue
+            total = gestor.count()
+            if total:
+                encontrados.append((etiqueta, total))
+        return encontrados
+
+
+class SolicitudCambioPerfil(models.Model):
+    """
+    Pedido de un usuario para que le cambien un dato que no puede editar solo.
+
+    El nombre, el teléfono y la foto los cambia cada uno desde su perfil. El
+    correo, el nombre de usuario y el rol no: el correo es con lo que se
+    recuperan las contraseñas, y el rol decide lo que la persona puede hacer.
+    Dejar que cada uno se los cambie solo convierte el control de accesos en
+    una sugerencia, así que esos pasan por el administrador.
+    """
+
+    class Campo(models.TextChoices):
+        EMAIL = "email", "Correo electrónico"
+        USERNAME = "username", "Nombre de usuario"
+        ROL = "rol", "Rol"
+
+    class Estado(models.TextChoices):
+        PENDIENTE = "PENDIENTE", "Pendiente"
+        APROBADA = "APROBADA", "Aprobada"
+        RECHAZADA = "RECHAZADA", "Rechazada"
+
+    usuario = models.ForeignKey(
+        Usuario, on_delete=models.CASCADE, related_name="cambios_solicitados",
+        verbose_name="Solicitante",
+    )
+    campo = models.CharField("Dato a cambiar", max_length=20, choices=Campo.choices)
+    valor_actual = models.CharField("Valor actual", max_length=150, blank=True)
+    valor_solicitado = models.CharField("Valor solicitado", max_length=150)
+    motivo = models.TextField("Motivo", blank=True)
+    estado = models.CharField(
+        "Estado", max_length=10, choices=Estado.choices, default=Estado.PENDIENTE
+    )
+    creada = models.DateTimeField("Fecha de solicitud", auto_now_add=True)
+    resuelta = models.DateTimeField("Fecha de resolución", null=True, blank=True)
+    resuelta_por = models.ForeignKey(
+        Usuario, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="cambios_resueltos", verbose_name="Resuelta por",
+    )
+    comentario = models.CharField("Comentario del administrador", max_length=250, blank=True)
+
+    class Meta:
+        verbose_name = "Solicitud de cambio de datos"
+        verbose_name_plural = "Solicitudes de cambio de datos"
+        ordering = ["-creada"]
+        constraints = [
+            # Una sola solicitud viva por usuario y campo: si pide dos veces el
+            # mismo correo, la segunda reemplaza a la primera en vez de dejarle
+            # al administrador dos pendientes que dicen lo mismo.
+            models.UniqueConstraint(
+                fields=["usuario", "campo"],
+                condition=models.Q(estado="PENDIENTE"),
+                name="una_solicitud_pendiente_por_campo",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.usuario.username}: {self.get_campo_display()} → {self.valor_solicitado}"
+
+    @property
+    def pendiente(self):
+        return self.estado == self.Estado.PENDIENTE
 
 
 class PerfilJefeProyecto(models.Model):
