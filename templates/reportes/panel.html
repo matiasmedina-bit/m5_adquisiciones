@@ -4,9 +4,7 @@
 
 <div class="mb-4">
   <h1 class="h3 mb-0">Reportes</h1>
-  <small class="text-muted">
-    Los cuatro informes de gestión del sistema. Todos se pueden exportar a Excel o PDF.
-  </small>
+  <small class="text-muted">Informes de gestión, exportables a Excel o PDF</small>
 </div>
 
 <div class="row g-3">
@@ -20,9 +18,8 @@
             <h2 class="h6 mb-0 text-body">Consumo consolidado por proyecto</h2>
           </div>
           <p class="small text-muted mb-0">
-            Material por material: cuánto se solicitó, cuánto salió efectivamente a
-            la obra y cuánto costó a la fecha. La diferencia entre solicitado y
-            despachado es material aprobado que sigue en bodega.
+            Cuánto se pidió, cuánto salió a la obra y cuánto ha costado, material
+            por material.
           </p>
         </div>
       </div>
@@ -38,8 +35,7 @@
             <h2 class="h6 mb-0 text-body">Desviación presupuestaria</h2>
           </div>
           <p class="small text-muted mb-0">
-            El itemizado original contra lo realmente comprado y consumido, partida
-            por partida, con gráfico. Las partidas sobregiradas quedan marcadas.
+            Lo presupuestado contra lo realmente gastado, partida por partida.
           </p>
         </div>
       </div>
@@ -55,9 +51,7 @@
             <h2 class="h6 mb-0 text-body">Mermas y pérdidas</h2>
           </div>
           <p class="small text-muted mb-0">
-            Material perdido por daño o robo, filtrable por proyecto y por fechas,
-            valorizado en pesos. Una merma se registra en unidades; acá se ve
-            cuánto costó.
+            Material perdido por daño o robo, valorizado en pesos.
           </p>
         </div>
       </div>
@@ -74,8 +68,7 @@
             <h2 class="h6 mb-0 text-body">Historial de compras por proveedor</h2>
           </div>
           <p class="small text-muted mb-0">
-            Cuánto se le compró a cada proveedor en un periodo y en cuántas órdenes.
-            Sólo cuenta órdenes emitidas: un borrador no es una compra.
+            Cuánto se le compró a cada proveedor y en cuántas órdenes.
           </p>
         </div>
       </div>
@@ -87,11 +80,10 @@
 
 {% if user.rol == 'JEFE_PROYECTO' %}
 <div class="alert alert-light border mt-3 small mb-0">
-  Como Jefe de Proyecto, los reportes se limitan a
   {% if proyectos %}
-    {{ proyectos|length }} proyecto{{ proyectos|length|pluralize }} que tienes asignado{{ proyectos|length|pluralize }}.
+    Ves {{ proyectos|length }} proyecto{{ proyectos|length|pluralize }}: {{ proyectos|length|pluralize:"el que tienes asignado,los que tienes asignados" }}.
   {% else %}
-    los proyectos que tengas asignados. Todavía no tienes ninguno.
+    Todavía no tienes proyectos asignados, así que no hay datos que mostrar.
   {% endif %}
 </div>
 {% endif %}

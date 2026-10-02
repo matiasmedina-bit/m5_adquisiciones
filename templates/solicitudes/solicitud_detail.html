@@ -172,7 +172,7 @@
               </div>
             </div>
             <div class="col-md-3 bloque-justificacion" {% if not form.justificacion.errors %}style="display:none;"{% endif %}>
-              <label class="form-label small mb-1">Justificación <span class="text-muted">(RF-16)</span></label>
+              <label class="form-label small mb-1">Justificación <span class="text-muted">(si excede la partida)</span></label>
               {{ form.justificacion }}
               {% if form.justificacion.errors %}<div class="text-danger small">{{ form.justificacion.errors|striptags }}</div>{% endif %}
             </div>
@@ -234,7 +234,7 @@
 
     {% if ordenes_compra %}
     <div class="card shadow-sm mb-3">
-      <div class="card-header py-2 fw-semibold">Órdenes de compra y recepción (RF-39)</div>
+      <div class="card-header py-2 fw-semibold">Órdenes de compra y recepción</div>
       <div class="table-responsive">
         <table class="table align-middle mb-0">
           <thead class="table-light">

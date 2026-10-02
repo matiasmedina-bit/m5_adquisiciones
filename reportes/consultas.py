@@ -158,9 +158,8 @@ def desviacion_presupuestaria(proyecto):
             "vacio": True,
             "sin_datos_de_entrada": True,
             "mensaje_vacio": (
-                f"El proyecto «{proyecto.nombre}» no tiene itemizado cargado. "
-                f"Sin las partidas presupuestarias no hay contra qué comparar: "
-                f"carga el itemizado y vuelve a generar el reporte."),
+                f"«{proyecto.nombre}» todavía no tiene itemizado cargado. "
+                f"Carga las partidas del presupuesto y vuelve a generar el reporte."),
         }
 
     # Comprado: líneas de OC aprobadas o posteriores, por partida de la solicitud
@@ -311,8 +310,7 @@ def mermas_y_perdidas(proyecto=None, desde=None, hasta=None):
         "totales": {"material": "Pérdida total del periodo",
                     "valorizacion": sum((f["valorizacion"] for f in filas), CERO)},
         "vacio": not filas,
-        "mensaje_vacio": "No hay mermas ni pérdidas registradas con estos filtros. "
-                         "Es una buena noticia, no un error del reporte.",
+        "mensaje_vacio": "No hay mermas ni pérdidas registradas con estos filtros.",
     }
 
 

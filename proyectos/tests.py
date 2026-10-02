@@ -475,7 +475,7 @@ class UmbralTamanoCU57Test(TestCase):
     def test_sobre_el_umbral_advierte_y_no_sube_todavia(self):
         resp = self._subir(2 * 1024 * 1024)
         self.assertEqual(ArchivoProyecto.objects.count(), 0)
-        self.assertContains(resp, "comprimirlo")
+        self.assertContains(resp, "Comprímelo o baja la resolución")
         self.assertContains(resp, "subir de todas formas")
 
     def test_confirmando_sube_igual(self):

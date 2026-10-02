@@ -238,7 +238,8 @@ class MermasCU44Test(BaseReportes):
             tipo=MovimientoInventario.Tipo.MERMA).delete()
         r = mermas_y_perdidas()
         self.assertTrue(r["vacio"])
-        self.assertIn("buena noticia", r["mensaje_vacio"])
+        self.assertEqual(r["filas"], [])
+        self.assertIn("No hay mermas", r["mensaje_vacio"])
 
 
 # ==========================================================================

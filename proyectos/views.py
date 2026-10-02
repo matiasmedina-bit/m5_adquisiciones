@@ -168,10 +168,9 @@ def archivo_subir(request, proyecto_pk):
         if subido.size > parametros.umbral_archivo_bytes and not request.POST.get("confirmar_tamano"):
             messages.warning(
                 request,
-                f"«{subido.name}» pesa {subido.size / 1024 / 1024:.1f} MB y el umbral "
-                f"está en {parametros.umbral_archivo_mb} MB. Convendría comprimirlo o "
-                f"bajarle la resolución. Si aun así lo quieres tal cual, marca "
-                f"«subir de todas formas» y vuelve a enviarlo.")
+                f"«{subido.name}» pesa {subido.size / 1024 / 1024:.1f} MB y el máximo "
+                f"recomendado es {parametros.umbral_archivo_mb} MB. Comprímelo o baja "
+                f"la resolución, o marca «subir de todas formas» y vuelve a enviarlo.")
             return render(request, "proyectos/proyecto_detail.html", {
                 "proyecto": proyecto,
                 "archivos": proyecto.archivos.select_related("tipo", "subido_por"),
@@ -263,8 +262,7 @@ def archivo_bloquear(request, pk):
         messages.error(
             request,
             f"«{archivo.nombre}» lo tiene {quien} desde el "
-            f"{archivo.bloqueado_desde:%d/%m/%Y a las %H:%M}. "
-            f"Habla con él o espera a que suba su versión.")
+            f"{archivo.bloqueado_desde:%d/%m/%Y a las %H:%M}.")
         return redirect("proyectos:detalle", pk=archivo.proyecto_id)
 
     archivo.bloqueado_por = request.user
@@ -325,8 +323,8 @@ def archivo_subir_version(request, pk):
     if esperada and recibida != esperada:
         messages.error(
             request,
-            f"La versión editada tiene que venir en .{esperada}, y subiste un "
-            f".{recibida}. Si de verdad es otro documento, cárgalo como archivo nuevo.")
+            f"La versión editada tiene que venir en .{esperada} y subiste un "
+            f".{recibida}. Si es otro documento, cárgalo como archivo nuevo.")
         return redirect("proyectos:detalle", pk=archivo.proyecto_id)
 
     # CU-57: el umbral también se respeta al subir una versión

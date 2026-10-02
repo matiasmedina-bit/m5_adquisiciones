@@ -46,7 +46,7 @@
   <div class="col-lg-5">
     {% if factura.esta_bloqueada and user.rol == 'ADMIN' %}
     <div class="card shadow-sm border-danger">
-      <div class="card-header py-2 fw-semibold text-danger">Desbloquear factura (RF-42)</div>
+      <div class="card-header py-2 fw-semibold text-danger">Desbloquear factura</div>
       <div class="card-body">
         <form method="post" action="{% url 'facturacion:desbloquear' factura.pk %}">
           {% csrf_token %}

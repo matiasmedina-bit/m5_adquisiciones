@@ -16,7 +16,7 @@
 {% if metricas.criticos %}
 <div class="alert alert-danger d-flex align-items-center gap-2">
   <i class="bi bi-exclamation-triangle-fill"></i>
-  <span>Hay <strong>{{ metricas.criticos }}</strong> material{{ metricas.criticos|pluralize:"es" }} en o bajo su stock mínimo (RF-37).
+  <span>Hay <strong>{{ metricas.criticos }}</strong> material{{ metricas.criticos|pluralize:"es" }} en o bajo su stock mínimo.
     <a href="?estado=critico" class="alert-link">Ver</a></span>
 </div>
 {% endif %}
@@ -135,7 +135,7 @@
           <td class="text-nowrap"><code class="small">{{ m.codigo_interno|default:"—" }}</code></td>
           <td class="fw-semibold">
             {{ m.nombre }}
-            {% if m.bajo_stock_minimo %}<span class="badge bg-danger ms-1" title="Stock en o bajo el mínimo (RF-37)">Stock crítico</span>{% endif %}
+            {% if m.bajo_stock_minimo %}<span class="badge bg-danger ms-1" title="Stock en o bajo el mínimo">Stock crítico</span>{% endif %}
             {% if m.codigo_activo %}<span class="text-muted small d-block">Activo: {{ m.codigo_activo }}</span>{% endif %}
           </td>
           <td>

@@ -102,7 +102,7 @@
         {% if orden.estado == 'ENVIADA' or orden.estado == 'RECEPCION_PARCIAL' %}
           {% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
           <hr class="my-1">
-          <div class="small fw-semibold">Actualizar recepción (RF-38)</div>
+          <div class="small fw-semibold">Actualizar recepción</div>
           <form method="post">
             {% csrf_token %}
             <input type="hidden" name="accion" value="recepcion">

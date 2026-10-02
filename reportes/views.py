@@ -99,8 +99,7 @@ def consumo(request):
         "pide_fechas": False,
         "url_actual": request.path,
         "titulo_pantalla": "Consumo consolidado por proyecto",
-        "ayuda": "Qué se pidió, qué se despachó a la obra y cuánto costó, "
-                 "material por material.",
+        "ayuda": "Cuánto se pidió, cuánto salió a la obra y cuánto ha costado.",
     })
 
 
@@ -134,7 +133,7 @@ def desviacion(request):
         "pide_fechas": False,
         "url_actual": request.path,
         "titulo_pantalla": "Desviación presupuestaria",
-        "ayuda": "El itemizado original contra lo realmente comprado y consumido.",
+        "ayuda": "Lo presupuestado contra lo realmente gastado, partida por partida.",
     })
 
 
