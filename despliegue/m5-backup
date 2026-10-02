@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# ============================================================
+#  Respaldo diario del sistema M5
+#
+#  Se instala en /etc/cron.daily/m5-backup y corre solo, una vez
+#  al dia. Guarda DOS cosas, porque con una sola no se puede
+#  reconstruir el sistema:
+#
+#    1. La base de datos  -> quien pidio que, a quien se le compro,
+#                            que entro y salio de bodega
+#    2. La carpeta media/ -> los archivos que la gente subio:
+#                            planos, documentos de proyecto, fotos
+#                            de perfil
+#
+#  Un respaldo que solo trae la base deja los planos afuera, y uno
+#  que solo trae los archivos no sabe a que proyecto pertenecen.
+#
+#  Retencion: 30 dias. Lo mas viejo se borra solo.
+# ============================================================
+set -euo pipefail
+
+DESTINO=/var/backups/m5
+APP=/opt/m5/app
+DIAS=30
+SELLO=$(date +%Y%m%d-%H%M%S)
+
+mkdir -p "$DESTINO"
+chmod 700 "$DESTINO"
+
+# ------------------------------------------------------------
+# Datos de conexion, leidos del .env (no se escriben aca)
+# ------------------------------------------------------------
+if [ ! -f "$APP/.env" ]; then
+    echo "m5-backup: no existe $APP/.env" >&2
+    exit 1
+fi
+
+DB_NAME=$(grep -E '^DB_NAME=' "$APP/.env" | cut -d= -f2- || echo "m5_db")
+DB_USER=$(grep -E '^DB_USER=' "$APP/.env" | cut -d= -f2- || echo "m5_user")
+DB_PASS=$(grep -E '^DB_PASSWORD=' "$APP/.env" | cut -d= -f2- || echo "")
+DB_HOST=$(grep -E '^DB_HOST=' "$APP/.env" | cut -d= -f2- || echo "127.0.0.1")
+
+# ------------------------------------------------------------
+# 1. Base de datos
+# ------------------------------------------------------------
+PGPASSWORD="$DB_PASS" pg_dump -Fc \
+    -h "$DB_HOST" -U "$DB_USER" "$DB_NAME" \
+    -f "$DESTINO/base-$SELLO.dump"
+chmod 600 "$DESTINO/base-$SELLO.dump"
+
+# ------------------------------------------------------------
+# 2. Archivos subidos por la gente
+# ------------------------------------------------------------
+if [ -d "$APP/media" ]; then
+    tar -czf "$DESTINO/archivos-$SELLO.tar.gz" -C "$APP" media
+    chmod 600 "$DESTINO/archivos-$SELLO.tar.gz"
+fi
+
+# ------------------------------------------------------------
+# 3. Retencion
+# ------------------------------------------------------------
+find "$DESTINO" -name 'base-*.dump'      -mtime +$DIAS -delete
+find "$DESTINO" -name 'archivos-*.tar.gz' -mtime +$DIAS -delete
+
+# ------------------------------------------------------------
+# 4. Dejar constancia
+#
+#  Un respaldo que falla en silencio es peor que no tener respaldo,
+#  porque da confianza sin darla. Esto queda en el journal del
+#  sistema:  journalctl -t m5-backup
+# ------------------------------------------------------------
+PESO=$(du -sh "$DESTINO" | cut -f1)
+logger -t m5-backup "Respaldo $SELLO completo. Total en $DESTINO: $PESO"
+
+# ============================================================
+#  SACAR LOS RESPALDOS DE LA VM
+#
+#  Todo esto vive DENTRO de la maquina virtual. Si el disco de la
+#  VM se corrompe, los respaldos se van con ella: no sirven para
+#  el caso que mas importa.
+#
+#  Para copiarlos a la carpeta compartida del servidor, montarla
+#  una vez y descomentar el bloque de abajo:
+#
+#     sudo apt install cifs-utils
+#     sudo mkdir -p /mnt/respaldos
+#     sudo nano /etc/fstab      # agregar, en una linea:
+#     //SERVIDOR/Respaldos /mnt/respaldos cifs credentials=/etc/m5-smb.cred,uid=0,gid=0 0 0
+#
+#  y /etc/m5-smb.cred (permisos 600) con:
+#     username=usuario
+#     password=clave
+#
+# if mountpoint -q /mnt/respaldos; then
+#     cp "$DESTINO/base-$SELLO.dump" /mnt/respaldos/
+#     [ -f "$DESTINO/archivos-$SELLO.tar.gz" ] && cp "$DESTINO/archivos-$SELLO.tar.gz" /mnt/respaldos/
+#     find /mnt/respaldos -name 'base-*.dump'       -mtime +$DIAS -delete
+#     find /mnt/respaldos -name 'archivos-*.tar.gz' -mtime +$DIAS -delete
+#     logger -t m5-backup "Copia externa en /mnt/respaldos"
+# else
+#     logger -t m5-backup "AVISO: /mnt/respaldos no esta montado, el respaldo quedo solo dentro de la VM"
+# fi
+# ============================================================
