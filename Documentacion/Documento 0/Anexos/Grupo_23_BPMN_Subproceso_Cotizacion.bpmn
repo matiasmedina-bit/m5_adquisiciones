@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Defs_Proc_COT" targetNamespace="http://grupo23.unab.cl/m5" exporter="Grupo 23" exporterVersion="1.0">
+  <category id="Cat_FaseC_1"><categoryValue id="CV_FaseC_1" value="Preparación de la cotización"/></category>
+  <category id="Cat_FaseC_2"><categoryValue id="CV_FaseC_2" value="Recepción de cotizaciones"/></category>
+  <category id="Cat_FaseC_3"><categoryValue id="CV_FaseC_3" value="Evaluación y selección"/></category>
+  <collaboration id="Collab_Proc_COT">
+    <participant id="Pool_COT" name="Proceso de cotización" processRef="Proc_COT"/>
+  </collaboration>
+  <process id="Proc_COT" name="Proceso de cotización" isExecutable="false">
+    <laneSet id="LaneSet_1">
+      <lane id="Lane_ADQ2" name="Adquisiciones">
+        <flowNodeRef>S_Cot</flowNodeRef>
+        <flowNodeRef>T_RevProv</flowNodeRef>
+        <flowNodeRef>T_EnvSol</flowNodeRef>
+        <flowNodeRef>T_RecepCot</flowNodeRef>
+        <flowNodeRef>G_Suf</flowNodeRef>
+        <flowNodeRef>T_Comparar</flowNodeRef>
+        <flowNodeRef>T_Selecc</flowNodeRef>
+        <flowNodeRef>E_Cot</flowNodeRef>
+      </lane>
+    </laneSet>
+    <startEvent id="S_Cot" name="Necesidad de cotizar">
+      <outgoing>Flow_1</outgoing>
+    </startEvent>
+    <userTask id="T_RevProv" name="Revisar proveedores existentes">
+      <incoming>Flow_1</incoming>
+      <outgoing>Flow_2</outgoing>
+      <property id="Prop_T_RevProv" name="__targetRef_placeholder"/>
+      <dataInputAssociation id="Assoc_9"><sourceRef>DO_Listado</sourceRef><targetRef>Prop_T_RevProv</targetRef></dataInputAssociation>
+    </userTask>
+    <sendTask id="T_EnvSol" name="Enviar solicitud de cotización">
+      <incoming>Flow_2</incoming>
+      <incoming>Flow_5</incoming>
+      <outgoing>Flow_3</outgoing>
+      <dataOutputAssociation id="Assoc_10"><targetRef>DS_Sol</targetRef></dataOutputAssociation>
+    </sendTask>
+    <receiveTask id="T_RecepCot" name="Recepcionar cotizaciones del proveedor">
+      <incoming>Flow_3</incoming>
+      <outgoing>Flow_4</outgoing>
+      <property id="Prop_T_RecepCot" name="__targetRef_placeholder"/>
+      <dataInputAssociation id="Assoc_11"><sourceRef>DS_Sol</sourceRef><targetRef>Prop_T_RecepCot</targetRef></dataInputAssociation>
+    </receiveTask>
+    <exclusiveGateway id="G_Suf" name="¿Se recibieron cotizaciones suficientes?">
+      <incoming>Flow_4</incoming>
+      <outgoing>Flow_5</outgoing>
+      <outgoing>Flow_6</outgoing>
+    </exclusiveGateway>
+    <userTask id="T_Comparar" name="Comparar cotizaciones">
+      <incoming>Flow_6</incoming>
+      <outgoing>Flow_7</outgoing>
+      <property id="Prop_T_Comparar" name="__targetRef_placeholder"/>
+      <dataInputAssociation id="Assoc_12"><sourceRef>DS_Cots</sourceRef><targetRef>Prop_T_Comparar</targetRef></dataInputAssociation>
+    </userTask>
+    <userTask id="T_Selecc" name="Seleccionar proveedor">
+      <incoming>Flow_7</incoming>
+      <outgoing>Flow_8</outgoing>
+      <dataOutputAssociation id="Assoc_13"><targetRef>DO_Aprob</targetRef></dataOutputAssociation>
+    </userTask>
+    <endEvent id="E_Cot" name="Fin">
+      <incoming>Flow_8</incoming>
+    </endEvent>
+    <dataObject id="DO_DO_Listado" name="Listado de proveedores (Excel)"/>
+    <dataObjectReference id="DO_Listado" name="Listado de proveedores (Excel)" dataObjectRef="DO_DO_Listado"/>
+    <dataStoreReference id="DS_Sol" name="solicitudes de cotizacion" dataStoreRef="DS_DS_Sol"/>
+    <dataStoreReference id="DS_Cots" name="cotizaciones" dataStoreRef="DS_DS_Cots"/>
+    <dataObject id="DO_DO_Aprob" name="Cotización aprobada"/>
+    <dataObjectReference id="DO_Aprob" name="Cotización aprobada" dataObjectRef="DO_DO_Aprob"/>
+    <sequenceFlow id="Flow_1" sourceRef="S_Cot" targetRef="T_RevProv"/>
+    <sequenceFlow id="Flow_2" sourceRef="T_RevProv" targetRef="T_EnvSol"/>
+    <sequenceFlow id="Flow_3" sourceRef="T_EnvSol" targetRef="T_RecepCot"/>
+    <sequenceFlow id="Flow_4" sourceRef="T_RecepCot" targetRef="G_Suf"/>
+    <sequenceFlow id="Flow_5" name="no" sourceRef="G_Suf" targetRef="T_EnvSol"/>
+    <sequenceFlow id="Flow_6" name="sí" sourceRef="G_Suf" targetRef="T_Comparar"/>
+    <sequenceFlow id="Flow_7" sourceRef="T_Comparar" targetRef="T_Selecc"/>
+    <sequenceFlow id="Flow_8" sourceRef="T_Selecc" targetRef="E_Cot"/>
+    <group id="FaseC_1" categoryValueRef="CV_FaseC_1"/>
+    <group id="FaseC_2" categoryValueRef="CV_FaseC_2"/>
+    <group id="FaseC_3" categoryValueRef="CV_FaseC_3"/>
+  </process>
+  <dataStore id="DS_DS_Sol" name="solicitudes de cotizacion"/>
+  <dataStore id="DS_DS_Cots" name="cotizaciones"/>
+  <bpmndi:BPMNDiagram id="Diag_Proc_COT" name="Proceso de cotización">
+    <bpmndi:BPMNPlane id="Plane_Proc_COT" bpmnElement="Collab_Proc_COT">
+      <bpmndi:BPMNShape id="Pool_COT_di" bpmnElement="Pool_COT" isHorizontal="true"><dc:Bounds x="10" y="0" width="1646" height="656"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_ADQ2_di" bpmnElement="Lane_ADQ2" isHorizontal="true"><dc:Bounds x="40" y="0" width="1616" height="656"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="FaseC_1_di" bpmnElement="FaseC_1"><dc:Bounds x="80" y="4" width="435" height="648"/><bpmndi:BPMNLabel><dc:Bounds x="90" y="8" width="415" height="20"/></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="FaseC_2_di" bpmnElement="FaseC_2"><dc:Bounds x="515" y="4" width="541" height="648"/><bpmndi:BPMNLabel><dc:Bounds x="525" y="8" width="521" height="20"/></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="FaseC_3_di" bpmnElement="FaseC_3"><dc:Bounds x="1056" y="4" width="596" height="648"/><bpmndi:BPMNLabel><dc:Bounds x="1066" y="8" width="576" height="20"/></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Cot_di" bpmnElement="S_Cot"><dc:Bounds x="203" y="206" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="161" y="246" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_RevProv_di" bpmnElement="T_RevProv"><dc:Bounds x="352" y="194" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_EnvSol_di" bpmnElement="T_EnvSol"><dc:Bounds x="587" y="194" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_RecepCot_di" bpmnElement="T_RecepCot"><dc:Bounds x="766" y="194" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Suf_di" bpmnElement="G_Suf" isMarkerVisible="true"><dc:Bounds x="946" y="199" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="911" y="253" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Comparar_di" bpmnElement="T_Comparar"><dc:Bounds x="1121" y="194" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Selecc_di" bpmnElement="T_Selecc"><dc:Bounds x="1336" y="194" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Cot_di" bpmnElement="E_Cot"><dc:Bounds x="1539" y="206" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1497" y="246" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DO_Listado_di" bpmnElement="DO_Listado"><dc:Bounds x="337" y="471" width="36" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="295" y="525" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DS_Sol_di" bpmnElement="DS_Sol"><dc:Bounds x="577" y="527" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="542" y="581" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DS_Cots_di" bpmnElement="DS_Cots"><dc:Bounds x="1141" y="471" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1106" y="525" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DO_Aprob_di" bpmnElement="DO_Aprob"><dc:Bounds x="1363" y="471" width="36" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1321" y="525" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
+        <di:waypoint x="239" y="224"/>
+        <di:waypoint x="352" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_2_di" bpmnElement="Flow_2">
+        <di:waypoint x="442" y="224"/>
+        <di:waypoint x="587" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_3_di" bpmnElement="Flow_3">
+        <di:waypoint x="677" y="224"/>
+        <di:waypoint x="766" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_4_di" bpmnElement="Flow_4">
+        <di:waypoint x="856" y="224"/>
+        <di:waypoint x="946" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_5_di" bpmnElement="Flow_5">
+        <di:waypoint x="971" y="199"/>
+        <di:waypoint x="971" y="88"/>
+        <di:waypoint x="632" y="88"/>
+        <di:waypoint x="632" y="194"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="977" y="177" width="30" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_6_di" bpmnElement="Flow_6">
+        <di:waypoint x="996" y="224"/>
+        <di:waypoint x="1121" y="224"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1002" y="202" width="30" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_7_di" bpmnElement="Flow_7">
+        <di:waypoint x="1211" y="224"/>
+        <di:waypoint x="1336" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_8_di" bpmnElement="Flow_8">
+        <di:waypoint x="1426" y="224"/>
+        <di:waypoint x="1539" y="224"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_9_di" bpmnElement="Assoc_9">
+        <di:waypoint x="355" y="471"/>
+        <di:waypoint x="355" y="254"/>
+        <di:waypoint x="397" y="254"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_10_di" bpmnElement="Assoc_10">
+        <di:waypoint x="632" y="254"/>
+        <di:waypoint x="632" y="527"/>
+        <di:waypoint x="602" y="527"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_11_di" bpmnElement="Assoc_11">
+        <di:waypoint x="627" y="552"/>
+        <di:waypoint x="811" y="552"/>
+        <di:waypoint x="811" y="254"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_12_di" bpmnElement="Assoc_12">
+        <di:waypoint x="1166" y="471"/>
+        <di:waypoint x="1166" y="254"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_13_di" bpmnElement="Assoc_13">
+        <di:waypoint x="1381" y="254"/>
+        <di:waypoint x="1381" y="471"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>

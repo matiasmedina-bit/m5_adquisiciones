@@ -1,0 +1,498 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Defs_Proc_ASIS" targetNamespace="http://grupo23.unab.cl/m5" exporter="Grupo 23" exporterVersion="1.0">
+  <category id="Cat_Fase_1"><categoryValue id="CV_Fase_1" value="Generación de la necesidad"/></category>
+  <category id="Cat_Fase_2"><categoryValue id="CV_Fase_2" value="Gestión de adquisiciones"/></category>
+  <category id="Cat_Fase_3"><categoryValue id="CV_Fase_3" value="Recepción y verificación de materiales"/></category>
+  <category id="Cat_Fase_4"><categoryValue id="CV_Fase_4" value="Gestión contable"/></category>
+  <category id="Cat_Fase_5"><categoryValue id="CV_Fase_5" value="Control de inventario"/></category>
+  <collaboration id="Collab_Proc_ASIS">
+    <participant id="Pool_ASIS" name="Gestión de Adquisiciones e Inventario — AS-IS" processRef="Proc_ASIS"/>
+  </collaboration>
+  <process id="Proc_ASIS" name="Gestión de Adquisiciones e Inventario — AS-IS" isExecutable="false">
+    <laneSet id="LaneSet_1">
+      <lane id="Lane_JP" name="Jefe de proyecto">
+        <flowNodeRef>S_Nec</flowNodeRef>
+        <flowNodeRef>T_Detectar</flowNodeRef>
+        <flowNodeRef>T_EnviarPedido</flowNodeRef>
+        <flowNodeRef>E_CotRec</flowNodeRef>
+        <flowNodeRef>T_RevEsp</flowNodeRef>
+        <flowNodeRef>G_Esp</flowNodeRef>
+      </lane>
+      <lane id="Lane_ADQ" name="Adquisiciones">
+        <flowNodeRef>T_RecibirSol</flowNodeRef>
+        <flowNodeRef>SP_Cotizar</flowNodeRef>
+        <flowNodeRef>G_Prov</flowNodeRef>
+        <flowNodeRef>T_SelProv</flowNodeRef>
+        <flowNodeRef>T_GenOC</flowNodeRef>
+        <flowNodeRef>T_Correl</flowNodeRef>
+        <flowNodeRef>T_GuardarOC</flowNodeRef>
+      </lane>
+      <lane id="Lane_CONT" name="Contabilidad">
+        <flowNodeRef>T_FactRec</flowNodeRef>
+        <flowNodeRef>T_Transtecnia</flowNodeRef>
+        <flowNodeRef>E_FinCont</flowNodeRef>
+      </lane>
+      <lane id="Lane_PROV" name="Proveedor">
+        <flowNodeRef>T_Atender</flowNodeRef>
+        <flowNodeRef>T_EnvCot</flowNodeRef>
+        <flowNodeRef>T_RecOC</flowNodeRef>
+        <flowNodeRef>T_Despachar</flowNodeRef>
+        <flowNodeRef>T_EnvFact</flowNodeRef>
+      </lane>
+      <lane id="Lane_BOD" name="Bodega">
+        <flowNodeRef>T_MatRec</flowNodeRef>
+        <flowNodeRef>T_Verificar</flowNodeRef>
+        <flowNodeRef>G_Conforme</flowNodeRef>
+        <flowNodeRef>T_Registrar</flowNodeRef>
+        <flowNodeRef>E_FinBod</flowNodeRef>
+      </lane>
+    </laneSet>
+    <startEvent id="S_Nec" name="Necesidad detectada">
+      <outgoing>Flow_1</outgoing>
+    </startEvent>
+    <userTask id="T_Detectar" name="Detectar necesidad">
+      <incoming>Flow_1</incoming>
+      <outgoing>Flow_2</outgoing>
+    </userTask>
+    <sendTask id="T_EnviarPedido" name="Enviar pedido de excel por correo">
+      <incoming>Flow_2</incoming>
+      <outgoing>Flow_3</outgoing>
+      <property id="Prop_T_EnviarPedido" name="__targetRef_placeholder"/>
+      <dataInputAssociation id="Assoc_31"><sourceRef>DS_Pedidos</sourceRef><targetRef>Prop_T_EnviarPedido</targetRef></dataInputAssociation>
+      <dataInputAssociation id="Assoc_32"><sourceRef>DO_Correo</sourceRef><targetRef>Prop_T_EnviarPedido</targetRef></dataInputAssociation>
+    </sendTask>
+    <dataStoreReference id="DS_Pedidos" name="Pedidos - Excel" dataStoreRef="DS_DS_Pedidos"/>
+    <dataObject id="DO_DO_Correo" name="Correo electrónico"/>
+    <dataObjectReference id="DO_Correo" name="Correo electrónico" dataObjectRef="DO_DO_Correo"/>
+    <intermediateCatchEvent id="E_CotRec" name="Cotización recibida">
+      <incoming>Flow_8</incoming>
+      <outgoing>Flow_9</outgoing>
+      <messageEventDefinition id="MED_E_CotRec"/>
+    </intermediateCatchEvent>
+    <userTask id="T_RevEsp" name="Revisar especificaciones técnicas">
+      <incoming>Flow_9</incoming>
+      <outgoing>Flow_10</outgoing>
+    </userTask>
+    <exclusiveGateway id="G_Esp" name="¿Especificaciones aprobadas?">
+      <incoming>Flow_10</incoming>
+      <outgoing>Flow_11</outgoing>
+      <outgoing>Flow_12</outgoing>
+    </exclusiveGateway>
+    <receiveTask id="T_RecibirSol" name="Recibir solicitud">
+      <incoming>Flow_3</incoming>
+      <outgoing>Flow_4</outgoing>
+    </receiveTask>
+    <subProcess id="SP_Cotizar" name="Cotizar con proveedores">
+      <incoming>Flow_4</incoming>
+      <incoming>Flow_7</incoming>
+      <incoming>Flow_12</incoming>
+      <incoming>Flow_15</incoming>
+      <outgoing>Flow_5</outgoing>
+      <outgoing>Flow_8</outgoing>
+      <outgoing>Flow_13</outgoing>
+    </subProcess>
+    <exclusiveGateway id="G_Prov" name="Proveedor aprobado">
+      <incoming>Flow_5</incoming>
+      <outgoing>Flow_6</outgoing>
+      <outgoing>Flow_7</outgoing>
+    </exclusiveGateway>
+    <userTask id="T_SelProv" name="Seleccionar proveedor">
+      <incoming>Flow_6</incoming>
+      <outgoing>Flow_16</outgoing>
+    </userTask>
+    <userTask id="T_GenOC" name="Generar OC en Excel (manual)">
+      <incoming>Flow_11</incoming>
+      <incoming>Flow_16</incoming>
+      <outgoing>Flow_17</outgoing>
+    </userTask>
+    <userTask id="T_Correl" name="Asignar correlativo manual">
+      <incoming>Flow_17</incoming>
+      <outgoing>Flow_18</outgoing>
+    </userTask>
+    <userTask id="T_GuardarOC" name="Guardar OC en PDF">
+      <incoming>Flow_18</incoming>
+      <outgoing>Flow_19</outgoing>
+      <dataOutputAssociation id="Assoc_33"><targetRef>DS_OC</targetRef></dataOutputAssociation>
+    </userTask>
+    <dataStoreReference id="DS_OC" name="PDF - Órdenes de compra" dataStoreRef="DS_DS_OC"/>
+    <receiveTask id="T_FactRec" name="Factura recibida">
+      <incoming>Flow_28</incoming>
+      <outgoing>Flow_29</outgoing>
+    </receiveTask>
+    <userTask id="T_Transtecnia" name="Ingresar factura en Transtecnia">
+      <incoming>Flow_29</incoming>
+      <outgoing>Flow_30</outgoing>
+      <dataOutputAssociation id="Assoc_35"><targetRef>DS_Trans</targetRef></dataOutputAssociation>
+    </userTask>
+    <endEvent id="E_FinCont" name="Fin">
+      <incoming>Flow_30</incoming>
+    </endEvent>
+    <dataStoreReference id="DS_Trans" name="Sistema Transtecnia" dataStoreRef="DS_DS_Trans"/>
+    <userTask id="T_Atender" name="Atender solicitud de cotización">
+      <incoming>Flow_13</incoming>
+      <outgoing>Flow_14</outgoing>
+    </userTask>
+    <sendTask id="T_EnvCot" name="Enviar cotización">
+      <incoming>Flow_14</incoming>
+      <outgoing>Flow_15</outgoing>
+      <property id="Prop_T_EnvCot" name="__targetRef_placeholder"/>
+      <dataInputAssociation id="Assoc_34"><sourceRef>DO_Cot</sourceRef><targetRef>Prop_T_EnvCot</targetRef></dataInputAssociation>
+    </sendTask>
+    <dataObject id="DO_DO_Cot" name="Cotización"/>
+    <dataObjectReference id="DO_Cot" name="Cotización" dataObjectRef="DO_DO_Cot"/>
+    <receiveTask id="T_RecOC" name="Recibir orden de compra">
+      <incoming>Flow_19</incoming>
+      <outgoing>Flow_20</outgoing>
+    </receiveTask>
+    <userTask id="T_Despachar" name="Despachar material">
+      <incoming>Flow_20</incoming>
+      <incoming>Flow_24</incoming>
+      <outgoing>Flow_21</outgoing>
+      <outgoing>Flow_27</outgoing>
+    </userTask>
+    <sendTask id="T_EnvFact" name="Enviar factura">
+      <incoming>Flow_27</incoming>
+      <outgoing>Flow_28</outgoing>
+    </sendTask>
+    <receiveTask id="T_MatRec" name="Material recibido">
+      <incoming>Flow_21</incoming>
+      <outgoing>Flow_22</outgoing>
+    </receiveTask>
+    <userTask id="T_Verificar" name="Verificar cantidad y calidad de material">
+      <incoming>Flow_22</incoming>
+      <outgoing>Flow_23</outgoing>
+    </userTask>
+    <exclusiveGateway id="G_Conforme" name="¿Material conforme?">
+      <incoming>Flow_23</incoming>
+      <outgoing>Flow_24</outgoing>
+      <outgoing>Flow_25</outgoing>
+    </exclusiveGateway>
+    <userTask id="T_Registrar" name="Registrar entradas/salidas de Excel">
+      <incoming>Flow_25</incoming>
+      <outgoing>Flow_26</outgoing>
+      <dataOutputAssociation id="Assoc_36"><targetRef>DS_Inv</targetRef></dataOutputAssociation>
+    </userTask>
+    <endEvent id="E_FinBod" name="Fin">
+      <incoming>Flow_26</incoming>
+    </endEvent>
+    <dataStoreReference id="DS_Inv" name="Inventarios - Excel" dataStoreRef="DS_DS_Inv"/>
+    <sequenceFlow id="Flow_1" sourceRef="S_Nec" targetRef="T_Detectar"/>
+    <sequenceFlow id="Flow_2" sourceRef="T_Detectar" targetRef="T_EnviarPedido"/>
+    <sequenceFlow id="Flow_3" sourceRef="T_EnviarPedido" targetRef="T_RecibirSol"/>
+    <sequenceFlow id="Flow_4" sourceRef="T_RecibirSol" targetRef="SP_Cotizar"/>
+    <sequenceFlow id="Flow_5" sourceRef="SP_Cotizar" targetRef="G_Prov"/>
+    <sequenceFlow id="Flow_6" name="sí" sourceRef="G_Prov" targetRef="T_SelProv"/>
+    <sequenceFlow id="Flow_7" name="no" sourceRef="G_Prov" targetRef="SP_Cotizar"/>
+    <sequenceFlow id="Flow_8" sourceRef="SP_Cotizar" targetRef="E_CotRec"/>
+    <sequenceFlow id="Flow_9" sourceRef="E_CotRec" targetRef="T_RevEsp"/>
+    <sequenceFlow id="Flow_10" sourceRef="T_RevEsp" targetRef="G_Esp"/>
+    <sequenceFlow id="Flow_11" name="sí" sourceRef="G_Esp" targetRef="T_GenOC"/>
+    <sequenceFlow id="Flow_12" name="no" sourceRef="G_Esp" targetRef="SP_Cotizar"/>
+    <sequenceFlow id="Flow_13" sourceRef="SP_Cotizar" targetRef="T_Atender"/>
+    <sequenceFlow id="Flow_14" sourceRef="T_Atender" targetRef="T_EnvCot"/>
+    <sequenceFlow id="Flow_15" sourceRef="T_EnvCot" targetRef="SP_Cotizar"/>
+    <sequenceFlow id="Flow_16" sourceRef="T_SelProv" targetRef="T_GenOC"/>
+    <sequenceFlow id="Flow_17" sourceRef="T_GenOC" targetRef="T_Correl"/>
+    <sequenceFlow id="Flow_18" sourceRef="T_Correl" targetRef="T_GuardarOC"/>
+    <sequenceFlow id="Flow_19" sourceRef="T_GuardarOC" targetRef="T_RecOC"/>
+    <sequenceFlow id="Flow_20" sourceRef="T_RecOC" targetRef="T_Despachar"/>
+    <sequenceFlow id="Flow_21" sourceRef="T_Despachar" targetRef="T_MatRec"/>
+    <sequenceFlow id="Flow_22" sourceRef="T_MatRec" targetRef="T_Verificar"/>
+    <sequenceFlow id="Flow_23" sourceRef="T_Verificar" targetRef="G_Conforme"/>
+    <sequenceFlow id="Flow_24" name="no" sourceRef="G_Conforme" targetRef="T_Despachar"/>
+    <sequenceFlow id="Flow_25" name="sí" sourceRef="G_Conforme" targetRef="T_Registrar"/>
+    <sequenceFlow id="Flow_26" sourceRef="T_Registrar" targetRef="E_FinBod"/>
+    <sequenceFlow id="Flow_27" sourceRef="T_Despachar" targetRef="T_EnvFact"/>
+    <sequenceFlow id="Flow_28" sourceRef="T_EnvFact" targetRef="T_FactRec"/>
+    <sequenceFlow id="Flow_29" sourceRef="T_FactRec" targetRef="T_Transtecnia"/>
+    <sequenceFlow id="Flow_30" sourceRef="T_Transtecnia" targetRef="E_FinCont"/>
+    <group id="Fase_1" categoryValueRef="CV_Fase_1"/>
+    <group id="Fase_2" categoryValueRef="CV_Fase_2"/>
+    <group id="Fase_3" categoryValueRef="CV_Fase_3"/>
+    <group id="Fase_4" categoryValueRef="CV_Fase_4"/>
+    <group id="Fase_5" categoryValueRef="CV_Fase_5"/>
+  </process>
+  <dataStore id="DS_DS_Pedidos" name="Pedidos - Excel"/>
+  <dataStore id="DS_DS_OC" name="PDF - Órdenes de compra"/>
+  <dataStore id="DS_DS_Trans" name="Sistema Transtecnia"/>
+  <dataStore id="DS_DS_Inv" name="Inventarios - Excel"/>
+  <bpmndi:BPMNDiagram id="Diag_Proc_ASIS" name="Gestión de Adquisiciones e Inventario — AS-IS">
+    <bpmndi:BPMNPlane id="Plane_Proc_ASIS" bpmnElement="Collab_Proc_ASIS">
+      <bpmndi:BPMNShape id="Pool_ASIS_di" bpmnElement="Pool_ASIS" isHorizontal="true"><dc:Bounds x="10" y="0" width="1886" height="1011"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_JP_di" bpmnElement="Lane_JP" isHorizontal="true"><dc:Bounds x="40" y="0" width="1856" height="216"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_ADQ_di" bpmnElement="Lane_ADQ" isHorizontal="true"><dc:Bounds x="40" y="216" width="1856" height="200"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_CONT_di" bpmnElement="Lane_CONT" isHorizontal="true"><dc:Bounds x="40" y="416" width="1856" height="196"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_PROV_di" bpmnElement="Lane_PROV" isHorizontal="true"><dc:Bounds x="40" y="612" width="1856" height="199"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_BOD_di" bpmnElement="Lane_BOD" isHorizontal="true"><dc:Bounds x="40" y="811" width="1856" height="200"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Fase_1_di" bpmnElement="Fase_1"><dc:Bounds x="56" y="4" width="424" height="1003"/><bpmndi:BPMNLabel><dc:Bounds x="66" y="8" width="404" height="20"/></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Fase_2_di" bpmnElement="Fase_2"><dc:Bounds x="480" y="4" width="499" height="1003"/><bpmndi:BPMNLabel><dc:Bounds x="490" y="8" width="479" height="20"/></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Fase_3_di" bpmnElement="Fase_3"><dc:Bounds x="979" y="4" width="301" height="1003"/><bpmndi:BPMNLabel><dc:Bounds x="989" y="8" width="281" height="20"/></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Fase_4_di" bpmnElement="Fase_4"><dc:Bounds x="1280" y="4" width="296" height="1003"/><bpmndi:BPMNLabel><dc:Bounds x="1290" y="8" width="276" height="20"/></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Fase_5_di" bpmnElement="Fase_5"><dc:Bounds x="1576" y="4" width="316" height="1003"/><bpmndi:BPMNLabel><dc:Bounds x="1586" y="8" width="296" height="20"/></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Nec_di" bpmnElement="S_Nec"><dc:Bounds x="107" y="155" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="65" y="195" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Detectar_di" bpmnElement="T_Detectar"><dc:Bounds x="195" y="146" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_EnviarPedido_di" bpmnElement="T_EnviarPedido"><dc:Bounds x="320" y="146" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DS_Pedidos_di" bpmnElement="DS_Pedidos"><dc:Bounds x="196" y="42" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="161" y="96" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DO_Correo_di" bpmnElement="DO_Correo"><dc:Bounds x="414" y="39" width="36" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="372" y="93" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_CotRec_di" bpmnElement="E_CotRec"><dc:Bounds x="531" y="62" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="489" y="102" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_RevEsp_di" bpmnElement="T_RevEsp"><dc:Bounds x="593" y="50" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Esp_di" bpmnElement="G_Esp" isMarkerVisible="true"><dc:Bounds x="703" y="58" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="668" y="112" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_RecibirSol_di" bpmnElement="T_RecibirSol"><dc:Bounds x="488" y="229" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_Cotizar_di" bpmnElement="SP_Cotizar" isExpanded="false"><dc:Bounds x="488" y="306" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Prov_di" bpmnElement="G_Prov" isMarkerVisible="true"><dc:Bounds x="612" y="311" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="577" y="365" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_SelProv_di" bpmnElement="T_SelProv"><dc:Bounds x="681" y="306" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_GenOC_di" bpmnElement="T_GenOC"><dc:Bounds x="681" y="218" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Correl_di" bpmnElement="T_Correl"><dc:Bounds x="803" y="218" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_GuardarOC_di" bpmnElement="T_GuardarOC"><dc:Bounds x="803" y="306" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DS_OC_di" bpmnElement="DS_OC"><dc:Bounds x="919" y="223" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="884" y="277" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_FactRec_di" bpmnElement="T_FactRec"><dc:Bounds x="1294" y="490" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Transtecnia_di" bpmnElement="T_Transtecnia"><dc:Bounds x="1413" y="490" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_FinCont_di" bpmnElement="E_FinCont"><dc:Bounds x="1531" y="502" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1489" y="542" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DS_Trans_di" bpmnElement="DS_Trans"><dc:Bounds x="1511" y="410" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1476" y="464" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Atender_di" bpmnElement="T_Atender"><dc:Bounds x="489" y="634" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_EnvCot_di" bpmnElement="T_EnvCot"><dc:Bounds x="613" y="634" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DO_Cot_di" bpmnElement="DO_Cot"><dc:Bounds x="529" y="724" width="36" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="487" y="778" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_RecOC_di" bpmnElement="T_RecOC"><dc:Bounds x="742" y="634" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Despachar_di" bpmnElement="T_Despachar"><dc:Bounds x="1035" y="674" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_EnvFact_di" bpmnElement="T_EnvFact"><dc:Bounds x="1318" y="677" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_MatRec_di" bpmnElement="T_MatRec"><dc:Bounds x="987" y="887" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Verificar_di" bpmnElement="T_Verificar"><dc:Bounds x="1101" y="887" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Conforme_di" bpmnElement="G_Conforme" isMarkerVisible="true"><dc:Bounds x="1210" y="892" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1175" y="946" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Registrar_di" bpmnElement="T_Registrar"><dc:Bounds x="1656" y="887" width="90" height="60"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_FinBod_di" bpmnElement="E_FinBod"><dc:Bounds x="1785" y="899" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1743" y="939" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DS_Inv_di" bpmnElement="DS_Inv"><dc:Bounds x="1735" y="812" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1700" y="866" width="120" height="28"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
+        <di:waypoint x="143" y="173"/>
+        <di:waypoint x="169" y="173"/>
+        <di:waypoint x="169" y="176"/>
+        <di:waypoint x="195" y="176"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_2_di" bpmnElement="Flow_2">
+        <di:waypoint x="285" y="176"/>
+        <di:waypoint x="320" y="176"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_3_di" bpmnElement="Flow_3">
+        <di:waypoint x="365" y="206"/>
+        <di:waypoint x="365" y="259"/>
+        <di:waypoint x="488" y="259"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_4_di" bpmnElement="Flow_4">
+        <di:waypoint x="533" y="289"/>
+        <di:waypoint x="533" y="306"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_5_di" bpmnElement="Flow_5">
+        <di:waypoint x="578" y="336"/>
+        <di:waypoint x="612" y="336"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_6_di" bpmnElement="Flow_6">
+        <di:waypoint x="662" y="336"/>
+        <di:waypoint x="681" y="336"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="668" y="314" width="30" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_7_di" bpmnElement="Flow_7">
+        <di:waypoint x="637" y="361"/>
+        <di:waypoint x="637" y="397"/>
+        <di:waypoint x="547" y="397"/>
+        <di:waypoint x="533" y="366"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="643" y="339" width="30" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_8_di" bpmnElement="Flow_8">
+        <di:waypoint x="578" y="336"/>
+        <di:waypoint x="592" y="336"/>
+        <di:waypoint x="592" y="208"/>
+        <di:waypoint x="549" y="208"/>
+        <di:waypoint x="549" y="98"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_9_di" bpmnElement="Flow_9">
+        <di:waypoint x="567" y="80"/>
+        <di:waypoint x="593" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_10_di" bpmnElement="Flow_10">
+        <di:waypoint x="683" y="80"/>
+        <di:waypoint x="693" y="80"/>
+        <di:waypoint x="693" y="83"/>
+        <di:waypoint x="703" y="83"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_11_di" bpmnElement="Flow_11">
+        <di:waypoint x="728" y="108"/>
+        <di:waypoint x="728" y="163"/>
+        <di:waypoint x="726" y="163"/>
+        <di:waypoint x="726" y="218"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="734" y="86" width="30" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_12_di" bpmnElement="Flow_12">
+        <di:waypoint x="753" y="83"/>
+        <di:waypoint x="787" y="83"/>
+        <di:waypoint x="787" y="429"/>
+        <di:waypoint x="547" y="429"/>
+        <di:waypoint x="533" y="366"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="759" y="61" width="30" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_13_di" bpmnElement="Flow_13">
+        <di:waypoint x="533" y="366"/>
+        <di:waypoint x="512" y="378"/>
+        <di:waypoint x="512" y="635"/>
+        <di:waypoint x="534" y="634"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_14_di" bpmnElement="Flow_14">
+        <di:waypoint x="579" y="664"/>
+        <di:waypoint x="613" y="664"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_15_di" bpmnElement="Flow_15">
+        <di:waypoint x="658" y="634"/>
+        <di:waypoint x="658" y="480"/>
+        <di:waypoint x="533" y="480"/>
+        <di:waypoint x="533" y="366"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_16_di" bpmnElement="Flow_16">
+        <di:waypoint x="726" y="306"/>
+        <di:waypoint x="726" y="278"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_17_di" bpmnElement="Flow_17">
+        <di:waypoint x="771" y="248"/>
+        <di:waypoint x="803" y="248"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_18_di" bpmnElement="Flow_18">
+        <di:waypoint x="848" y="278"/>
+        <di:waypoint x="848" y="306"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_19_di" bpmnElement="Flow_19">
+        <di:waypoint x="848" y="366"/>
+        <di:waypoint x="848" y="512"/>
+        <di:waypoint x="787" y="512"/>
+        <di:waypoint x="787" y="634"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_20_di" bpmnElement="Flow_20">
+        <di:waypoint x="832" y="664"/>
+        <di:waypoint x="931" y="664"/>
+        <di:waypoint x="931" y="712"/>
+        <di:waypoint x="1035" y="704"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_21_di" bpmnElement="Flow_21">
+        <di:waypoint x="1080" y="734"/>
+        <di:waypoint x="1069" y="819"/>
+        <di:waypoint x="1032" y="819"/>
+        <di:waypoint x="1032" y="887"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_22_di" bpmnElement="Flow_22">
+        <di:waypoint x="1077" y="917"/>
+        <di:waypoint x="1101" y="917"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_23_di" bpmnElement="Flow_23">
+        <di:waypoint x="1191" y="917"/>
+        <di:waypoint x="1210" y="917"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_24_di" bpmnElement="Flow_24">
+        <di:waypoint x="1235" y="892"/>
+        <di:waypoint x="1235" y="816"/>
+        <di:waypoint x="1104" y="816"/>
+        <di:waypoint x="1080" y="734"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1241" y="870" width="30" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_25_di" bpmnElement="Flow_25">
+        <di:waypoint x="1260" y="917"/>
+        <di:waypoint x="1656" y="917"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1266" y="895" width="30" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_26_di" bpmnElement="Flow_26">
+        <di:waypoint x="1746" y="917"/>
+        <di:waypoint x="1785" y="917"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_27_di" bpmnElement="Flow_27">
+        <di:waypoint x="1125" y="704"/>
+        <di:waypoint x="1222" y="704"/>
+        <di:waypoint x="1222" y="707"/>
+        <di:waypoint x="1318" y="707"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_28_di" bpmnElement="Flow_28">
+        <di:waypoint x="1363" y="677"/>
+        <di:waypoint x="1363" y="616"/>
+        <di:waypoint x="1339" y="616"/>
+        <di:waypoint x="1339" y="550"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_29_di" bpmnElement="Flow_29">
+        <di:waypoint x="1384" y="520"/>
+        <di:waypoint x="1413" y="520"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_30_di" bpmnElement="Flow_30">
+        <di:waypoint x="1503" y="520"/>
+        <di:waypoint x="1531" y="520"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_31_di" bpmnElement="Assoc_31">
+        <di:waypoint x="246" y="67"/>
+        <di:waypoint x="365" y="67"/>
+        <di:waypoint x="365" y="146"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_32_di" bpmnElement="Assoc_32">
+        <di:waypoint x="414" y="64"/>
+        <di:waypoint x="365" y="64"/>
+        <di:waypoint x="365" y="146"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_33_di" bpmnElement="Assoc_33">
+        <di:waypoint x="893" y="336"/>
+        <di:waypoint x="944" y="336"/>
+        <di:waypoint x="944" y="273"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_34_di" bpmnElement="Assoc_34">
+        <di:waypoint x="565" y="749"/>
+        <di:waypoint x="658" y="749"/>
+        <di:waypoint x="658" y="694"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_35_di" bpmnElement="Assoc_35">
+        <di:waypoint x="1458" y="490"/>
+        <di:waypoint x="1458" y="435"/>
+        <di:waypoint x="1511" y="435"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_36_di" bpmnElement="Assoc_36">
+        <di:waypoint x="1701" y="887"/>
+        <di:waypoint x="1701" y="837"/>
+        <di:waypoint x="1735" y="837"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>
