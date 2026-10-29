@@ -9,6 +9,7 @@ urlpatterns = [
     path("cotizaciones/sm/<int:pk>/", views.cotizacion_sm, name="cotizacion_sm"),
     # Órdenes de compra
     path("ordenes/", views.orden_lista, name="orden_lista"),
+    path("ordenes/nueva/", views.orden_crear, name="orden_crear"),
     path("ordenes/<int:pk>/", views.orden_detalle, name="orden_detalle"),
     path("ordenes/<int:pk>/editar/", views.orden_editar, name="orden_editar"),
     path("ordenes/<int:pk>/pdf/", views.orden_pdf, name="orden_pdf"),

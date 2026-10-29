@@ -431,3 +431,532 @@ class LecturaEntreModulosTest(BaseAdq):
                          {"accion": "aprobar"})
         self.orden.refresh_from_db()
         self.assertEqual(self.orden.estado, OrdenCompra.Estado.ENVIADA)
+
+
+# ==========================================================================
+#  El ciclo completo, cada rol haciendo lo suyo
+#
+#  Estas pruebas no usan la cuenta de administrador a propósito. El admin pasa
+#  por todas las vistas (así está el decorador), así que probar con ella da un
+#  falso verde: el sistema puede estar impidiéndole trabajar a todo el resto y
+#  la prueba igual pasa. Acá cada paso lo da el rol que lo daría en M5.
+# ==========================================================================
+class FlujoPorRolTest(TestCase):
+
+    def setUp(self):
+        self.jefe = Usuario.objects.create_user(
+            "jefe_obra", password="clave12345", email="jefe@m5.cl", rol="JEFE_PROYECTO")
+        self.ea = Usuario.objects.create_user(
+            "compras", password="clave12345", email="compras@m5.cl",
+            rol="ENCARGADO_ADQUISICIONES")
+        self.bodega = Usuario.objects.create_user(
+            "bodega", password="clave12345", email="bodega@m5.cl", rol="BODEGUERO")
+        self.obra = Proyecto.objects.create(
+            nombre="Edificio Los Aromos", mandante="M5",
+            fecha_inicio=date(2026, 6, 1), jefe_proyecto=self.jefe)
+        self.prov = Proveedor.objects.create(
+            nombre="Ferretería Central", rut="11111111-1", correo="vende@prov.cl")
+        self.material = Material.objects.create(
+            nombre="Cemento", unidad_medida="saco", precio_referencia=4500)
+
+    def _entrar(self, usuario):
+        c = Client()
+        self.assertTrue(c.login(username=usuario.username, password="clave12345"))
+        return c
+
+    # --- Lo que reportó M5: el jefe de obra no podía pedir material ---
+
+    def test_el_jefe_de_proyecto_puede_abrir_el_formulario_de_solicitud(self):
+        resp = self._entrar(self.jefe).get(reverse("solicitudes:crear"))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_el_jefe_de_proyecto_emite_una_solicitud_y_queda_lista_para_cotizar(self):
+        """Lo que él pide no espera visto bueno: responde por su propia obra."""
+        c = self._entrar(self.jefe)
+        sm = SolicitudMaterial.objects.create(
+            proyecto=self.obra, emisor=self.jefe,
+            estado=SolicitudMaterial.Estado.BORRADOR)
+        SolicitudDetalle.objects.create(
+            solicitud=sm, material=self.material, cantidad_solicitada=80,
+            unidad_medida="saco")
+
+        c.post(reverse("solicitudes:enviar", args=[sm.pk]))
+
+        sm.refresh_from_db()
+        self.assertEqual(sm.estado, SolicitudMaterial.Estado.APROBADA)
+
+    def test_la_solicitud_del_jefe_le_aparece_a_adquisiciones(self):
+        sm = SolicitudMaterial.objects.create(
+            proyecto=self.obra, emisor=self.jefe,
+            estado=SolicitudMaterial.Estado.BORRADOR)
+        SolicitudDetalle.objects.create(
+            solicitud=sm, material=self.material, cantidad_solicitada=80,
+            unidad_medida="saco")
+        self._entrar(self.jefe).post(reverse("solicitudes:enviar", args=[sm.pk]))
+
+        bandeja = self._entrar(self.ea).get(reverse("adquisiciones:cotizacion_bandeja"))
+        self.assertContains(bandeja, sm.correlativo)
+
+    def test_lo_que_arma_adquisiciones_si_pasa_por_el_jefe(self):
+        """Compromete plata de una obra que dirige otro, así que se le consulta."""
+        c = self._entrar(self.ea)
+        sm = SolicitudMaterial.objects.create(
+            proyecto=self.obra, emisor=self.ea,
+            estado=SolicitudMaterial.Estado.BORRADOR)
+        SolicitudDetalle.objects.create(
+            solicitud=sm, material=self.material, cantidad_solicitada=10,
+            unidad_medida="saco")
+
+        c.post(reverse("solicitudes:enviar", args=[sm.pk]))
+
+        sm.refresh_from_db()
+        self.assertEqual(sm.estado, SolicitudMaterial.Estado.ENVIADA)
+
+    def test_un_jefe_no_toca_la_solicitud_de_la_obra_de_otro(self):
+        otro = Usuario.objects.create_user(
+            "jefe2", password="clave12345", email="j2@m5.cl", rol="JEFE_PROYECTO")
+        obra_ajena = Proyecto.objects.create(
+            nombre="Obra ajena", mandante="M5", fecha_inicio=date(2026, 6, 1),
+            jefe_proyecto=otro)
+        sm = SolicitudMaterial.objects.create(
+            proyecto=obra_ajena, emisor=otro,
+            estado=SolicitudMaterial.Estado.BORRADOR)
+        SolicitudDetalle.objects.create(
+            solicitud=sm, material=self.material, cantidad_solicitada=5,
+            unidad_medida="saco")
+
+        resp = self._entrar(self.jefe).post(reverse("solicitudes:enviar", args=[sm.pk]))
+
+        self.assertEqual(resp.status_code, 403)
+        sm.refresh_from_db()
+        self.assertEqual(sm.estado, SolicitudMaterial.Estado.BORRADOR)
+
+    # --- De la solicitud a la orden, sin pasar por el administrador ---
+
+    def test_ciclo_completo_pedido_cotizacion_orden_y_recepcion(self):
+        # 1. El jefe de obra pide
+        cj = self._entrar(self.jefe)
+        sm = SolicitudMaterial.objects.create(
+            proyecto=self.obra, emisor=self.jefe,
+            estado=SolicitudMaterial.Estado.BORRADOR)
+        detalle = SolicitudDetalle.objects.create(
+            solicitud=sm, material=self.material, cantidad_solicitada=80,
+            unidad_medida="saco")
+        cj.post(reverse("solicitudes:enviar", args=[sm.pk]))
+
+        # 2. Adquisiciones cotiza
+        ce = self._entrar(self.ea)
+        ce.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]), {
+            "accion": "agregar_cotizacion",
+            "proveedor": self.prov.pk,
+            "costo_despacho": 0,
+            "tiempo_entrega_dias": 5,
+            f"vu_{detalle.pk}": "4800",
+        })
+        linea = CotizacionLinea.objects.get(cotizacion__solicitud=sm)
+
+        # 3. Adquisiciones elige esa oferta y genera la orden
+        ce.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]),
+                {"accion": "aprobar_linea", "linea_id": linea.pk})
+        ce.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]),
+                {"accion": "generar_oc"})
+
+        orden = OrdenCompra.objects.get(solicitud=sm)
+        self.assertEqual(orden.estado, OrdenCompra.Estado.BORRADOR)
+        self.assertEqual(orden.obra, self.obra)
+
+        # 4. El jefe de obra autoriza la compra de su obra
+        cj.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
+                {"accion": "aprobar"})
+        orden.refresh_from_db()
+        self.assertIn(orden.estado,
+                      (OrdenCompra.Estado.APROBADA, OrdenCompra.Estado.ENVIADA))
+
+        # 5. Bodega ve la orden para recibir el material
+        resp = self._entrar(self.bodega).get(
+            reverse("adquisiciones:orden_detalle", args=[orden.pk]))
+        self.assertEqual(resp.status_code, 200)
+
+    # --- Compra anticipada: Adquisiciones se adelanta a la obra ---
+
+    def test_adquisiciones_emite_una_compra_sin_que_nadie_se_la_pida(self):
+        c = self._entrar(self.ea)
+        resp = c.post(reverse("adquisiciones:orden_crear"), {
+            "proyecto": self.obra.pk,
+            "proveedor": self.prov.pk,
+            "costo_despacho": 0,
+            "form-TOTAL_FORMS": "5",
+            "form-INITIAL_FORMS": "0",
+            "form-MIN_NUM_FORMS": "0",
+            "form-MAX_NUM_FORMS": "1000",
+            "form-0-material": self.material.pk,
+            "form-0-cantidad": "200",
+            "form-0-valor_unitario": "4400",
+            "form-1-material": "", "form-1-cantidad": "", "form-1-valor_unitario": "",
+            "form-2-material": "", "form-2-cantidad": "", "form-2-valor_unitario": "",
+            "form-3-material": "", "form-3-cantidad": "", "form-3-valor_unitario": "",
+            "form-4-material": "", "form-4-cantidad": "", "form-4-valor_unitario": "",
+        })
+        self.assertEqual(resp.status_code, 302)
+
+        orden = OrdenCompra.objects.get(solicitud__isnull=True)
+        self.assertTrue(orden.es_anticipada)
+        self.assertEqual(orden.obra, self.obra)
+        self.assertEqual(orden.lineas.count(), 1)
+        self.assertEqual(orden.total, 200 * 4400)
+
+    def test_la_compra_anticipada_la_autoriza_el_propio_encargado(self):
+        """Nadie se la pidió, así que no hay a quién pedirle permiso."""
+        orden = OrdenCompra.objects.create(
+            proyecto=self.obra, proveedor=self.prov, creada_por=self.ea)
+        OrdenCompraLinea.objects.create(
+            orden=orden, material=self.material, descripcion="Cemento",
+            cantidad=200, unidad_medida="saco", valor_unitario=4400)
+
+        self._entrar(self.ea).post(
+            reverse("adquisiciones:orden_detalle", args=[orden.pk]),
+            {"accion": "aprobar"})
+
+        orden.refresh_from_db()
+        self.assertIn(orden.estado,
+                      (OrdenCompra.Estado.APROBADA, OrdenCompra.Estado.ENVIADA))
+
+    def test_una_orden_que_nacio_de_un_pedido_no_la_aprueba_adquisiciones(self):
+        """Ahí sí hay un jefe de obra que responde por ese presupuesto."""
+        sm = SolicitudMaterial.objects.create(
+            proyecto=self.obra, emisor=self.jefe,
+            estado=SolicitudMaterial.Estado.APROBADA)
+        orden = OrdenCompra.objects.create(
+            solicitud=sm, proveedor=self.prov, creada_por=self.ea)
+        OrdenCompraLinea.objects.create(
+            orden=orden, material=self.material, descripcion="Cemento",
+            cantidad=10, unidad_medida="saco", valor_unitario=4500)
+
+        self._entrar(self.ea).post(
+            reverse("adquisiciones:orden_detalle", args=[orden.pk]),
+            {"accion": "aprobar"})
+
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado, OrdenCompra.Estado.BORRADOR)
+
+    def test_el_pdf_de_una_compra_anticipada_sale_igual(self):
+        orden = OrdenCompra.objects.create(
+            proyecto=self.obra, proveedor=self.prov, creada_por=self.ea)
+        OrdenCompraLinea.objects.create(
+            orden=orden, material=self.material, descripcion="Cemento",
+            cantidad=200, unidad_medida="saco", valor_unitario=4400)
+
+        resp = self._entrar(self.ea).get(
+            reverse("adquisiciones:orden_pdf", args=[orden.pk]))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "application/pdf")
+
+
+# ==========================================================================
+#  Todo lo que el Encargado de Adquisiciones tiene que poder hacer
+#
+#  Una por una, las funciones de su módulo, ejecutadas con su cuenta y
+#  comprobando el efecto —no que la pantalla cargue—. Si mañana alguien le
+#  cierra una puerta por accidente, acá se cae.
+# ==========================================================================
+class EncargadoAdquisicionesTest(TestCase):
+
+    def setUp(self):
+        self.ea = Usuario.objects.create_user(
+            "compras", password="clave12345", email="compras@m5.cl",
+            rol="ENCARGADO_ADQUISICIONES")
+        self.jefe = Usuario.objects.create_user(
+            "jefe_obra", password="clave12345", email="jefe@m5.cl",
+            rol="JEFE_PROYECTO")
+        self.obra = Proyecto.objects.create(
+            nombre="Edificio Central", mandante="M5",
+            fecha_inicio=date(2026, 6, 1), jefe_proyecto=self.jefe)
+        self.prov = Proveedor.objects.create(
+            nombre="Ferretería Central", rut="11111111-1", correo="vende@prov.cl")
+        self.otro_prov = Proveedor.objects.create(
+            nombre="Comercial Sur", rut="12345678-5", correo="sur@prov.cl")
+        self.material = Material.objects.create(
+            nombre="Cemento", unidad_medida="saco", precio_referencia=4500)
+
+        self.c = Client()
+        self.assertTrue(self.c.login(username="compras", password="clave12345"))
+
+    def _solicitud_lista_para_cotizar(self):
+        sm = SolicitudMaterial.objects.create(
+            proyecto=self.obra, emisor=self.jefe,
+            estado=SolicitudMaterial.Estado.APROBADA)
+        detalle = SolicitudDetalle.objects.create(
+            solicitud=sm, material=self.material, cantidad_solicitada=100,
+            unidad_medida="saco")
+        return sm, detalle
+
+    # ---------------------------------------------------------------- cotizar
+
+    def test_ve_la_bandeja_de_solicitudes_por_cotizar(self):
+        sm, _ = self._solicitud_lista_para_cotizar()
+        resp = self.c.get(reverse("adquisiciones:cotizacion_bandeja"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, sm.correlativo)
+
+    def test_abre_la_pantalla_para_cotizar_una_solicitud(self):
+        sm, _ = self._solicitud_lista_para_cotizar()
+        resp = self.c.get(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_registra_la_cotizacion_de_un_proveedor(self):
+        sm, detalle = self._solicitud_lista_para_cotizar()
+        self.c.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]), {
+            "accion": "agregar_cotizacion", "proveedor": self.prov.pk,
+            "costo_despacho": 15000, "tiempo_entrega_dias": 5,
+            f"vu_{detalle.pk}": "4800",
+        })
+        cot = Cotizacion.objects.get(solicitud=sm, proveedor=self.prov)
+        self.assertEqual(cot.lineas.count(), 1)
+        self.assertEqual(cot.valor_total, 100 * 4800 + 15000)
+
+    def test_compara_dos_proveedores_para_el_mismo_material(self):
+        sm, detalle = self._solicitud_lista_para_cotizar()
+        for prov, valor in ((self.prov, "4800"), (self.otro_prov, "4600")):
+            self.c.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]), {
+                "accion": "agregar_cotizacion", "proveedor": prov.pk,
+                "costo_despacho": 0, "tiempo_entrega_dias": 3,
+                f"vu_{detalle.pk}": valor,
+            })
+        self.assertEqual(sm.cotizaciones.count(), 2)
+
+    def test_elige_una_oferta_y_descarta_la_otra(self):
+        sm, detalle = self._solicitud_lista_para_cotizar()
+        for prov, valor in ((self.prov, "4800"), (self.otro_prov, "4600")):
+            self.c.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]), {
+                "accion": "agregar_cotizacion", "proveedor": prov.pk,
+                "costo_despacho": 0, "tiempo_entrega_dias": 3,
+                f"vu_{detalle.pk}": valor,
+            })
+        barata = CotizacionLinea.objects.get(cotizacion__proveedor=self.otro_prov)
+        cara = CotizacionLinea.objects.get(cotizacion__proveedor=self.prov)
+
+        self.c.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]),
+                    {"accion": "aprobar_linea", "linea_id": barata.pk})
+
+        barata.refresh_from_db(); cara.refresh_from_db()
+        self.assertEqual(barata.estado, CotizacionLinea.Estado.APROBADA)
+        self.assertEqual(cara.estado, CotizacionLinea.Estado.DESCARTADA)
+
+    def test_genera_la_orden_de_compra_desde_lo_cotizado(self):
+        sm, detalle = self._solicitud_lista_para_cotizar()
+        self.c.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]), {
+            "accion": "agregar_cotizacion", "proveedor": self.prov.pk,
+            "costo_despacho": 0, "tiempo_entrega_dias": 3,
+            f"vu_{detalle.pk}": "4800",
+        })
+        linea = CotizacionLinea.objects.get(cotizacion__solicitud=sm)
+        self.c.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]),
+                    {"accion": "aprobar_linea", "linea_id": linea.pk})
+
+        self.c.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]),
+                    {"accion": "generar_oc"})
+
+        orden = OrdenCompra.objects.get(solicitud=sm)
+        self.assertEqual(orden.proveedor, self.prov)
+        self.assertEqual(orden.lineas.count(), 1)
+        self.assertEqual(orden.obra, self.obra)
+
+    # --------------------------------------------------------------- órdenes
+
+    def test_lista_las_ordenes_y_filtra_por_estado(self):
+        orden = OrdenCompra.objects.create(
+            proyecto=self.obra, proveedor=self.prov, creada_por=self.ea)
+        resp = self.c.get(reverse("adquisiciones:orden_lista"))
+        self.assertContains(resp, orden.correlativo)
+        resp = self.c.get(reverse("adquisiciones:orden_lista"), {"estado": "BORRADOR"})
+        self.assertContains(resp, orden.correlativo)
+
+    def test_abre_el_formulario_de_compra_anticipada(self):
+        resp = self.c.get(reverse("adquisiciones:orden_crear"))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_emite_una_compra_anticipada(self):
+        resp = self.c.post(reverse("adquisiciones:orden_crear"), {
+            "proyecto": self.obra.pk, "proveedor": self.prov.pk,
+            "costo_despacho": 5000,
+            "form-TOTAL_FORMS": "5", "form-INITIAL_FORMS": "0",
+            "form-MIN_NUM_FORMS": "0", "form-MAX_NUM_FORMS": "1000",
+            "form-0-material": self.material.pk,
+            "form-0-cantidad": "300", "form-0-valor_unitario": "4300",
+            **{f"form-{i}-{campo}": ""
+               for i in range(1, 5)
+               for campo in ("material", "cantidad", "valor_unitario")},
+        })
+        self.assertEqual(resp.status_code, 302)
+        orden = OrdenCompra.objects.get(solicitud__isnull=True)
+        self.assertEqual(orden.total, 300 * 4300 + 5000)
+
+    def test_no_emite_una_compra_sin_materiales(self):
+        resp = self.c.post(reverse("adquisiciones:orden_crear"), {
+            "proyecto": self.obra.pk, "proveedor": self.prov.pk,
+            "costo_despacho": 0,
+            "form-TOTAL_FORMS": "5", "form-INITIAL_FORMS": "0",
+            "form-MIN_NUM_FORMS": "0", "form-MAX_NUM_FORMS": "1000",
+            **{f"form-{i}-{campo}": ""
+               for i in range(5)
+               for campo in ("material", "cantidad", "valor_unitario")},
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(OrdenCompra.objects.exists())
+
+    def test_abre_el_detalle_de_una_orden(self):
+        orden = OrdenCompra.objects.create(
+            proyecto=self.obra, proveedor=self.prov, creada_por=self.ea)
+        resp = self.c.get(reverse("adquisiciones:orden_detalle", args=[orden.pk]))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_devuelve_a_borrador_una_orden_rechazada(self):
+        orden = OrdenCompra.objects.create(
+            proyecto=self.obra, proveedor=self.prov, creada_por=self.ea,
+            estado=OrdenCompra.Estado.RECHAZADA, motivo_rechazo="Muy caro")
+        self.c.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
+                    {"accion": "devolver_borrador"})
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado, OrdenCompra.Estado.BORRADOR)
+        self.assertEqual(orden.motivo_rechazo, "")
+
+    def test_corrige_los_valores_de_una_orden_rechazada(self):
+        orden = OrdenCompra.objects.create(
+            proyecto=self.obra, proveedor=self.prov, creada_por=self.ea,
+            estado=OrdenCompra.Estado.RECHAZADA, motivo_rechazo="Revisar precio")
+        linea = OrdenCompraLinea.objects.create(
+            orden=orden, material=self.material, descripcion="Cemento",
+            cantidad=100, unidad_medida="saco", valor_unitario=5000)
+
+        resp = self.c.post(reverse("adquisiciones:orden_editar", args=[orden.pk]), {
+            "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "1",
+            "form-MIN_NUM_FORMS": "0", "form-MAX_NUM_FORMS": "1000",
+            "form-0-id": linea.pk, "form-0-cantidad": "90",
+            "form-0-valor_unitario": "4700",
+        })
+        self.assertEqual(resp.status_code, 302)
+        linea.refresh_from_db()
+        self.assertEqual(linea.valor_unitario, 4700)
+        self.assertEqual(linea.cantidad, 90)
+
+    def test_registra_el_estado_de_recepcion(self):
+        orden = OrdenCompra.objects.create(
+            proyecto=self.obra, proveedor=self.prov, creada_por=self.ea,
+            estado=OrdenCompra.Estado.ENVIADA)
+        OrdenCompraLinea.objects.create(
+            orden=orden, material=self.material, descripcion="Cemento",
+            cantidad=100, unidad_medida="saco", valor_unitario=4500)
+
+        self.c.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
+                    {"accion": "recepcion", "estado": OrdenCompra.Estado.RECIBIDA})
+
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado, OrdenCompra.Estado.RECIBIDA)
+
+    def test_descarga_el_pdf_de_la_orden(self):
+        orden = OrdenCompra.objects.create(
+            proyecto=self.obra, proveedor=self.prov, creada_por=self.ea)
+        OrdenCompraLinea.objects.create(
+            orden=orden, material=self.material, descripcion="Cemento",
+            cantidad=100, unidad_medida="saco", valor_unitario=4500)
+        resp = self.c.get(reverse("adquisiciones:orden_pdf", args=[orden.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "application/pdf")
+
+    # ---------------------------------------------------------- trazabilidad
+
+    def test_rastrea_una_orden_por_su_correlativo(self):
+        orden = OrdenCompra.objects.create(
+            proyecto=self.obra, proveedor=self.prov, creada_por=self.ea)
+        resp = self.c.get(reverse("adquisiciones:trazabilidad"),
+                          {"q": orden.correlativo})
+        self.assertEqual(resp.status_code, 200)
+
+    def test_rastrea_un_material_por_su_nombre(self):
+        resp = self.c.get(reverse("adquisiciones:trazabilidad"), {"q": "Cemento"})
+        self.assertEqual(resp.status_code, 200)
+
+    # ------------------------------------------- proveedores, su herramienta
+
+    def test_registra_un_proveedor_nuevo(self):
+        resp = self.c.post(reverse("proveedores:crear"), {
+            "nombre": "Aceros del Sur", "rut": "22.222.222-2",
+            "correo": "ventas@aceros.cl", "telefono": "+56 9 1111 1111",
+            "condicion_pago": "30_DIAS", "estado": "on",
+        })
+        self.assertIn(resp.status_code, (200, 302))
+        self.assertTrue(Proveedor.objects.filter(nombre="Aceros del Sur").exists())
+
+    def test_edita_un_proveedor(self):
+        resp = self.c.post(reverse("proveedores:editar", args=[self.prov.pk]), {
+            "nombre": "Ferretería Central SpA", "rut": self.prov.rut,
+            "correo": "nuevo@prov.cl", "telefono": "",
+            "condicion_pago": "60_DIAS", "estado": "on",
+        })
+        self.assertIn(resp.status_code, (200, 302))
+        self.prov.refresh_from_db()
+        self.assertEqual(self.prov.nombre, "Ferretería Central SpA")
+
+    def test_agrega_un_material_al_catalogo_del_proveedor(self):
+        resp = self.c.post(
+            reverse("proveedores:material_agregar", args=[self.prov.pk]), {
+                "codigo": "CEM-001", "descripcion": "Cemento Portland 25 kg",
+                "unidad_medida": "saco", "precio": "4800", "disponible": "on",
+            })
+        self.assertIn(resp.status_code, (200, 302))
+        self.assertTrue(self.prov.materiales.filter(codigo="CEM-001").exists())
+
+    def test_descarga_la_plantilla_de_catalogo(self):
+        resp = self.c.get(reverse("proveedores:catalogo_plantilla"))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_carga_el_catalogo_del_proveedor_por_excel(self):
+        from io import BytesIO
+        from openpyxl import Workbook
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        libro = Workbook(); hoja = libro.active
+        hoja.append(["Código", "Descripción", "Unidad", "Precio"])
+        hoja.append(["FIE-001", "Fierro estriado 8 mm", "un", 3990])
+        hoja.append(["ARE-001", "Arena gruesa", "m3", 18990])
+        buffer = BytesIO(); libro.save(buffer); buffer.seek(0)
+
+        resp = self.c.post(
+            reverse("proveedores:catalogo_cargar", args=[self.prov.pk]),
+            {"archivo": SimpleUploadedFile(
+                "catalogo.xlsx", buffer.getvalue(),
+                content_type=("application/vnd.openxmlformats-officedocument"
+                              ".spreadsheetml.sheet"))})
+
+        self.assertIn(resp.status_code, (200, 302))
+        self.assertEqual(self.prov.materiales.count(), 2)
+
+    def test_inactiva_un_proveedor_sin_borrarlo(self):
+        self.c.post(reverse("proveedores:inactivar", args=[self.otro_prov.pk]))
+        self.otro_prov.refresh_from_db()
+        self.assertFalse(self.otro_prov.estado)
+
+    # --------------------------------- lo que NO le toca, para que quede fijo
+
+    def test_no_aprueba_una_orden_que_pidio_una_obra(self):
+        """Esa la autoriza el jefe de esa obra, que responde por el presupuesto."""
+        sm, _ = self._solicitud_lista_para_cotizar()
+        orden = OrdenCompra.objects.create(
+            solicitud=sm, proveedor=self.prov, creada_por=self.ea)
+        self.c.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
+                    {"accion": "aprobar"})
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado, OrdenCompra.Estado.BORRADOR)
+
+    def test_si_autoriza_la_compra_que_el_mismo_decidio(self):
+        orden = OrdenCompra.objects.create(
+            proyecto=self.obra, proveedor=self.prov, creada_por=self.ea)
+        OrdenCompraLinea.objects.create(
+            orden=orden, material=self.material, descripcion="Cemento",
+            cantidad=50, unidad_medida="saco", valor_unitario=4400)
+        self.c.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
+                    {"accion": "aprobar"})
+        orden.refresh_from_db()
+        self.assertIn(orden.estado,
+                      (OrdenCompra.Estado.APROBADA, OrdenCompra.Estado.ENVIADA))

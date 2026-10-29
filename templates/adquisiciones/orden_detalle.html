@@ -5,7 +5,12 @@
 <div class="d-flex justify-content-between align-items-start mb-3">
   <div>
     <h1 class="h3 mb-0">{{ orden.correlativo }}</h1>
-    <small class="text-muted">{{ orden.proveedor.nombre }} · Solicitud {{ orden.solicitud.correlativo }} · {{ orden.solicitud.proyecto.nombre }}</small>
+    <small class="text-muted">
+      {{ orden.proveedor.nombre }} ·
+      {% if orden.solicitud %}Solicitud {{ orden.solicitud.correlativo }}
+      {% else %}Compra anticipada{% endif %} ·
+      {{ obra.nombre|default:"sin obra" }}
+    </small>
   </div>
   <span class="badge fs-6 bg-secondary">{{ orden.get_estado_display }}</span>
 </div>
@@ -76,7 +81,7 @@
           <i class="bi bi-file-earmark-pdf me-1"></i>Descargar PDF
         </a>
 
-        {% if orden.estado == 'BORRADOR' and user.rol == 'JEFE_PROYECTO' or orden.estado == 'BORRADOR' and user.rol == 'ADMIN' %}
+        {% if orden.estado == 'BORRADOR' and puede_autorizar %}
           <form method="post" onsubmit="return confirm('¿Aprobar esta OC? Se enviará al proveedor.')">
             {% csrf_token %}
             <input type="hidden" name="accion" value="aprobar">

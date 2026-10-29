@@ -20,7 +20,10 @@ from auditoria.models import RegistroAuditoria, registrar
 from usuarios.permisos import rol_requerido
 from solicitudes.models import SolicitudMaterial
 from .models import Cotizacion, CotizacionLinea, OrdenCompra, OrdenCompraLinea  # noqa: F401
-from .forms import CotizacionForm, OrdenLineaFormSet, RecepcionEstadoForm
+from .forms import (
+    CotizacionForm, OrdenDirectaForm, OrdenDirectaLineaFormSet,
+    OrdenLineaFormSet, RecepcionEstadoForm,
+)
 from .pdf import generar_pdf_orden, ReportlabNoInstalado
 
 EA = "ENCARGADO_ADQUISICIONES"
@@ -176,14 +179,71 @@ def _generar_ordenes_compra(solicitud, usuario):
 # ----------------------------------------------------------------------------
 # Órdenes de Compra
 # ----------------------------------------------------------------------------
+@rol_requerido(EA)
+def orden_crear(request):
+    """
+    Compra anticipada: Adquisiciones emite una orden sin que ninguna obra la
+    haya pedido.
+
+    Es el caso de adelantarse a la obra —comprar el fierro antes de que parta,
+    tomar un precio que hoy está bueno— y el de reponer lo que siempre se gasta.
+    Como la decisión es de Adquisiciones, el Encargado la deja en borrador y la
+    autoriza él mismo desde el detalle; no hay a quién pedirle permiso cuando
+    nadie la pidió.
+    """
+    if request.method == "POST":
+        form = OrdenDirectaForm(request.POST)
+        formset = OrdenDirectaLineaFormSet(
+            request.POST, queryset=OrdenCompraLinea.objects.none())
+        if form.is_valid() and formset.is_valid():
+            lineas = [
+                f.cleaned_data for f in formset.forms
+                if f.cleaned_data.get("material") and f.cleaned_data.get("cantidad")
+            ]
+            if not lineas:
+                messages.error(request, "Agrega al menos un material a la orden.")
+            else:
+                with transaction.atomic():
+                    orden = form.save(commit=False)
+                    orden.solicitud = None
+                    orden.creada_por = request.user
+                    orden.estado = OrdenCompra.Estado.BORRADOR
+                    orden.save()
+                    for datos in lineas:
+                        material = datos["material"]
+                        OrdenCompraLinea.objects.create(
+                            orden=orden,
+                            material=material,
+                            descripcion=material.nombre,
+                            cantidad=datos["cantidad"],
+                            unidad_medida=getattr(material, "unidad_medida", "") or "",
+                            valor_unitario=datos["valor_unitario"],
+                        )
+                registrar(request.user, RegistroAuditoria.Accion.OC_EMITIDA,
+                          f"Emitió una compra anticipada a {orden.proveedor.nombre} "
+                          f"para {orden.proyecto.nombre}.", orden.correlativo)
+                messages.success(
+                    request,
+                    f"Orden {orden.correlativo} creada en borrador. "
+                    f"Revísala y apruébala para enviarla al proveedor.")
+                return redirect("adquisiciones:orden_detalle", pk=orden.pk)
+    else:
+        form = OrdenDirectaForm()
+        formset = OrdenDirectaLineaFormSet(queryset=OrdenCompraLinea.objects.none())
+
+    return render(request, "adquisiciones/orden_crear.html",
+                  {"form": form, "formset": formset})
+
+
 @rol_requerido(EA, "JEFE_PROYECTO")
 def orden_lista(request):
-    ordenes = OrdenCompra.objects.select_related("proveedor", "solicitud__proyecto")
+    ordenes = OrdenCompra.objects.select_related(
+        "proveedor", "proyecto", "solicitud__proyecto")
     estado = request.GET.get("estado")
     if estado:
         ordenes = ordenes.filter(estado=estado)
     if request.user.rol == "JEFE_PROYECTO":
-        ordenes = ordenes.filter(solicitud__proyecto__jefe_proyecto=request.user)
+        ordenes = ordenes.filter(proyecto__jefe_proyecto=request.user)
     return render(request, "adquisiciones/orden_lista.html", {
         "ordenes": ordenes, "estado_filtro": estado or "",
         "estados": OrdenCompra.Estado.choices,
@@ -193,16 +253,29 @@ def orden_lista(request):
 @rol_requerido(EA, "JEFE_PROYECTO", "CONTABILIDAD", "BODEGUERO")
 def orden_detalle(request, pk):
     orden = get_object_or_404(
-        OrdenCompra.objects.select_related("proveedor", "solicitud__proyecto"), pk=pk)
-    if request.user.rol == "JEFE_PROYECTO" and orden.solicitud.proyecto.jefe_proyecto_id != request.user.pk:
+        OrdenCompra.objects.select_related(
+            "proveedor", "proyecto", "solicitud__proyecto"), pk=pk)
+    obra = orden.obra
+    if (request.user.rol == "JEFE_PROYECTO"
+            and (obra is None or obra.jefe_proyecto_id != request.user.pk)):
         raise PermissionDenied("Esta orden de compra pertenece a otro proyecto.")
     recepcion_form = RecepcionEstadoForm()
 
     if request.method == "POST":
         accion = request.POST.get("accion")
 
-        # RF-24: el Jefe de Proyecto aprueba o rechaza el borrador
-        if accion == "aprobar" and request.user.rol in ("JEFE_PROYECTO", "ADMIN"):
+        # Quién puede dar el visto bueno depende de quién pidió la compra. Si
+        # nació de una solicitud, la autoriza el Jefe de Proyecto de esa obra,
+        # que es quien responde por el presupuesto. Si es una compra anticipada
+        # que decidió Adquisiciones, la emite el propio Encargado: nadie se la
+        # pidió, así que no hay a quién pedirle permiso.
+        puede_autorizar = (
+            request.user.rol in ("JEFE_PROYECTO", "ADMIN")
+            or (orden.es_anticipada and request.user.rol == EA)
+        )
+
+        # RF-24: aprobar o rechazar el borrador
+        if accion == "aprobar" and puede_autorizar:
             if orden.estado != OrdenCompra.Estado.BORRADOR:
                 messages.error(request, "Solo se puede aprobar una OC en borrador.")
             else:
@@ -216,7 +289,7 @@ def orden_detalle(request, pk):
                 _enviar_orden_al_proveedor(request, orden)  # RF-27
             return redirect("adquisiciones:orden_detalle", pk=orden.pk)
 
-        if accion == "rechazar" and request.user.rol in ("JEFE_PROYECTO", "ADMIN"):
+        if accion == "rechazar" and puede_autorizar:
             motivo = request.POST.get("motivo", "").strip()
             if orden.estado != OrdenCompra.Estado.BORRADOR:
                 messages.error(request, "Solo se puede rechazar una OC en borrador.")
@@ -259,8 +332,9 @@ def orden_detalle(request, pk):
                 nuevo = recepcion_form.cleaned_data["estado"]
                 orden.estado = nuevo
                 orden.save(update_fields=["estado"])
-                _refrescar_estado_recepcion_sm(orden.solicitud)
-                jefe = orden.solicitud.proyecto.jefe_proyecto
+                if orden.solicitud_id:
+                    _refrescar_estado_recepcion_sm(orden.solicitud)
+                jefe = obra.jefe_proyecto if obra else None
                 if jefe and jefe.email:
                     detalle = "; ".join(
                         f"{l.descripcion}: {l.cantidad_recibida}/{l.cantidad}" for l in orden.lineas.all())
@@ -274,7 +348,13 @@ def orden_detalle(request, pk):
 
     return render(request, "adquisiciones/orden_detalle.html", {
         "orden": orden,
+        "obra": obra,
         "recepcion_form": recepcion_form,
+        # La plantilla decide con esto si muestra los botones de autorizar.
+        "puede_autorizar": (
+            request.user.rol in ("JEFE_PROYECTO", "ADMIN")
+            or (orden.es_anticipada and request.user.rol == EA)
+        ),
         "empresa": {
             "razon_social": _empresa("EMPRESA_RAZON_SOCIAL"),
             "rut": _empresa("EMPRESA_RUT"),
@@ -380,10 +460,12 @@ def _enviar_orden_al_proveedor(request, orden):
             f"hay que hacérsela llegar por otra vía. Puedes descargar el PDF desde esta misma pantalla.",
         )
 
-    # La SM queda con OC generada, haya salido el correo o no
-    if orden.solicitud.estado in (SolicitudMaterial.Estado.EN_COTIZACION,
-                                  SolicitudMaterial.Estado.APROBADA,
-                                  SolicitudMaterial.Estado.OC_GENERADA):
+    # La SM queda con OC generada, haya salido el correo o no. Una compra
+    # anticipada no tiene solicitud que avanzar: nació en Adquisiciones.
+    if orden.solicitud_id and orden.solicitud.estado in (
+            SolicitudMaterial.Estado.EN_COTIZACION,
+            SolicitudMaterial.Estado.APROBADA,
+            SolicitudMaterial.Estado.OC_GENERADA):
         orden.solicitud.estado = SolicitudMaterial.Estado.OC_GENERADA
         orden.solicitud.save(update_fields=["estado"])
 

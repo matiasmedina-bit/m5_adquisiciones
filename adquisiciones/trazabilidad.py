@@ -116,6 +116,13 @@ def buscar(texto):
         cadenas = []
         vistas = set()
         for oc in ordenes:
+            # Una compra anticipada no cuelga de ninguna solicitud: su cadena
+            # empieza en la propia orden.
+            if oc.solicitud_id is None:
+                cadenas.append({"solicitud": None, "cotizaciones": [],
+                                "ordenes": [oc], "orden_buscada": oc,
+                                "anticipada": True})
+                continue
             if oc.solicitud_id in vistas:
                 continue
             vistas.add(oc.solicitud_id)

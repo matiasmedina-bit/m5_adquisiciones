@@ -19,12 +19,18 @@ class SolicitudForm(forms.ModelForm):
             "observaciones": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, usuario=None, **kwargs):
         super().__init__(*args, **kwargs)
         from proyectos.models import Proyecto
-        self.fields["proyecto"].queryset = Proyecto.objects.exclude(
-            estado=Proyecto.Estado.FINALIZADO
-        )
+        qs = Proyecto.objects.exclude(estado=Proyecto.Estado.FINALIZADO)
+        # Un Jefe de Proyecto pide para las obras que dirige. Se le dejan además
+        # las que todavía no tienen jefe asignado, porque si no, al cargar un
+        # proyecto nuevo nadie podría solicitar material hasta que alguien se
+        # acuerde de asignarlo.
+        if usuario is not None and usuario.rol == "JEFE_PROYECTO":
+            from django.db.models import Q
+            qs = qs.filter(Q(jefe_proyecto=usuario) | Q(jefe_proyecto__isnull=True))
+        self.fields["proyecto"].queryset = qs
 
     def clean_proyecto(self):
         proyecto = self.cleaned_data["proyecto"]

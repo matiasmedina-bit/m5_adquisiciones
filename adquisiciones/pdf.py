@@ -93,12 +93,13 @@ def generar_pdf_orden(orden) -> bytes:
 
     # La obra se identifica por centro de costo + nombre, igual que en las
     # órdenes que M5 emite hoy: es el dato con que el proveedor despacha.
-    proyecto = orden.solicitud.proyecto
-    obra = f"{proyecto.centro_costo} {proyecto.nombre}".strip()
+    proyecto = orden.obra
+    obra = f"{proyecto.centro_costo} {proyecto.nombre}".strip() if proyecto else "—"
     elementos.append(Paragraph(
         f"Fecha: {_fecha_larga(orden.fecha)}<br/>"
         f"Obra: {obra}<br/>"
-        f"Solicitud: {orden.solicitud.correlativo}",
+        + (f"Solicitud: {orden.solicitud.correlativo}" if orden.solicitud_id
+           else "Compra anticipada (sin solicitud previa)"),
         normal,
     ))
     elementos.append(Spacer(1, 5 * mm))

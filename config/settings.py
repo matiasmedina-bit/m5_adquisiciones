@@ -153,7 +153,17 @@ EMAIL_HOST = os.getenv("EMAIL_HOST", "")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
-EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True").lower() == "true"
+# Dos formas de cifrar, y son excluyentes: el puerto 587 negocia el cifrado
+# después de conectar (TLS) y el 465 conecta ya cifrado (SSL). Marcar las dos
+# hace que Django falle al arrancar, así que SSL manda y apaga TLS.
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "False").lower() == "true"
+EMAIL_USE_TLS = (
+    False if EMAIL_USE_SSL
+    else os.getenv("EMAIL_USE_TLS", "True").lower() == "true"
+)
+# Sin esto, un servidor de correo que no responde deja la pantalla colgada
+# hasta que el navegador se aburre, y el usuario no sabe si grabó o no.
+EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "20"))
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "adquisiciones@m-5.cl")
 
 # --- Datos de la empresa: encabezado de la orden de compra ---

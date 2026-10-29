@@ -5,7 +5,10 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h1 class="h3 mb-0">Órdenes de compra</h1>
   {% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
-  <a href="{% url 'adquisiciones:cotizacion_bandeja' %}" class="btn btn-outline-primary">Bandeja de cotización</a>
+  <div class="d-flex gap-2">
+    <a href="{% url 'adquisiciones:cotizacion_bandeja' %}" class="btn btn-outline-primary">Bandeja de cotización</a>
+    <a href="{% url 'adquisiciones:orden_crear' %}" class="btn btn-primary">+ Compra anticipada</a>
+  </div>
   {% endif %}
 </div>
 
@@ -29,7 +32,11 @@
         <tr>
           <td class="fw-semibold">{{ o.correlativo }}</td>
           <td>{{ o.proveedor.nombre }}</td>
-          <td class="small">{{ o.solicitud.correlativo }}<span class="text-muted d-block">{{ o.solicitud.proyecto.nombre }}</span></td>
+          <td class="small">
+            {% if o.solicitud %}{{ o.solicitud.correlativo }}
+            {% else %}<span class="badge bg-info text-dark">Compra anticipada</span>{% endif %}
+            <span class="text-muted d-block">{{ o.obra.nombre|default:"—" }}</span>
+          </td>
           <td class="text-end">${{ o.total|floatformat:0 }}</td>
           <td class="text-center"><span class="badge bg-secondary">{{ o.get_estado_display }}</span></td>
           <td class="text-center">{% if o.facturada %}<span class="badge bg-success">Sí</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>

@@ -1,0 +1,110 @@
+{% extends 'base.html' %}
+{% block title %}Compra anticipada{% endblock %}
+{% block content %}
+
+<div class="mb-3">
+  <h1 class="h3 mb-0">Compra anticipada</h1>
+  <small class="text-muted">
+    Una orden de compra que emites tú, sin que la obra la haya pedido
+  </small>
+</div>
+
+<div class="alert alert-info d-flex align-items-start gap-2">
+  <i class="bi bi-info-circle-fill mt-1"></i>
+  <div>
+    Sirve para adelantarse: comprar material antes de que la obra parta, tomar
+    un precio que hoy conviene, o reponer lo que siempre se gasta.
+    La orden queda en <strong>borrador</strong>; la revisas y la apruebas tú
+    mismo para que salga al proveedor.
+  </div>
+</div>
+
+<form method="post" novalidate>
+  {% csrf_token %}
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header py-2 fw-semibold">Datos de la compra</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-5">
+          <label class="form-label small mb-1" for="{{ form.proyecto.id_for_label }}">
+            {{ form.proyecto.label }} <span class="text-danger">*</span>
+          </label>
+          {{ form.proyecto }}
+          <div class="form-text">El gasto queda cargado a esta obra.</div>
+          {% if form.proyecto.errors %}
+            <div class="text-danger small">{{ form.proyecto.errors|striptags }}</div>
+          {% endif %}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small mb-1" for="{{ form.proveedor.id_for_label }}">
+            {{ form.proveedor.label }} <span class="text-danger">*</span>
+          </label>
+          {{ form.proveedor }}
+          {% if form.proveedor.errors %}
+            <div class="text-danger small">{{ form.proveedor.errors|striptags }}</div>
+          {% endif %}
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small mb-1" for="{{ form.costo_despacho.id_for_label }}">
+            Despacho
+          </label>
+          {{ form.costo_despacho }}
+          <div class="form-text">Déjalo en 0 si no cobra.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header py-2 fw-semibold">Materiales</div>
+    <div class="table-responsive">
+      {{ formset.management_form }}
+      <table class="table mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th style="width:45%">Material</th>
+            <th style="width:20%">Cantidad</th>
+            <th style="width:25%">Valor unitario</th>
+            <th class="text-end" style="width:10%">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for f in formset %}
+          <tr>
+            <td>
+              {{ f.material }}
+              {% if f.material.errors %}
+                <div class="text-danger small">{{ f.material.errors|striptags }}</div>
+              {% endif %}
+            </td>
+            <td>
+              {{ f.cantidad }}
+              {% if f.cantidad.errors %}
+                <div class="text-danger small">{{ f.cantidad.errors|striptags }}</div>
+              {% endif %}
+            </td>
+            <td>
+              {{ f.valor_unitario }}
+              {% if f.valor_unitario.errors %}
+                <div class="text-danger small">{{ f.valor_unitario.errors|striptags }}</div>
+              {% endif %}
+            </td>
+            <td class="text-end text-muted small">—</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-footer py-2 small text-muted">
+      Completa las filas que necesites; las que dejes vacías se descartan.
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-between">
+    <a href="{% url 'adquisiciones:orden_lista' %}" class="btn btn-outline-secondary">Cancelar</a>
+    <button type="submit" class="btn btn-primary">Crear orden en borrador</button>
+  </div>
+</form>
+
+{% endblock %}

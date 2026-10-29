@@ -7,7 +7,7 @@
     <h1 class="h3 mb-0">Solicitudes de material</h1>
     <small class="text-muted">Gestión y seguimiento de solicitudes</small>
   </div>
-  {% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
+  {% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'JEFE_PROYECTO' or user.rol == 'ADMIN' %}
   <a href="{% url 'solicitudes:crear' %}" class="btn btn-primary">+ Nueva solicitud</a>
   {% endif %}
 </div>

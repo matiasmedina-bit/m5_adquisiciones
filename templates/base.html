@@ -59,14 +59,12 @@
             </a>
           </li>
         {% endif %}
-        {% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'JEFE_PROYECTO' or user.rol == 'ADMIN' %}
-          <li class="nav-item">
-            <a class="nav-link {% if request.resolver_match.app_name == 'solicitudes' %}active{% endif %}"
-               href="{% url 'solicitudes:lista' %}">
-              <i class="bi bi-card-checklist me-1"></i>Solicitudes
-            </a>
-          </li>
-        {% endif %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.resolver_match.app_name == 'solicitudes' %}active{% endif %}"
+             href="{% url 'solicitudes:lista' %}">
+            <i class="bi bi-card-checklist me-1"></i>Solicitudes
+          </a>
+        </li>
         {% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'JEFE_PROYECTO' or user.rol == 'ADMIN' %}
           <li class="nav-item">
             <a class="nav-link {% if request.resolver_match.app_name == 'adquisiciones' %}active{% endif %}"

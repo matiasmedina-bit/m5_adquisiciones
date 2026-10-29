@@ -111,7 +111,18 @@ class OrdenCompra(models.Model):
         NO_RECIBIDA = "NO_RECIBIDA", "No recibida"
 
     correlativo = models.CharField("Correlativo", max_length=20, unique=True, editable=False)
-    solicitud = models.ForeignKey(SolicitudMaterial, on_delete=models.PROTECT, related_name="ordenes_compra")
+    # Sin solicitud cuando Adquisiciones se adelanta: compra material antes de
+    # que la obra parta, o repone stock de bodega, sin que nadie se lo haya
+    # pedido. En ese caso la obra se indica en `proyecto`, para que el gasto
+    # quede igualmente imputado.
+    solicitud = models.ForeignKey(
+        SolicitudMaterial, on_delete=models.PROTECT, related_name="ordenes_compra",
+        null=True, blank=True,
+    )
+    proyecto = models.ForeignKey(
+        "proyectos.Proyecto", on_delete=models.PROTECT, related_name="ordenes_compra",
+        null=True, blank=True, verbose_name="Obra",
+    )
     proveedor = models.ForeignKey(Proveedor, on_delete=models.PROTECT, related_name="ordenes_compra")
     cotizacion = models.ForeignKey(Cotizacion, on_delete=models.PROTECT, related_name="ordenes_compra", null=True, blank=True)
     costo_despacho = models.DecimalField("Costo de despacho (CLP)", max_digits=12, decimal_places=0, default=0)
@@ -143,12 +154,29 @@ class OrdenCompra(models.Model):
             ultimo = OrdenCompra.objects.order_by("-id").first()
             siguiente = (ultimo.id + 1) if ultimo else 1
             self.correlativo = f"OC-{siguiente:06d}"
+        # La obra sale de la solicitud cuando la OC nace de un pedido; así el
+        # resto del sistema pregunta siempre por `orden.obra` sin tener que
+        # averiguar antes de dónde viene la orden.
+        if self.solicitud_id and not self.proyecto_id:
+            self.proyecto_id = self.solicitud.proyecto_id
         # Snapshot de datos del proveedor
         if self.proveedor_id and not self.proveedor_rut:
             self.proveedor_rut = self.proveedor.rut_formateado
             self.proveedor_razon_social = self.proveedor.nombre
             self.proveedor_condicion_pago = self.proveedor.get_condicion_pago_display()
         super().save(*args, **kwargs)
+
+    @property
+    def es_anticipada(self):
+        """Compra que nació en Adquisiciones, sin que ninguna obra la pidiera."""
+        return self.solicitud_id is None
+
+    @property
+    def obra(self):
+        """La obra a la que se imputa, venga de un pedido o de una compra anticipada."""
+        if self.proyecto_id:
+            return self.proyecto
+        return self.solicitud.proyecto if self.solicitud_id else None
 
     @property
     def subtotal_lineas(self):

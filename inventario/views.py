@@ -207,8 +207,10 @@ def _acumular_recepcion_oc(orden, material, cantidad):
     elif orden.recepcion_iniciada:
         orden.estado = OrdenCompra.Estado.RECEPCION_PARCIAL
     orden.save(update_fields=["estado"])
-    from adquisiciones.views import _refrescar_estado_recepcion_sm
-    _refrescar_estado_recepcion_sm(orden.solicitud)
+    # Una compra anticipada no tiene solicitud que refrescar: nadie la pidió.
+    if orden.solicitud_id:
+        from adquisiciones.views import _refrescar_estado_recepcion_sm
+        _refrescar_estado_recepcion_sm(orden.solicitud)
 
 
 @rol_requerido(*ROLES_BODEGA)
