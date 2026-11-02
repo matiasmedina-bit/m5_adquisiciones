@@ -87,10 +87,27 @@ class JefeProyectoTest(TestCase):
         jefe = Usuario.objects.create_user(
             username="jp08", password="x", email="jp08@m5.cl", rol="JEFE_PROYECTO")
         p = Proyecto.objects.create(
-            nombre="Obra con Jefe", mandante="M", fecha_inicio=date(2026, 6, 1),
-            jefe_proyecto=jefe)
-        self.assertEqual(p.jefe_proyecto.username, "jp08")
-        self.assertEqual(p.jefe_proyecto.rol, "JEFE_PROYECTO")
+            nombre="Obra con Jefe", mandante="M", fecha_inicio=date(2026, 6, 1))
+        p.jefes.add(jefe)
+        self.assertEqual(p.jefes.first().username, "jp08")
+        self.assertEqual(p.jefes.first().rol, "JEFE_PROYECTO")
+        self.assertTrue(p.dirigida_por(jefe))
+
+    def test_una_obra_puede_tener_varios_jefes(self):
+        """En M5 una obra la llevan entre tres y diez jefes, no uno."""
+        from usuarios.models import Usuario
+        equipo = [
+            Usuario.objects.create_user(
+                username=f"jp1{i}", password="x", email=f"jp1{i}@m5.cl",
+                rol="JEFE_PROYECTO")
+            for i in range(3)
+        ]
+        p = Proyecto.objects.create(
+            nombre="Obra en equipo", mandante="M", fecha_inicio=date(2026, 6, 1))
+        p.jefes.add(*equipo)
+        self.assertEqual(p.jefes.count(), 3)
+        for jefe in equipo:
+            self.assertTrue(p.dirigida_por(jefe), jefe.username)
 
 
 # ==========================================================================
@@ -113,7 +130,7 @@ class JefeProyectoAsignableTest(TestCase):
             rol="JEFE_PROYECTO", estado=False)
 
     def test_selector_solo_muestra_jefes_aprobados_y_activos(self):
-        opciones = list(ProyectoForm().fields["jefe_proyecto"].queryset)
+        opciones = list(ProyectoForm().fields["jefes"].queryset)
         self.assertIn(self.aprobado, opciones)
         self.assertNotIn(self.pendiente, opciones)
         self.assertNotIn(self.inactivo, opciones)
@@ -121,9 +138,9 @@ class JefeProyectoAsignableTest(TestCase):
     def test_jefe_ya_asignado_se_conserva_aunque_quede_inactivo(self):
         """Editar un proyecto antiguo no debe borrarle el jefe en silencio."""
         proyecto = Proyecto.objects.create(
-            nombre="Obra antigua", mandante="M", fecha_inicio=date(2026, 1, 10),
-            jefe_proyecto=self.inactivo)
-        opciones = list(ProyectoForm(instance=proyecto).fields["jefe_proyecto"].queryset)
+            nombre="Obra antigua", mandante="M", fecha_inicio=date(2026, 1, 10))
+        proyecto.jefes.add(self.inactivo)
+        opciones = list(ProyectoForm(instance=proyecto).fields["jefes"].queryset)
         self.assertIn(self.inactivo, opciones)
         self.assertIn(self.aprobado, opciones)
         self.assertNotIn(self.pendiente, opciones)
@@ -148,8 +165,9 @@ class ProyectoPDFTest(TestCase):
         self.client.login(username="jefe_pdf", password="clave12345")
         self.proyecto = Proyecto.objects.create(
             nombre="Edificio Aurora", mandante="Inmobiliaria Vista SpA",
-            centro_costo="CC-2026-014", jefe_proyecto=self.jefe,
+            centro_costo="CC-2026-014",
             fecha_inicio=date(2026, 6, 1), presupuesto_total=125000000)
+        self.proyecto.jefes.add(self.jefe)
         Itemizado.objects.create(
             proyecto=self.proyecto, codigo_partida="02.03",
             descripcion="Estructura metálica", unidad_medida="kg",
@@ -489,3 +507,115 @@ class UmbralTamanoCU57Test(TestCase):
         parametros.save()
         self._subir(2 * 1024 * 1024)
         self.assertEqual(ArchivoProyecto.objects.count(), 1)   # ya no lo advierte
+
+
+# ==========================================================================
+#  La obra se carga con su itemizado, la llevan varios jefes, y se puede
+#  borrar mientras no tenga historia.
+# ==========================================================================
+class ObraConItemizadoYVariosJefesTest(TestCase):
+    """
+    Tres cosas que el cliente pidió después de usar el sistema en la obra:
+
+    - el itemizado tiene que cargarse al crear el proyecto, porque si no, la
+      solicitud de material sale sin partida y el control presupuestario no
+      sirve;
+    - una obra la llevan varios jefes de proyecto y todos piden material;
+    - una obra cargada por error se tiene que poder borrar.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.jefes = [
+            Usuario.objects.create_user(
+                f"jefe_obra{i}", password="clave12345", email=f"j{i}@m5.cl",
+                rol="JEFE_PROYECTO", first_name=f"Jefe{i}", last_name="Equipo")
+            for i in range(3)
+        ]
+        self.client.login(username="jefe_obra0", password="clave12345")
+
+    def _datos(self, **extra):
+        datos = {
+            "nombre": "Smart Fit Talca", "mandante": "Smart Fit",
+            "centro_costo": "CC-2026-099",
+            "fecha_inicio": "2026-11-02", "estado": "EJECUCION",
+            "presupuesto_total": "50000000",
+            "jefes": [j.pk for j in self.jefes],
+            # formset del itemizado
+            "itemizados-TOTAL_FORMS": "5", "itemizados-INITIAL_FORMS": "0",
+            "itemizados-MIN_NUM_FORMS": "0", "itemizados-MAX_NUM_FORMS": "1000",
+            "itemizados-0-codigo_partida": "OG-01",
+            "itemizados-0-descripcion": "Hormigón fundaciones",
+            "itemizados-0-unidad_medida": "m3",
+            "itemizados-0-cant_presupuestada": "250",
+            "itemizados-1-codigo_partida": "OG-02",
+            "itemizados-1-descripcion": "Enfierradura",
+            "itemizados-1-unidad_medida": "kg",
+            "itemizados-1-cant_presupuestada": "8000",
+        }
+        for i in range(2, 5):      # filas vacías: se descartan solas
+            datos.update({f"itemizados-{i}-codigo_partida": "",
+                          f"itemizados-{i}-descripcion": "",
+                          f"itemizados-{i}-unidad_medida": "",
+                          f"itemizados-{i}-cant_presupuestada": ""})
+        datos.update(extra)
+        return datos
+
+    def test_la_obra_nace_con_su_itemizado_y_sus_jefes(self):
+        resp = self.client.post(reverse("proyectos:crear"), self._datos())
+        self.assertEqual(resp.status_code, 302)
+        obra = Proyecto.objects.get(nombre="Smart Fit Talca")
+        self.assertEqual(obra.itemizados.count(), 2)
+        self.assertEqual(obra.jefes.count(), 3)
+        self.assertEqual(
+            sorted(obra.itemizados.values_list("codigo_partida", flat=True)),
+            ["OG-01", "OG-02"])
+
+    def test_las_filas_vacias_del_itemizado_no_crean_partidas(self):
+        self.client.post(reverse("proyectos:crear"), self._datos())
+        obra = Proyecto.objects.get(nombre="Smart Fit Talca")
+        self.assertEqual(obra.itemizados.count(), 2)   # no 5
+
+    def test_una_partida_a_medio_llenar_no_guarda_la_obra(self):
+        """Todo o nada: una obra a medio cargar es peor que ninguna."""
+        datos = self._datos()
+        datos["itemizados-2-codigo_partida"] = "OG-03"   # sin descripción ni unidad
+        resp = self.client.post(reverse("proyectos:crear"), datos)
+        self.assertEqual(resp.status_code, 200)         # se queda en el formulario
+        self.assertFalse(Proyecto.objects.filter(nombre="Smart Fit Talca").exists())
+        self.assertEqual(Itemizado.objects.count(), 0)
+
+    def test_cualquiera_de_los_jefes_ve_la_obra_al_pedir_material(self):
+        """El selector de proyecto de la solicitud no es de un solo titular."""
+        from solicitudes.forms import SolicitudForm
+        self.client.post(reverse("proyectos:crear"), self._datos())
+        obra = Proyecto.objects.get(nombre="Smart Fit Talca")
+        for jefe in self.jefes:
+            opciones = list(SolicitudForm(usuario=jefe).fields["proyecto"].queryset)
+            self.assertIn(obra, opciones, f"{jefe.username} no ve su propia obra")
+
+    def test_un_jefe_ajeno_no_ve_la_obra(self):
+        from solicitudes.forms import SolicitudForm
+        ajeno = Usuario.objects.create_user(
+            "jefe_ajeno", password="clave12345", email="aj@m5.cl", rol="JEFE_PROYECTO")
+        self.client.post(reverse("proyectos:crear"), self._datos())
+        obra = Proyecto.objects.get(nombre="Smart Fit Talca")
+        self.assertNotIn(obra, list(SolicitudForm(usuario=ajeno).fields["proyecto"].queryset))
+
+    def test_eliminar_una_obra_sin_movimiento(self):
+        self.client.post(reverse("proyectos:crear"), self._datos())
+        obra = Proyecto.objects.get(nombre="Smart Fit Talca")
+        resp = self.client.post(reverse("proyectos:eliminar", args=[obra.pk]))
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(Proyecto.objects.filter(pk=obra.pk).exists())
+        self.assertEqual(Itemizado.objects.filter(proyecto_id=obra.pk).count(), 0)
+
+    def test_una_obra_con_solicitudes_no_se_borra(self):
+        from solicitudes.models import SolicitudMaterial
+        self.client.post(reverse("proyectos:crear"), self._datos())
+        obra = Proyecto.objects.get(nombre="Smart Fit Talca")
+        SolicitudMaterial.objects.create(proyecto=obra, emisor=self.jefes[0])
+        resp = self.client.post(reverse("proyectos:eliminar", args=[obra.pk]))
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(Proyecto.objects.filter(pk=obra.pk).exists())
+        self.assertTrue(obra.tiene_movimiento)

@@ -8,11 +8,19 @@
       <i class="bi bi-file-earmark-pdf me-1"></i>Exportar PDF
     </a>
     <a href="{% url 'proyectos:editar' proyecto.pk %}" class="btn btn-outline-primary btn-sm">Editar proyecto</a>
+    {% if not proyecto.tiene_movimiento %}
+      <a href="{% url 'proyectos:eliminar' proyecto.pk %}" class="btn btn-outline-danger btn-sm">Eliminar</a>
+    {% endif %}
   </div>
   {% endif %}
 </div>
 <p class="text-muted">Mandante: {{ proyecto.mandante }} · Centro de costo: {{ proyecto.centro_costo|default:"—" }} · Estado: {{ proyecto.get_estado_display }} · Presupuesto: ${{ proyecto.presupuesto_total }}</p>
-<p class="text-muted">Jefe de proyecto: {% if proyecto.jefe_proyecto %}{{ proyecto.jefe_proyecto.get_full_name|default:proyecto.jefe_proyecto.username }}{% else %}<span class="fst-italic">sin asignar</span>{% endif %}</p>
+<p class="text-muted">
+  Jefes de proyecto:
+  {% with nombres=proyecto.nombres_jefes %}
+    {% if nombres %}{{ nombres|join:" · " }}{% else %}<span class="fst-italic">sin asignar</span>{% endif %}
+  {% endwith %}
+</p>
 
 <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
   <h2 class="h5 mb-0">Itemizado (partidas)</h2>

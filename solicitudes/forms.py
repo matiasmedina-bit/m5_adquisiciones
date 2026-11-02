@@ -23,13 +23,14 @@ class SolicitudForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         from proyectos.models import Proyecto
         qs = Proyecto.objects.exclude(estado=Proyecto.Estado.FINALIZADO)
-        # Un Jefe de Proyecto pide para las obras que dirige. Se le dejan además
-        # las que todavía no tienen jefe asignado, porque si no, al cargar un
-        # proyecto nuevo nadie podría solicitar material hasta que alguien se
-        # acuerde de asignarlo.
+        # Un Jefe de Proyecto pide para las obras que dirige —y una obra la
+        # dirigen varios a la vez, así que basta con estar entre ellos. Se le
+        # dejan además las que todavía no tienen ningún jefe asignado, porque
+        # si no, al cargar un proyecto nuevo nadie podría solicitar material
+        # hasta que alguien se acuerde de asignarlo.
         if usuario is not None and usuario.rol == "JEFE_PROYECTO":
             from django.db.models import Q
-            qs = qs.filter(Q(jefe_proyecto=usuario) | Q(jefe_proyecto__isnull=True))
+            qs = qs.filter(Q(jefes=usuario) | Q(jefes__isnull=True)).distinct()
         self.fields["proyecto"].queryset = qs
 
     def clean_proyecto(self):

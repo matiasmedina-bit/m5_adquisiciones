@@ -1,19 +1,108 @@
 {% extends 'base.html' %}
+{% block title %}{% if form.instance.pk %}Editar proyecto{% else %}Nueva obra{% endif %}{% endblock %}
 {% block content %}
-<h1 class="h3 mb-3">{% if form.instance.pk %}Editar proyecto{% else %}Nuevo proyecto{% endif %}</h1>
-<div class="card shadow-sm"><div class="card-body">
+
+<h1 class="h3 mb-1">{% if form.instance.pk %}Editar obra{% else %}Nueva obra{% endif %}</h1>
+<p class="text-muted">Los datos de la obra y las partidas de su itemizado se cargan juntos.</p>
+
 <form method="post">
   {% csrf_token %}
   {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors }}</div>{% endif %}
-  {% for field in form %}
-    <div class="mb-3">
-      <label class="form-label">{{ field.label }}</label>
-      {{ field }}
-      {% if field.errors %}<div class="text-danger small">{{ field.errors|striptags }}</div>{% endif %}
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header py-2 fw-semibold">Datos de la obra</div>
+    <div class="card-body">
+      <div class="row g-3">
+        {% for field in form %}
+          {% if field.name != 'jefes' %}
+            <div class="col-md-6">
+              <label class="form-label small mb-1">{{ field.label }}</label>
+              {{ field }}
+              {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+              {% if field.errors %}<div class="text-danger small">{{ field.errors|striptags }}</div>{% endif %}
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
     </div>
-  {% endfor %}
-  <button type="submit" class="btn btn-primary">Guardar</button>
-  <a href="{% url 'proyectos:lista' %}" class="btn btn-outline-secondary">Cancelar</a>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header py-2 fw-semibold">Jefes de proyecto</div>
+    <div class="card-body">
+      <p class="text-muted small mb-2">{{ form.jefes.help_text }}</p>
+      {% if form.jefes.field.queryset %}
+        <div class="row g-2">
+          {% for opcion in form.jefes %}
+            <div class="col-md-4">
+              <div class="form-check">
+                {{ opcion.tag }}
+                <label class="form-check-label" for="{{ opcion.id_for_label }}">{{ opcion.choice_label }}</label>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-muted mb-0 fst-italic">
+          Todavía no hay jefes de proyecto aprobados. Puedes crear la obra ahora
+          y asignarlos después desde Editar.
+        </p>
+      {% endif %}
+      {% if form.jefes.errors %}<div class="text-danger small mt-2">{{ form.jefes.errors|striptags }}</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+      <span class="fw-semibold">Itemizado</span>
+      <span class="small text-muted">Las partidas presupuestarias contra las que se pide material</span>
+    </div>
+    <div class="card-body">
+      {{ itemizado.management_form }}
+      {% if itemizado.non_form_errors %}
+        <div class="alert alert-danger">{{ itemizado.non_form_errors|striptags }}</div>
+      {% endif %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-2">
+          <thead class="table-light">
+            <tr>
+              <th style="width:140px">Código</th>
+              <th>Descripción</th>
+              <th style="width:110px">Unidad</th>
+              <th style="width:140px">Cantidad</th>
+              {% if itemizado.can_delete %}<th style="width:70px" class="text-center">Quitar</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+          {% for f in itemizado %}
+            <tr>
+              {{ f.id }}
+              <td>{{ f.codigo_partida }}
+                  {% if f.codigo_partida.errors %}<div class="text-danger small">{{ f.codigo_partida.errors|striptags }}</div>{% endif %}</td>
+              <td>{{ f.descripcion }}
+                  {% if f.descripcion.errors %}<div class="text-danger small">{{ f.descripcion.errors|striptags }}</div>{% endif %}</td>
+              <td>{{ f.unidad_medida }}
+                  {% if f.unidad_medida.errors %}<div class="text-danger small">{{ f.unidad_medida.errors|striptags }}</div>{% endif %}</td>
+              <td>{{ f.cant_presupuestada }}
+                  {% if f.cant_presupuestada.errors %}<div class="text-danger small">{{ f.cant_presupuestada.errors|striptags }}</div>{% endif %}</td>
+              {% if itemizado.can_delete %}
+                <td class="text-center">{{ f.DELETE }}</td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="text-muted small mb-0">
+        Completa las filas que necesites; las que dejes vacías se descartan.
+        Después puedes agregar más partidas desde la ficha de la obra.
+      </p>
+    </div>
+  </div>
+
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-primary">Guardar</button>
+    <a href="{% url 'proyectos:lista' %}" class="btn btn-outline-secondary">Cancelar</a>
+  </div>
 </form>
-</div></div>
 {% endblock %}

@@ -23,7 +23,7 @@
         <tr>
           <td class="fw-semibold">{{ s.correlativo }}</td>
           <td>{{ s.proyecto.nombre }}</td>
-          <td class="text-muted">{{ s.proyecto.jefe_proyecto.get_full_name|default:"—" }}</td>
+          <td class="text-muted">{{ s.proyecto.nombres_jefes|join:", "|default:"—" }}</td>
           <td class="text-muted">{{ s.emisor.get_full_name|default:s.emisor.username }}</td>
           <td class="text-muted small">{{ s.fecha|date:"d-m-Y H:i" }}</td>
           <td class="text-center">{{ s.total_items }}</td>

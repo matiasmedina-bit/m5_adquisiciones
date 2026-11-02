@@ -38,7 +38,16 @@
 <div class="card shadow-sm mb-3">
   <div class="card-header d-flex justify-content-between align-items-center py-2">
     <span class="fw-semibold">{{ c.proveedor.nombre }}</span>
-    <span class="small text-muted">Despacho ${{ c.costo_despacho|floatformat:0 }} · {{ c.tiempo_entrega_dias }} días hábiles</span>
+    <span class="d-flex align-items-center gap-3">
+      <span class="small text-muted">Despacho ${{ c.costo_despacho|floatformat:0 }} · {{ c.tiempo_entrega_dias }} días hábiles</span>
+      <form method="post" class="d-inline"
+            onsubmit="return confirm('¿Eliminar la cotización de {{ c.proveedor.nombre|escapejs }}?')">
+        {% csrf_token %}
+        <input type="hidden" name="accion" value="eliminar_cotizacion">
+        <input type="hidden" name="cotizacion_id" value="{{ c.pk }}">
+        <button class="btn btn-sm btn-outline-danger py-0">Eliminar</button>
+      </form>
+    </span>
   </div>
   <div class="table-responsive">
     <table class="table align-middle mb-0">
@@ -68,6 +77,11 @@
             {% endif %}
           </td>
         </tr>
+      {% empty %}
+        <tr><td colspan="5" class="text-center text-muted py-3 fst-italic">
+          Esta cotización quedó sin valores unitarios. Elimínala y vuelve a
+          cargarla con los precios del proveedor.
+        </td></tr>
       {% endfor %}
       <tr class="table-light">
         <td colspan="2" class="text-end fw-semibold">Valor total</td>
@@ -88,7 +102,9 @@
       {% if puede_generar_oc %}
         <i class="bi bi-check-circle-fill me-1"></i>Todos los materiales tienen una línea de cotización aprobada.
       {% else %}
-        Aún faltan materiales por aprobar una línea de cotización.
+        Falta elegir con qué proveedor se compra:
+        <strong>{{ materiales_sin_aprobar|join:", " }}</strong>.
+        Registra la cotización y aprieta «Aprobar» en la fila del proveedor elegido.
       {% endif %}
     </span>
     <form method="post">

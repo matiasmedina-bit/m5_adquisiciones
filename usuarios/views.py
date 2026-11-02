@@ -173,7 +173,7 @@ def home(request):
     if rol in ("JEFE_PROYECTO", "ENCARGADO_ADQUISICIONES", "CONTABILIDAD") or es_admin:
         proyectos = Proyecto.objects.exclude(estado="FINALIZADO")
         if rol == "JEFE_PROYECTO":
-            proyectos = proyectos.filter(jefe_proyecto=request.user)
+            proyectos = proyectos.filter(jefes=request.user).distinct()
         stats["proyectos"] = proyectos.count()
 
     if rol in ("JEFE_PROYECTO", "ENCARGADO_ADQUISICIONES") or es_admin:

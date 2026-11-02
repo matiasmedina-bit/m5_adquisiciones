@@ -94,13 +94,13 @@ def generar_pdf_proyecto(proyecto) -> bytes:
         f"Mandante: <b>{proyecto.mandante}</b>", normal))
     elementos.append(Spacer(1, 5 * mm))
 
-    jefe = proyecto.jefe_proyecto
-    jefe_txt = (jefe.get_full_name() or jefe.username) if jefe else "Sin asignar"
+    jefes = proyecto.nombres_jefes
+    jefe_txt = ", ".join(jefes) if jefes else "Sin asignar"
 
     ficha = [
         ["Centro de costo", proyecto.centro_costo or "—",
          "Estado", proyecto.get_estado_display()],
-        ["Jefe de proyecto", jefe_txt,
+        ["Jefes de proyecto", jefe_txt,
          "Presupuesto", f"${_miles(proyecto.presupuesto_total)}"],
         ["Fecha de inicio", f"{proyecto.fecha_inicio:%d-%m-%Y}",
          "Fecha de término",

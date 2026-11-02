@@ -35,7 +35,7 @@ def _exigir_propiedad(usuario, solicitud):
     if usuario.rol != "JEFE_PROYECTO":
         return
     es_suya = solicitud.emisor_id == usuario.pk
-    dirige_la_obra = solicitud.proyecto.jefe_proyecto_id == usuario.pk
+    dirige_la_obra = solicitud.proyecto.dirigida_por(usuario)
     if not (es_suya or dirige_la_obra):
         raise PermissionDenied(
             "Esta solicitud es de otra obra. Solo puedes trabajar las de los "
@@ -225,9 +225,16 @@ def solicitud_detalle(request, pk):
             request.user.rol in ("ENCARGADO_ADQUISICIONES", "ADMIN")
             or (request.user.rol == "JEFE_PROYECTO"
                 and (solicitud.emisor_id == request.user.pk
-                     or solicitud.proyecto.jefe_proyecto_id == request.user.pk))
+                     or solicitud.proyecto.dirigida_por(request.user)))
         ),
-        "puede_resolver": request.user.rol in ("JEFE_PROYECTO", "ADMIN"),
+        # Quién da el visto bueno a una solicitud enviada. El Jefe de Proyecto
+        # responde por el presupuesto de la obra, y el Encargado de
+        # Adquisiciones porque es el dueño del proceso de compra: si tiene que
+        # esperar a que alguien más apruebe lo que él mismo va a cotizar, el
+        # pedido se queda detenido y termina resolviéndolo el administrador,
+        # que es justo lo que no debe pasar.
+        "puede_resolver": request.user.rol in (
+            "JEFE_PROYECTO", "ENCARGADO_ADQUISICIONES", "ADMIN"),
         # RF-39: órdenes de compra generadas a partir de esta SM y su recepción
         "ordenes_compra": solicitud.ordenes_compra.all() if hasattr(solicitud, "ordenes_compra") else [],
     })
@@ -317,10 +324,18 @@ def solicitud_enviar(request, pk):
     return redirect("solicitudes:detalle", pk=solicitud.pk)
 
 
-@rol_requerido("JEFE_PROYECTO")
+@rol_requerido("JEFE_PROYECTO", "ENCARGADO_ADQUISICIONES")
 @require_POST
 def solicitud_resolver(request, pk, accion):
-    """CU-16: el Jefe de Proyecto aprueba o rechaza (ENVIADA -> APROBADA/RECHAZADA)."""
+    """
+    CU-16: aprobar o rechazar una solicitud enviada (ENVIADA -> APROBADA/RECHAZADA).
+
+    Lo resuelve el Jefe de Proyecto —responde por el presupuesto de la obra— o
+    el Encargado de Adquisiciones, que es el dueño del proceso de compra. Antes
+    sólo podía el Jefe, y como el administrador pasa por todas partes, en la
+    práctica terminaba aprobando él todo: el rol de Adquisiciones quedaba
+    mirando una solicitud que no podía mover.
+    """
     solicitud = get_object_or_404(SolicitudMaterial, pk=pk)
     if solicitud.estado != SolicitudMaterial.Estado.ENVIADA:
         messages.error(request, "Solo se pueden resolver solicitudes enviadas.")
@@ -330,6 +345,16 @@ def solicitud_resolver(request, pk, accion):
         registrar(request.user, RegistroAuditoria.Accion.SM_APROBADA,
                   f"Aprobó la solicitud de {solicitud.proyecto.nombre}.",
                   solicitud.correlativo)
+        # Aprobar y quedarse en la misma pantalla obliga a buscar la solicitud
+        # de nuevo en la bandeja. Lo que sigue después de aprobar es cotizar,
+        # así que a quien va a cotizar se lo deja directamente ahí.
+        if request.user.rol in ("ENCARGADO_ADQUISICIONES", "ADMIN"):
+            messages.success(
+                request,
+                f"Solicitud {solicitud.correlativo} aprobada. Registra las "
+                f"cotizaciones de los proveedores para generar la orden de compra.")
+            return redirect("adquisiciones:cotizacion_sm", pk=solicitud.pk)
+        _avisar_a_adquisiciones(solicitud)
         messages.success(request, f"Solicitud {solicitud.correlativo} aprobada.")
     elif accion == "rechazar":
         solicitud.estado = SolicitudMaterial.Estado.RECHAZADA

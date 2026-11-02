@@ -8,6 +8,7 @@ RF-26 Exportar OC a PDF               RF-27 Enviar OC por correo al proveedor
 RF-38 Actualizar estado de recepción de la OC
 RF-39 Estado de recepción por OC (se muestra en el detalle de la SM)
 """
+from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.mail import EmailMessage
@@ -61,30 +62,65 @@ def cotizacion_sm(request, pk):
         if accion == "agregar_cotizacion":
             cot_form = CotizacionForm(request.POST, solicitud=solicitud)
             if cot_form.is_valid():
+                # Los precios se leen ANTES de crear nada. Una cotización sin
+                # valores no se puede aprobar, y como la orden de compra exige
+                # que todos los materiales tengan línea aprobada, una cotización
+                # vacía dejaba el botón de generar la OC apagado para siempre,
+                # sin forma de saber por qué ni de deshacerlo.
+                precios = {}
+                for d in detalles:
+                    raw = (request.POST.get(f"vu_{d.pk}") or "").strip()
+                    if not raw:
+                        continue
+                    try:
+                        valor = int(round(float(raw)))
+                    except ValueError:
+                        continue
+                    if valor > 0:
+                        precios[d.pk] = valor
+
+                if not precios:
+                    messages.error(
+                        request,
+                        "No se guardó la cotización: falta el valor unitario. "
+                        "Pon el precio de al menos un material; los que el "
+                        "proveedor no cotice se dejan en blanco.")
+                    return redirect("adquisiciones:cotizacion_sm", pk=solicitud.pk)
+
                 with transaction.atomic():
                     cotizacion = cot_form.save(commit=False)
                     cotizacion.solicitud = solicitud
                     cotizacion.creada_por = request.user
                     cotizacion.save()
-                    creadas = 0
                     for d in detalles:
-                        raw = request.POST.get(f"vu_{d.pk}", "").strip()
-                        if not raw:
-                            continue
-                        try:
-                            valor = int(round(float(raw)))
-                        except ValueError:
-                            continue
-                        if valor <= 0:
-                            continue
-                        CotizacionLinea.objects.create(
-                            cotizacion=cotizacion, solicitud_detalle=d, valor_unitario=valor)
-                        creadas += 1
-                if creadas == 0:
-                    messages.warning(request, "Cotización creada, pero sin valores unitarios cargados.")
-                else:
-                    messages.success(request, f"Cotización de {cotizacion.proveedor.nombre} registrada ({creadas} líneas).")
+                        if d.pk in precios:
+                            CotizacionLinea.objects.create(
+                                cotizacion=cotizacion, solicitud_detalle=d,
+                                valor_unitario=precios[d.pk])
+                faltan = len(detalles) - len(precios)
+                aviso = (f"Cotización de {cotizacion.proveedor.nombre} registrada "
+                         f"({len(precios)} material{'es' if len(precios) != 1 else ''}).")
+                if faltan:
+                    aviso += (f" Quedaron {faltan} sin cotizar: necesitas el precio "
+                              f"de todos para generar la orden de compra.")
+                messages.success(request, aviso)
                 return redirect("adquisiciones:cotizacion_sm", pk=solicitud.pk)
+
+        elif accion == "eliminar_cotizacion":
+            # Una cotización mal cargada tiene que poder borrarse; si no, queda
+            # ensuciando la comparación de precios para siempre.
+            cotizacion = get_object_or_404(
+                Cotizacion, pk=request.POST.get("cotizacion_id"), solicitud=solicitud)
+            if cotizacion.lineas.filter(estado=CotizacionLinea.Estado.APROBADA).exists():
+                messages.error(
+                    request,
+                    "Esa cotización ya tiene líneas aprobadas y no se puede borrar. "
+                    "Aprueba la línea de otro proveedor para reemplazarla.")
+            else:
+                nombre = cotizacion.proveedor.nombre
+                cotizacion.delete()
+                messages.success(request, f"Cotización de {nombre} eliminada.")
+            return redirect("adquisiciones:cotizacion_sm", pk=solicitud.pk)
 
         elif accion == "aprobar_linea":
             linea = get_object_or_404(
@@ -120,6 +156,12 @@ def cotizacion_sm(request, pk):
         "cot_form": cot_form,
         "detalle_ids_aprobados": detalle_ids_aprobados,
         "puede_generar_oc": _todas_las_lineas_aprobadas(solicitud),
+        # Decir «faltan materiales» sin decir cuáles obliga a ir comparando la
+        # tabla a ojo. Con el nombre, se ve al tiro qué queda por hacer.
+        "materiales_sin_aprobar": [
+            d.material.nombre for d in detalles
+            if d.pk not in detalle_ids_aprobados
+        ],
     })
 
 
@@ -243,7 +285,7 @@ def orden_lista(request):
     if estado:
         ordenes = ordenes.filter(estado=estado)
     if request.user.rol == "JEFE_PROYECTO":
-        ordenes = ordenes.filter(proyecto__jefe_proyecto=request.user)
+        ordenes = ordenes.filter(proyecto__jefes=request.user).distinct()
     return render(request, "adquisiciones/orden_lista.html", {
         "ordenes": ordenes, "estado_filtro": estado or "",
         "estados": OrdenCompra.Estado.choices,
@@ -257,7 +299,7 @@ def orden_detalle(request, pk):
             "proveedor", "proyecto", "solicitud__proyecto"), pk=pk)
     obra = orden.obra
     if (request.user.rol == "JEFE_PROYECTO"
-            and (obra is None or obra.jefe_proyecto_id != request.user.pk)):
+            and (obra is None or not obra.dirigida_por(request.user))):
         raise PermissionDenied("Esta orden de compra pertenece a otro proyecto.")
     recepcion_form = RecepcionEstadoForm()
 
@@ -334,12 +376,15 @@ def orden_detalle(request, pk):
                 orden.save(update_fields=["estado"])
                 if orden.solicitud_id:
                     _refrescar_estado_recepcion_sm(orden.solicitud)
-                jefe = obra.jefe_proyecto if obra else None
-                if jefe and jefe.email:
+                # El aviso va a todos los jefes de la obra, no a uno: cualquiera
+                # de ellos puede estar esperando ese despacho.
+                correos = (list(obra.jefes.exclude(email="").values_list("email", flat=True))
+                           if obra else [])
+                if correos:
                     detalle = "; ".join(
                         f"{l.descripcion}: {l.cantidad_recibida}/{l.cantidad}" for l in orden.lineas.all())
                     _notificar(
-                        [jefe.email],
+                        correos,
                         f"OC {orden.correlativo}: {orden.get_estado_display()}",
                         f"La orden {orden.correlativo} cambió a «{orden.get_estado_display()}».\n{detalle}",
                     )
@@ -413,7 +458,12 @@ def _notificar(destinatarios, asunto, cuerpo, adjunto=None):
     if not destinatarios:
         return
     try:
-        msg = EmailMessage(subject=asunto, body=cuerpo, to=destinatarios)
+        # Reply-To: el correo sale desde la casilla del sistema, pero las
+        # respuestas del proveedor tienen que llegarle a una persona.
+        responder_a = [settings.EMAIL_REPLY_TO] if settings.EMAIL_REPLY_TO else None
+        msg = EmailMessage(
+            subject=asunto, body=cuerpo, to=destinatarios, reply_to=responder_a
+        )
         if adjunto:
             nombre, contenido, mime = adjunto
             msg.attach(nombre, contenido, mime)

@@ -1,19 +1,20 @@
 """Formularios de Proyectos e Itemizado (CU-06 a CU-10, CU-54)."""
 import os
 from django import forms
+from django.forms import inlineformset_factory
 from .models import Proyecto, Itemizado, TipoDocumento, ArchivoProyecto
 
 
 class ProyectoForm(forms.ModelForm):
     class Meta:
         model = Proyecto
-        fields = ["nombre", "mandante", "centro_costo", "jefe_proyecto",
+        fields = ["nombre", "mandante", "centro_costo", "jefes",
                   "fecha_inicio", "fecha_termino", "estado", "presupuesto_total"]
         widgets = {
             "nombre": forms.TextInput(attrs={"class": "form-control"}),
             "mandante": forms.TextInput(attrs={"class": "form-control"}),
             "centro_costo": forms.TextInput(attrs={"class": "form-control", "placeholder": "Ej: CC-2026-014"}),
-            "jefe_proyecto": forms.Select(attrs={"class": "form-select"}),
+            "jefes": forms.CheckboxSelectMultiple(),
             "fecha_inicio": forms.DateInput(attrs={"class": "form-control", "type": "date"}),
             "fecha_termino": forms.DateInput(attrs={"class": "form-control", "type": "date"}),
             "estado": forms.Select(attrs={"class": "form-select"}),
@@ -22,14 +23,22 @@ class ProyectoForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Sólo jefes de proyecto activos y ya aprobados (CU-52). Se conserva el
-        # que el proyecto ya tuviera asignado, para no borrarlo al editar.
-        from usuarios.models import usuarios_asignables, con_seleccion_actual
+        # Sólo jefes de proyecto activos y ya aprobados (CU-52). Se conservan
+        # los que el proyecto ya tuviera asignados, para no perderlos al editar
+        # si alguno quedó inactivo después.
+        from django.db.models import Q
+        from usuarios.models import usuarios_asignables
         qs = usuarios_asignables("JEFE_PROYECTO")
-        self.fields["jefe_proyecto"].queryset = con_seleccion_actual(
-            qs, self.instance, "jefe_proyecto"
-        )
-        self.fields["jefe_proyecto"].empty_label = "— Sin jefe asignado —"
+        if self.instance.pk:
+            ya_asignados = self.instance.jefes.values_list("pk", flat=True)
+            qs = (usuarios_asignables("JEFE_PROYECTO").model.objects
+                  .filter(Q(pk__in=qs.values("pk")) | Q(pk__in=list(ya_asignados)))
+                  .order_by("first_name", "last_name", "username"))
+        self.fields["jefes"].queryset = qs
+        self.fields["jefes"].required = False
+        self.fields["jefes"].help_text = (
+            "Marca a todos los que llevan la obra. Cualquiera de ellos puede "
+            "emitir solicitudes de material para este proyecto.")
 
     def clean_centro_costo(self):
         """RF-14: el centro de costo no puede repetirse en otro proyecto."""
@@ -65,6 +74,54 @@ class ItemizadoForm(forms.ModelForm):
             "cant_presupuestada": forms.NumberInput(attrs={"class": "form-control"}),
             "cant_ejecutada": forms.NumberInput(attrs={"class": "form-control"}),
         }
+
+
+class ItemizadoEnLineaForm(ItemizadoForm):
+    """
+    La misma partida, pero en la fila de una tabla: campos chicos y sin
+    «cantidad ejecutada», que al crear la obra siempre es cero y sólo estorba.
+    """
+    class Meta(ItemizadoForm.Meta):
+        fields = ["codigo_partida", "descripcion", "unidad_medida", "cant_presupuestada"]
+        widgets = {
+            "codigo_partida": forms.TextInput(attrs={
+                "class": "form-control form-control-sm", "placeholder": "Ej: 1.2.3"}),
+            "descripcion": forms.TextInput(attrs={
+                "class": "form-control form-control-sm", "placeholder": "Ej: Hormigón fundaciones"}),
+            "unidad_medida": forms.TextInput(attrs={
+                "class": "form-control form-control-sm", "placeholder": "m3"}),
+            "cant_presupuestada": forms.NumberInput(attrs={
+                "class": "form-control form-control-sm", "placeholder": "0"}),
+        }
+
+    CAMPOS = ("codigo_partida", "descripcion", "unidad_medida", "cant_presupuestada")
+
+    def has_changed(self):
+        """
+        Una fila en blanco es una fila en blanco.
+
+        Django la daría por modificada: «cantidad presupuestada» tiene 0 por
+        defecto en el modelo y el navegador manda el campo vacío, así que la
+        compara contra el 0 y concluye que cambió. Resultado: al guardar la
+        obra exigía llenar las cinco filas aunque sólo se usaran dos.
+        """
+        if not self.instance.pk:
+            escrito = [(self.data.get(self.add_prefix(c)) or "").strip()
+                       for c in self.CAMPOS]
+            if not any(escrito):
+                return False
+        return super().has_changed()
+
+
+# El itemizado se carga junto con la obra. Antes había que crear el proyecto y
+# después acordarse de entrar a agregar las partidas una por una; como casi
+# nadie lo hacía, las solicitudes de esa obra salían sin partida y el control
+# presupuestario del itemizado no servía de nada.
+ItemizadoFormSet = inlineformset_factory(
+    Proyecto, Itemizado,
+    form=ItemizadoEnLineaForm,
+    extra=5, can_delete=True, min_num=0, validate_min=False,
+)
 
 
 # ==========================================================================

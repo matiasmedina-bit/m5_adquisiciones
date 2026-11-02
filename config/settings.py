@@ -181,6 +181,15 @@ EMPRESA_TELEFONO = os.getenv("EMPRESA_TELEFONO", "(56 2) 227 31 13")
 EMPRESA_EMAIL = os.getenv("EMPRESA_EMAIL", "adquisiciones@m-5.cl")
 EMPRESA_WEB = os.getenv("EMPRESA_WEB", "www.m-5.cl")
 
+# --- A dónde responde el proveedor ---
+# El sistema se autentica con una casilla propia (p. ej. sistema@m-5.cl) porque
+# no corresponde que use la cuenta personal de nadie. Pero esa casilla no la lee
+# ningún ser humano: si el proveedor aprieta "Responder" sobre la orden de
+# compra, la confirmación del despacho se pierde. Por eso el correo sale con un
+# Reply-To hacia la casilla que sí atiende gente. Si no se define nada, usa la
+# dirección de adquisiciones que ya va impresa en la orden de compra.
+EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO", EMPRESA_EMAIL)
+
 # La tolerancia de facturación ya no se configura acá. Desde el CU-60 (RF-57)
 # vive en ParametrosSistema y se cambia desde la pantalla de Parámetros, sin
 # tocar archivos ni reiniciar el servidor. Si esta constante siguiera existiendo,

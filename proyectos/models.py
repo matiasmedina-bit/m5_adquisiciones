@@ -26,13 +26,18 @@ class Proyecto(models.Model):
     # RF-14: centro de costo. No debe repetirse en otro proyecto (se valida en
     # el formulario, ignorando los que quedaron en blanco por datos previos).
     centro_costo = models.CharField("Centro de costo", max_length=50, blank=True)
-    # CU-08: jefe de proyecto asignado (Usuario con rol Jefe de Proyecto)
-    jefe_proyecto = models.ForeignKey(
+    # CU-08: jefes de proyecto asignados a la obra.
+    #
+    # Son varios, no uno. En M5 una obra la llevan entre tres y diez jefes que
+    # trabajan en conjunto, y cualquiera de ellos pide material para ella: con
+    # un solo titular, los demás quedaban sin poder emitir una solicitud y el
+    # trabajo terminaba pasando por la cuenta del administrador, que es
+    # exactamente lo que no debe ocurrir.
+    jefes = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
         related_name="proyectos_a_cargo",
-        verbose_name="Jefe de proyecto",
-        null=True, blank=True,
+        verbose_name="Jefes de proyecto",
+        blank=True,
         # Sólo jefes activos y ya aprobados por un administrador (CU-52)
         limit_choices_to={"rol": "JEFE_PROYECTO", "estado": True,
                           "pendiente_aprobacion": False},
@@ -46,6 +51,34 @@ class Proyecto(models.Model):
     def esta_finalizado(self):
         """CU-10: un proyecto finalizado no admite nuevas solicitudes."""
         return self.estado == self.Estado.FINALIZADO
+
+    def dirigida_por(self, usuario):
+        """True si este usuario es uno de los jefes de la obra."""
+        pk = getattr(usuario, "pk", None)
+        if pk is None:
+            return False
+        return self.jefes.filter(pk=pk).exists()
+
+    @property
+    def nombres_jefes(self):
+        """Los jefes de la obra, para mostrarlos en una línea."""
+        return [u.get_full_name() or u.username for u in self.jefes.all()]
+
+    @property
+    def tiene_movimiento(self):
+        """
+        True si la obra ya tiene historia: solicitudes, órdenes de compra,
+        archivos o herramientas prestadas. Una obra con movimiento no se borra
+        —se finaliza o se suspende— porque detrás hay plata comprometida y
+        documentos que alguien va a necesitar rastrear.
+        """
+        if self.solicitudes.exists() or self.archivos.exists():
+            return True
+        if self.ordenes_compra.exists():
+            return True
+        if self.movimientos_inventario.exists():
+            return True
+        return self.prestamos_herramienta.exists()
 
     class Meta:
         verbose_name = "Proyecto"

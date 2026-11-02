@@ -11,8 +11,8 @@ CU-59 Subiendo versión editada y liberando bloqueo (RF-56)
 import os
 
 from django.contrib import messages
+from django.db import transaction
 from django.utils import timezone
-from django.contrib.messages.views import SuccessMessageMixin
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
@@ -21,7 +21,7 @@ from django.views.generic import ListView, CreateView, UpdateView, DetailView
 from usuarios.models import ParametrosSistema
 from usuarios.permisos import RolRequeridoMixin, rol_requerido
 from .models import Proyecto, Itemizado, TipoDocumento, ArchivoProyecto
-from .forms import (ProyectoForm, ItemizadoForm,
+from .forms import (ProyectoForm, ItemizadoForm, ItemizadoFormSet,
                     ArchivoProyectoForm, TipoDocumentoForm)
 
 ROLES_GESTION = ["JEFE_PROYECTO"]
@@ -39,8 +39,47 @@ class ProyectoListView(RolRequeridoMixin, ListView):
     context_object_name = "proyectos"
 
 
-class ProyectoCreateView(RolRequeridoMixin, SuccessMessageMixin, CreateView):
-    """CU-06 Registrando proyecto."""
+class _ProyectoConItemizadoMixin:
+    """
+    El itemizado se carga en la misma pantalla que la obra (CU-06 + CU-09).
+
+    Separarlos era la razón de que las obras nacieran sin partidas: había que
+    guardar el proyecto y después acordarse de entrar a cargarlas una por una,
+    y mientras no estuvieran, el selector de partida de cada solicitud de
+    material aparecía vacío y el control presupuestario no existía.
+    """
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        if "itemizado" not in ctx:
+            ctx["itemizado"] = ItemizadoFormSet(
+                instance=getattr(self, "object", None))
+        return ctx
+
+    def form_valid(self, form):
+        formset = ItemizadoFormSet(self.request.POST, instance=form.instance)
+        # El proyecto y sus partidas entran juntos o no entra ninguno: una obra
+        # a medio cargar es peor que una obra sin cargar.
+        with transaction.atomic():
+            self.object = form.save()
+            formset.instance = self.object
+            if not formset.is_valid():
+                transaction.set_rollback(True)
+                return self.render_to_response(
+                    self.get_context_data(form=form, itemizado=formset))
+            formset.save()
+        messages.success(self.request, self.success_message)
+        return redirect(self.get_success_url())
+
+    def form_invalid(self, form):
+        formset = ItemizadoFormSet(self.request.POST, instance=form.instance)
+        formset.is_valid()  # puebla los errores para mostrarlos
+        return self.render_to_response(
+            self.get_context_data(form=form, itemizado=formset))
+
+
+class ProyectoCreateView(RolRequeridoMixin, _ProyectoConItemizadoMixin, CreateView):
+    """CU-06 Registrando proyecto, con su itemizado (CU-09)."""
     roles_permitidos = ROLES_GESTION
     model = Proyecto
     form_class = ProyectoForm
@@ -49,14 +88,46 @@ class ProyectoCreateView(RolRequeridoMixin, SuccessMessageMixin, CreateView):
     success_message = "Proyecto registrado correctamente."
 
 
-class ProyectoUpdateView(RolRequeridoMixin, SuccessMessageMixin, UpdateView):
-    """CU-07 Editando proyecto."""
+class ProyectoUpdateView(RolRequeridoMixin, _ProyectoConItemizadoMixin, UpdateView):
+    """CU-07 Editando proyecto (y su itemizado, CU-10)."""
     roles_permitidos = ROLES_GESTION
     model = Proyecto
     form_class = ProyectoForm
     template_name = "proyectos/proyecto_form.html"
     success_url = reverse_lazy("proyectos:lista")
     success_message = "Proyecto actualizado correctamente."
+
+
+@rol_requerido("JEFE_PROYECTO")
+def proyecto_eliminar(request, pk):
+    """
+    Borra una obra cargada por error.
+
+    Sólo si no tiene historia. Una obra con solicitudes, órdenes de compra,
+    documentos o herramientas prestadas no se borra: detrás hay plata
+    comprometida y papeles que alguien va a tener que rastrear después. Para
+    esas está «Finalizado» o «Suspendido», que la sacan de circulación sin
+    romper el historial.
+    """
+    proyecto = get_object_or_404(Proyecto, pk=pk)
+
+    if proyecto.tiene_movimiento:
+        messages.error(
+            request,
+            f"«{proyecto.nombre}» no se puede eliminar porque ya tiene movimiento "
+            f"—solicitudes, órdenes de compra, documentos o herramientas—. Si la "
+            f"obra terminó o se detuvo, cámbiale el estado a «Finalizado» o "
+            f"«Suspendido» desde Editar.")
+        return redirect("proyectos:detalle", pk=proyecto.pk)
+
+    if request.method == "POST":
+        nombre = proyecto.nombre
+        proyecto.delete()
+        messages.success(request, f"Proyecto «{nombre}» eliminado.")
+        return redirect("proyectos:lista")
+
+    return render(request, "proyectos/proyecto_confirmar_eliminar.html",
+                  {"proyecto": proyecto})
 
 
 class ProyectoDetailView(RolRequeridoMixin, DetailView):

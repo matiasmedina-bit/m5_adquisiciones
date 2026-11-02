@@ -23,7 +23,8 @@ class BaseAdq(TestCase):
         self.jefe = Usuario.objects.create_user("jp", password="clave12345",
                                                 email="jp@m5.cl", rol="JEFE_PROYECTO")
         self.proyecto = Proyecto.objects.create(
-            nombre="Obra", mandante="M", fecha_inicio=date(2026, 6, 1), jefe_proyecto=self.jefe)
+            nombre="Obra", mandante="M", fecha_inicio=date(2026, 6, 1))
+        self.proyecto.jefes.add(self.jefe)
         self.prov1 = Proveedor.objects.create(nombre="Prov 1", rut="11111111-1", correo="p1@x.cl")
         self.prov2 = Proveedor.objects.create(nombre="Prov 2", rut="12345678-5", correo="p2@x.cl")
         self.mat_a = Material.objects.create(nombre="Cemento", unidad_medida="saco", precio_referencia=4500)
@@ -453,7 +454,8 @@ class FlujoPorRolTest(TestCase):
             "bodega", password="clave12345", email="bodega@m5.cl", rol="BODEGUERO")
         self.obra = Proyecto.objects.create(
             nombre="Edificio Los Aromos", mandante="M5",
-            fecha_inicio=date(2026, 6, 1), jefe_proyecto=self.jefe)
+            fecha_inicio=date(2026, 6, 1))
+        self.obra.jefes.add(self.jefe)
         self.prov = Proveedor.objects.create(
             nombre="Ferretería Central", rut="11111111-1", correo="vende@prov.cl")
         self.material = Material.objects.create(
@@ -516,8 +518,8 @@ class FlujoPorRolTest(TestCase):
         otro = Usuario.objects.create_user(
             "jefe2", password="clave12345", email="j2@m5.cl", rol="JEFE_PROYECTO")
         obra_ajena = Proyecto.objects.create(
-            nombre="Obra ajena", mandante="M5", fecha_inicio=date(2026, 6, 1),
-            jefe_proyecto=otro)
+            nombre="Obra ajena", mandante="M5", fecha_inicio=date(2026, 6, 1))
+        obra_ajena.jefes.add(otro)
         sm = SolicitudMaterial.objects.create(
             proyecto=obra_ajena, emisor=otro,
             estado=SolicitudMaterial.Estado.BORRADOR)
@@ -671,7 +673,8 @@ class EncargadoAdquisicionesTest(TestCase):
             rol="JEFE_PROYECTO")
         self.obra = Proyecto.objects.create(
             nombre="Edificio Central", mandante="M5",
-            fecha_inicio=date(2026, 6, 1), jefe_proyecto=self.jefe)
+            fecha_inicio=date(2026, 6, 1))
+        self.obra.jefes.add(self.jefe)
         self.prov = Proveedor.objects.create(
             nombre="Ferretería Central", rut="11111111-1", correo="vende@prov.cl")
         self.otro_prov = Proveedor.objects.create(
@@ -960,3 +963,190 @@ class EncargadoAdquisicionesTest(TestCase):
         orden.refresh_from_db()
         self.assertIn(orden.estado,
                       (OrdenCompra.Estado.APROBADA, OrdenCompra.Estado.ENVIADA))
+
+
+# ==========================================================================
+#  El ciclo completo sin la cuenta del administrador
+# ==========================================================================
+class CicloSinAdministradorTest(TestCase):
+    """
+    Lo que el cliente reportó después de usarlo en la obra: al Encargado de
+    Adquisiciones le llegaba la solicitud pero no podía moverla —no tenía
+    aprobar ni rechazar— y todo terminaba haciéndolo la administradora.
+
+    Ninguna de estas pruebas inicia sesión como administrador. Si el ciclo
+    sólo cierra con esa cuenta, aquí se cae.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.ea = Usuario.objects.create_user(
+            "adq", password="clave12345", email="adq@m5.cl",
+            rol="ENCARGADO_ADQUISICIONES")
+        self.jefe_a = Usuario.objects.create_user(
+            "jefe_a", password="clave12345", email="ja@m5.cl", rol="JEFE_PROYECTO")
+        self.jefe_b = Usuario.objects.create_user(
+            "jefe_b", password="clave12345", email="jb@m5.cl", rol="JEFE_PROYECTO")
+        self.obra = Proyecto.objects.create(
+            nombre="Smart Fit Chillán", mandante="Smart Fit",
+            fecha_inicio=date(2026, 6, 1))
+        self.obra.jefes.add(self.jefe_a, self.jefe_b)
+        self.prov = Proveedor.objects.create(
+            nombre="Carlos Herrera", rut="77201840-1", correo="v@herrera.cl")
+        self.otro_prov = Proveedor.objects.create(
+            nombre="Sodimac SA", rut="96792430-K", correo="v@sodimac.cl")
+        self.material = Material.objects.create(
+            nombre="Fierro hormigón 8mm", unidad_medida="un")
+
+    def _solicitud(self, emisor, estado=SolicitudMaterial.Estado.ENVIADA):
+        sm = SolicitudMaterial.objects.create(
+            proyecto=self.obra, emisor=emisor, estado=estado)
+        SolicitudDetalle.objects.create(
+            solicitud=sm, material=self.material, cantidad_solicitada=100,
+            unidad_medida="un", valor_unitario=1944)
+        return sm
+
+    # --- los dos jefes de la obra trabajan igual ------------------------
+    def test_los_dos_jefes_de_la_obra_pueden_enviar_su_solicitud(self):
+        for jefe in (self.jefe_a, self.jefe_b):
+            self.client.login(username=jefe.username, password="clave12345")
+            sm = self._solicitud(jefe, SolicitudMaterial.Estado.BORRADOR)
+            resp = self.client.post(reverse("solicitudes:enviar", args=[sm.pk]))
+            self.assertEqual(resp.status_code, 302)
+            sm.refresh_from_db()
+            # Lo que pide un jefe de la obra ya viene autorizado: pasa derecho
+            # a cotización sin esperar visto bueno de nadie.
+            self.assertEqual(sm.estado, SolicitudMaterial.Estado.APROBADA,
+                             f"{jefe.username} no pudo emitir su solicitud")
+
+    def test_un_jefe_ve_la_solicitud_que_emitio_el_otro_de_su_obra(self):
+        sm = self._solicitud(self.jefe_a, SolicitudMaterial.Estado.BORRADOR)
+        self.client.login(username="jefe_b", password="clave12345")
+        resp = self.client.get(reverse("solicitudes:detalle", args=[sm.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context["puede_gestionar"])
+
+    # --- adquisiciones resuelve y sigue a cotizar -----------------------
+    def test_adquisiciones_ve_los_botones_de_aprobar_y_rechazar(self):
+        sm = self._solicitud(self.ea)
+        self.client.login(username="adq", password="clave12345")
+        resp = self.client.get(reverse("solicitudes:detalle", args=[sm.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context["puede_resolver"],
+                        "Adquisiciones sigue sin poder resolver la solicitud")
+        self.assertContains(resp, "Aprobar")
+
+    def test_al_aprobar_adquisiciones_queda_en_la_pantalla_de_cotizacion(self):
+        sm = self._solicitud(self.ea)
+        self.client.login(username="adq", password="clave12345")
+        resp = self.client.post(
+            reverse("solicitudes:resolver", args=[sm.pk, "aprobar"]))
+        sm.refresh_from_db()
+        self.assertEqual(sm.estado, SolicitudMaterial.Estado.APROBADA)
+        self.assertRedirects(
+            resp, reverse("adquisiciones:cotizacion_sm", args=[sm.pk]))
+
+    def test_adquisiciones_puede_rechazar_con_motivo(self):
+        sm = self._solicitud(self.ea)
+        self.client.login(username="adq", password="clave12345")
+        self.client.post(reverse("solicitudes:resolver", args=[sm.pk, "rechazar"]),
+                         {"motivo": "la cantidad no calza con el itemizado"})
+        sm.refresh_from_db()
+        self.assertEqual(sm.estado, SolicitudMaterial.Estado.RECHAZADA)
+        self.assertIn("itemizado", sm.motivo_rechazo)
+
+    # --- la cotización vacía que dejaba la OC bloqueada -----------------
+    def test_una_cotizacion_sin_precios_no_se_guarda(self):
+        sm = self._solicitud(self.ea, SolicitudMaterial.Estado.APROBADA)
+        detalle = sm.detalles.first()
+        self.client.login(username="adq", password="clave12345")
+        self.client.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]), {
+            "accion": "agregar_cotizacion", "proveedor": self.prov.pk,
+            "costo_despacho": "0", "tiempo_entrega_dias": "1",
+            f"vu_{detalle.pk}": "",
+        })
+        self.assertEqual(Cotizacion.objects.count(), 0,
+                         "Se guardó una cotización sin valores: deja la OC bloqueada")
+
+    def test_cotizacion_con_precio_se_guarda_y_deja_generar_la_oc(self):
+        sm = self._solicitud(self.ea, SolicitudMaterial.Estado.APROBADA)
+        detalle = sm.detalles.first()
+        self.client.login(username="adq", password="clave12345")
+        self.client.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]), {
+            "accion": "agregar_cotizacion", "proveedor": self.prov.pk,
+            "costo_despacho": "0", "tiempo_entrega_dias": "1",
+            f"vu_{detalle.pk}": "1944",
+        })
+        linea = CotizacionLinea.objects.get()
+        self.assertEqual(linea.valor_unitario, 1944)
+
+        self.client.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]),
+                         {"accion": "aprobar_linea", "linea_id": linea.pk})
+        resp = self.client.get(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]))
+        self.assertTrue(resp.context["puede_generar_oc"])
+
+        self.client.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]),
+                         {"accion": "generar_oc"})
+        sm.refresh_from_db()
+        self.assertEqual(sm.estado, SolicitudMaterial.Estado.OC_GENERADA)
+        orden = OrdenCompra.objects.get()
+        self.assertEqual(orden.proveedor, self.prov)
+        self.assertEqual(orden.lineas.count(), 1)
+
+    def test_se_puede_borrar_una_cotizacion_mal_cargada(self):
+        sm = self._solicitud(self.ea, SolicitudMaterial.Estado.APROBADA)
+        cot = Cotizacion.objects.create(
+            solicitud=sm, proveedor=self.otro_prov, creada_por=self.ea,
+            costo_despacho=0, tiempo_entrega_dias=1)
+        self.client.login(username="adq", password="clave12345")
+        self.client.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]),
+                         {"accion": "eliminar_cotizacion", "cotizacion_id": cot.pk})
+        self.assertFalse(Cotizacion.objects.filter(pk=cot.pk).exists())
+
+    def test_no_se_borra_una_cotizacion_con_lineas_ya_aprobadas(self):
+        sm = self._solicitud(self.ea, SolicitudMaterial.Estado.APROBADA)
+        cot = Cotizacion.objects.create(
+            solicitud=sm, proveedor=self.prov, creada_por=self.ea,
+            costo_despacho=0, tiempo_entrega_dias=1)
+        linea = CotizacionLinea.objects.create(
+            cotizacion=cot, solicitud_detalle=sm.detalles.first(), valor_unitario=1944)
+        linea.aprobar()
+        self.client.login(username="adq", password="clave12345")
+        self.client.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]),
+                         {"accion": "eliminar_cotizacion", "cotizacion_id": cot.pk})
+        self.assertTrue(Cotizacion.objects.filter(pk=cot.pk).exists())
+
+    # --- el ciclo entero, de punta a punta ------------------------------
+    def test_el_ciclo_completo_lo_cierran_jefe_y_adquisiciones(self):
+        """Obra → solicitud del jefe → cotización → OC → envío al proveedor."""
+        self.client.login(username="jefe_a", password="clave12345")
+        sm = self._solicitud(self.jefe_a, SolicitudMaterial.Estado.BORRADOR)
+        self.client.post(reverse("solicitudes:enviar", args=[sm.pk]))
+        sm.refresh_from_db()
+        self.assertEqual(sm.estado, SolicitudMaterial.Estado.APROBADA)
+
+        self.client.login(username="adq", password="clave12345")
+        bandeja = self.client.get(reverse("adquisiciones:cotizacion_bandeja"))
+        self.assertIn(sm, list(bandeja.context["solicitudes"]))
+
+        detalle = sm.detalles.first()
+        self.client.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]), {
+            "accion": "agregar_cotizacion", "proveedor": self.prov.pk,
+            "costo_despacho": "5000", "tiempo_entrega_dias": "3",
+            f"vu_{detalle.pk}": "1944",
+        })
+        self.client.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]),
+                         {"accion": "aprobar_linea",
+                          "linea_id": CotizacionLinea.objects.get().pk})
+        self.client.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]),
+                         {"accion": "generar_oc"})
+
+        orden = OrdenCompra.objects.get()
+        self.assertEqual(orden.estado, OrdenCompra.Estado.BORRADOR)
+        self.assertEqual(orden.obra, self.obra)
+        # La OC nacida de una solicitud la autoriza el jefe de la obra
+        self.client.login(username="jefe_b", password="clave12345")
+        detalle_oc = self.client.get(reverse("adquisiciones:orden_detalle", args=[orden.pk]))
+        self.assertEqual(detalle_oc.status_code, 200)
+        self.assertTrue(detalle_oc.context["puede_autorizar"],
+                        "El otro jefe de la misma obra no puede autorizar la OC")

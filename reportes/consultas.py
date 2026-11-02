@@ -47,7 +47,7 @@ def proyectos_visibles(usuario):
     """
     qs = Proyecto.objects.all().order_by("nombre")
     if usuario.rol == "JEFE_PROYECTO":
-        return qs.filter(jefe_proyecto=usuario)
+        return qs.filter(jefes=usuario).distinct()
     return qs
 
 

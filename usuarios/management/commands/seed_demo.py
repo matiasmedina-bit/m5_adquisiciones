@@ -126,8 +126,9 @@ class Command(BaseCommand):
             defaults={"mandante": "Inmobiliaria Aurora", "centro_costo": "CC-2026-014",
                       "fecha_inicio": date(2026, 6, 1),
                       "fecha_termino": date(2026, 12, 1), "estado": "EJECUCION",
-                      "jefe_proyecto": jefe_user,
                       "presupuesto_total": 850000000})
+        # Una obra la llevan varios jefes; el demo carga al menos uno.
+        proyecto.jefes.add(jefe_user)
         if not proyecto.centro_costo:
             proyecto.centro_costo = "CC-2026-014"
             proyecto.save(update_fields=["centro_costo"])

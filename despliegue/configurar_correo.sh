@@ -81,6 +81,13 @@ read -r -s -p "   Contrasena: " CLAVE; echo
 read -r -p "   Direccion que vera quien reciba [$USUARIO]: " REMITENTE
 REMITENTE=${REMITENTE:-$USUARIO}
 
+echo
+echo "   La casilla de arriba es la del sistema y no la lee nadie. Cuando un"
+echo "   proveedor responda la orden de compra, esa respuesta tiene que llegarle"
+echo "   a una persona."
+read -r -p "   Responder a [adquisiciones@m-5.cl]: " RESPONDER_A
+RESPONDER_A=${RESPONDER_A:-adquisiciones@m-5.cl}
+
 if [ -z "$HOST" ] || [ -z "$USUARIO" ] || [ -z "$CLAVE" ]; then
     rojo "Faltan datos. No se cambio nada."
     exit 1
@@ -97,6 +104,7 @@ echo "   Respaldo: $ENV.bak-$SELLO"
 sudo sed -i '/^#*EMAIL_BACKEND=/d;/^#*EMAIL_HOST=/d;/^#*EMAIL_PORT=/d' "$ENV"
 sudo sed -i '/^#*EMAIL_HOST_USER=/d;/^#*EMAIL_HOST_PASSWORD=/d' "$ENV"
 sudo sed -i '/^#*EMAIL_USE_TLS=/d;/^#*EMAIL_USE_SSL=/d;/^#*DEFAULT_FROM_EMAIL=/d' "$ENV"
+sudo sed -i '/^#*EMAIL_REPLY_TO=/d' "$ENV"
 
 if [ "$CIFRADO" = "ssl" ]; then USA_SSL=True; USA_TLS=False
 else USA_SSL=False; USA_TLS=True; fi
@@ -110,9 +118,11 @@ EMAIL_HOST_PASSWORD=$CLAVE
 EMAIL_USE_TLS=$USA_TLS
 EMAIL_USE_SSL=$USA_SSL
 DEFAULT_FROM_EMAIL=$REMITENTE
+EMAIL_REPLY_TO=$RESPONDER_A
 EOF
 sudo chmod 600 "$ENV"
 verde "   Guardado: $HOST:$PUERTO ($CIFRADO) como $USUARIO"
+verde "   Las respuestas de proveedores iran a: $RESPONDER_A"
 
 # ------------------------------------------------------------
 # 4. Reiniciar
@@ -143,21 +153,24 @@ SALIDA=$($PY - <<PYEOF 2>&1
 import os, django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
-from django.core.mail import send_mail
+from django.core.mail import EmailMessage
 from django.conf import settings
-send_mail(
+EmailMessage(
     subject="Prueba de correo - Sistema M5",
-    message=(
+    body=(
         "Si estas leyendo esto, el sistema de adquisiciones de M5 ya puede "
         "enviar correos.\n\n"
         "Desde ahora funcionan: recuperar contrasena, el enlace de activacion "
         "de cuentas nuevas, el envio de ordenes de compra a proveedores y los "
-        "avisos de recepcion."
+        "avisos de recepcion.\n\n"
+        "Comprueba una cosa mas: aprieta Responder sobre este correo. La "
+        "direccion que aparezca debe ser " + settings.EMAIL_REPLY_TO + ", que "
+        "es donde van a llegar las respuestas de los proveedores."
     ),
     from_email=settings.DEFAULT_FROM_EMAIL,
-    recipient_list=["$DESTINO"],
-    fail_silently=False,
-)
+    to=["$DESTINO"],
+    reply_to=[settings.EMAIL_REPLY_TO] if settings.EMAIL_REPLY_TO else None,
+).send(fail_silently=False)
 print("ENVIADO")
 PYEOF
 )

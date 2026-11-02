@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}Eliminar {{ proyecto.nombre }}{% endblock %}
+{% block content %}
+
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card shadow-sm border-danger">
+      <div class="card-header bg-danger text-white py-2 fw-semibold">
+        <i class="bi bi-exclamation-triangle-fill me-1"></i>Eliminar obra
+      </div>
+      <div class="card-body">
+        <p class="mb-3">
+          Vas a eliminar <strong>{{ proyecto.nombre }}</strong>
+          {% if proyecto.mandante %}(mandante: {{ proyecto.mandante }}){% endif %}.
+          Esto no se puede deshacer.
+        </p>
+
+        {% if proyecto.itemizados.count %}
+          <div class="alert alert-warning">
+            Se borran también sus {{ proyecto.itemizados.count }} partida{{ proyecto.itemizados.count|pluralize }} de itemizado.
+          </div>
+        {% endif %}
+
+        <p class="text-muted small">
+          Si la obra terminó o se detuvo pero quieres conservar su historial,
+          cierra esta pantalla y cámbiale el estado a «Finalizado» o
+          «Suspendido» desde Editar.
+        </p>
+
+        <form method="post" class="d-flex gap-2">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-danger">Sí, eliminar la obra</button>
+          <a href="{% url 'proyectos:detalle' proyecto.pk %}" class="btn btn-outline-secondary">Cancelar</a>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

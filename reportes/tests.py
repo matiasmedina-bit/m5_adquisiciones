@@ -44,10 +44,12 @@ class BaseReportes(TestCase):
 
         self.proyecto = Proyecto.objects.create(
             nombre="Torre Alfa", mandante="Inmobiliaria X",
-            fecha_inicio=date(2026, 6, 1), jefe_proyecto=self.jefe)
+            fecha_inicio=date(2026, 6, 1))
+        self.proyecto.jefes.add(self.jefe)
         self.ajeno = Proyecto.objects.create(
             nombre="Torre Beta", mandante="Inmobiliaria Y",
-            fecha_inicio=date(2026, 6, 1), jefe_proyecto=self.otro_jefe)
+            fecha_inicio=date(2026, 6, 1))
+        self.ajeno.jefes.add(self.otro_jefe)
 
         self.partida = Itemizado.objects.create(
             proyecto=self.proyecto, codigo_partida="OG-01", descripcion="Hormigón",
