@@ -689,10 +689,10 @@ class ObraConItemizadoYVariosJefesTest(TestCase):
 
 
 # --------------------------------------------------------------------------
-#  RF-07 a RF-10: la gestión de la obra es del Administrador; el Jefe de
-#  Proyecto sólo consulta las obras que tiene asignadas.
+#  RF-07/RF-08: Administrador en todas las obras, Jefe de Proyecto en las
+#  suyas. RF-09/RF-10 (jefes, estado) y eliminar: sólo Administrador.
 # --------------------------------------------------------------------------
-class GestionProyectoSoloAdministradorTest(TestCase):
+class GestionProyectoPermisosTest(TestCase):
     def setUp(self):
         self.admin = Usuario.objects.create_user(
             "adm_p", password="clave12345", email="admp@m5.cl", rol="ADMIN")
@@ -713,22 +713,113 @@ class GestionProyectoSoloAdministradorTest(TestCase):
     def _como(self, usuario):
         self.client.force_login(usuario)
 
-    def test_rf07_jefe_de_proyecto_no_registra_obras(self):
-        for u in (self.jefe, self.adq):
+    def _datos_obra(self, **extra):
+        datos = {
+            "nombre": "Obra JP", "mandante": "M", "centro_costo": "CC-JP",
+            "fecha_inicio": "2026-01-01", "fecha_termino": "2027-01-01", "presupuesto_total": "100",
+            "itemizados-TOTAL_FORMS": "1", "itemizados-INITIAL_FORMS": "0",
+            "itemizados-MIN_NUM_FORMS": "0", "itemizados-MAX_NUM_FORMS": "1000",
+            "itemizados-0-codigo_partida": "A-1", "itemizados-0-descripcion": "Excavación",
+            "itemizados-0-unidad_medida": "m3", "itemizados-0-cant_presupuestada": "40",
+        }
+        datos.update(extra)
+        return datos
+
+    def test_rf07_adquisiciones_no_registra_obras(self):
+        self._como(self.adq)
+        self.assertEqual(self.client.get(reverse("proyectos:crear")).status_code, 403)
+
+    def test_rf07_administrador_y_jefe_registran_obras(self):
+        for u in (self.admin, self.jefe):
             self._como(u)
-            self.assertEqual(self.client.get(reverse("proyectos:crear")).status_code, 403)
+            self.assertEqual(self.client.get(reverse("proyectos:crear")).status_code, 200)
 
-    def test_rf07_administrador_registra_obras(self):
-        self._como(self.admin)
-        self.assertEqual(self.client.get(reverse("proyectos:crear")).status_code, 200)
-
-    def test_rf08_rf09_jefe_no_edita_ni_se_asigna_ni_carga_itemizado(self):
+    def test_rf07_el_jefe_que_registra_queda_asignado(self):
         self._como(self.jefe)
-        urls = [reverse("proyectos:editar", args=[self.obra.pk]),
-                reverse("proyectos:itemizado_crear", args=[self.obra.pk]),
-                reverse("proyectos:itemizado_editar", args=[self.partida.pk])]
-        for url in urls:
+        resp = self.client.post(reverse("proyectos:crear"), self._datos_obra())
+        self.assertEqual(resp.status_code, 302)
+        obra = Proyecto.objects.get(centro_costo="CC-JP")
+        self.assertEqual(list(obra.jefes.all()), [self.jefe])
+        self.assertEqual(obra.estado, Proyecto.Estado.PLANIFICACION)
+
+    def test_rf09_el_jefe_no_puede_colar_jefes_ni_estado_en_el_post(self):
+        self._como(self.jefe)
+        self.client.post(reverse("proyectos:crear"),
+                         self._datos_obra(jefes=[self.ajeno.pk], estado="EJECUCION"))
+        obra = Proyecto.objects.get(centro_costo="CC-JP")
+        self.assertEqual(list(obra.jefes.all()), [self.jefe])
+        self.assertEqual(obra.estado, Proyecto.Estado.PLANIFICACION)
+        resp = self.client.get(reverse("proyectos:editar", args=[obra.pk]))
+        self.assertNotIn("jefes", resp.context["form"].fields)
+        self.assertNotIn("estado", resp.context["form"].fields)
+
+    def test_rf07_centro_de_costo_unico_tambien_para_el_jefe(self):
+        self._como(self.jefe)
+        resp = self.client.post(reverse("proyectos:crear"), self._datos_obra(centro_costo="cc-rf07"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("centro_costo", resp.context["form"].errors)
+
+    def test_rf08_jefe_edita_datos_e_itemizado_de_su_obra(self):
+        self._como(self.jefe)
+        for url in (reverse("proyectos:editar", args=[self.obra.pk]),
+                    reverse("proyectos:itemizado_crear", args=[self.obra.pk]),
+                    reverse("proyectos:itemizado_editar", args=[self.partida.pk])):
+            self.assertEqual(self.client.get(url).status_code, 200, url)
+        self.client.post(reverse("proyectos:itemizado_editar", args=[self.partida.pk]), {
+            "codigo_partida": "1.1", "descripcion": "Hormigón H25", "unidad_medida": "m3",
+            "cant_presupuestada": "15", "cant_ejecutada": "0"})
+        self.partida.refresh_from_db()
+        self.assertEqual(self.partida.cant_presupuestada, 15)
+
+    def test_jefe_ajeno_no_ve_ni_modifica_la_obra(self):
+        self._como(self.ajeno)
+        for url in (reverse("proyectos:detalle", args=[self.obra.pk]),
+                    reverse("proyectos:editar", args=[self.obra.pk]),
+                    reverse("proyectos:itemizado_crear", args=[self.obra.pk]),
+                    reverse("proyectos:itemizado_editar", args=[self.partida.pk])):
             self.assertEqual(self.client.get(url).status_code, 403, url)
+        resp = self.client.post(reverse("proyectos:itemizado_crear", args=[self.obra.pk]), {
+            "codigo_partida": "9", "descripcion": "x", "unidad_medida": "u",
+            "cant_presupuestada": "1", "cant_ejecutada": "0"})
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(Itemizado.objects.filter(codigo_partida="9").exists())
+
+    def test_rf09_eliminar_obra_solo_administrador(self):
+        self._como(self.jefe)
+        self.assertEqual(
+            self.client.get(reverse("proyectos:eliminar", args=[self.obra.pk])).status_code, 403)
+
+    def test_rf08_cada_cambio_del_itemizado_queda_en_la_bitacora(self):
+        from auditoria.models import RegistroAuditoria as R
+        self._como(self.jefe)
+        self.client.post(reverse("proyectos:itemizado_crear", args=[self.obra.pk]), {
+            "codigo_partida": "2.1", "descripcion": "Moldaje", "unidad_medida": "m2",
+            "cant_presupuestada": "30", "cant_ejecutada": "0"})
+        self.client.post(reverse("proyectos:itemizado_editar", args=[self.partida.pk]), {
+            "codigo_partida": "1.1", "descripcion": "Hormigón", "unidad_medida": "m3",
+            "cant_presupuestada": "12", "cant_ejecutada": "0"})
+        regs = R.objects.filter(accion=R.Accion.ITEMIZADO_MODIFICADO).order_by("fecha", "pk")
+        self.assertEqual([r.operacion for r in regs], [R.Operacion.CREAR, R.Operacion.EDITAR])
+        self.assertTrue(all(r.usuario == self.jefe and r.fecha for r in regs))
+        self.assertIn("2.1", regs[0].descripcion)
+
+    def test_rf08_el_formset_audita_altas_y_bajas(self):
+        from auditoria.models import RegistroAuditoria as R
+        self._como(self.admin)
+        self.client.post(reverse("proyectos:editar", args=[self.obra.pk]), {
+            "nombre": "Obra RF07", "mandante": "M", "centro_costo": "CC-RF07",
+            "fecha_inicio": "2026-06-01", "fecha_termino": "2027-06-01", "presupuesto_total": "0",
+            "estado": "PLANIFICACION", "jefes": [self.jefe.pk],
+            "itemizados-TOTAL_FORMS": "2", "itemizados-INITIAL_FORMS": "1",
+            "itemizados-MIN_NUM_FORMS": "0", "itemizados-MAX_NUM_FORMS": "1000",
+            "itemizados-0-id": self.partida.pk, "itemizados-0-codigo_partida": "1.1",
+            "itemizados-0-descripcion": "Hormigón", "itemizados-0-unidad_medida": "m3",
+            "itemizados-0-cant_presupuestada": "10", "itemizados-0-DELETE": "on",
+            "itemizados-1-codigo_partida": "3.1", "itemizados-1-descripcion": "Pintura",
+            "itemizados-1-unidad_medida": "m2", "itemizados-1-cant_presupuestada": "5",
+        })
+        ops = set(R.objects.filter(accion=R.Accion.ITEMIZADO_MODIFICADO).values_list("operacion", flat=True))
+        self.assertEqual(ops, {R.Operacion.CREAR, R.Operacion.ELIMINAR})
 
     def test_rf10_cambiar_estado_solo_administrador(self):
         url = reverse("proyectos:cambiar_estado", args=[self.obra.pk])

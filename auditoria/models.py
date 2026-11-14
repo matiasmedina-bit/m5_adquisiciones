@@ -47,6 +47,8 @@ class RegistroAuditoria(models.Model):
         USUARIO_ELIMINADO = "USUARIO_ELIMINADO", "Cuenta de usuario eliminada"
         CAMBIO_PERFIL_PEDIDO = "CAMBIO_PERFIL_PEDIDO", "Cambio de datos solicitado"
         CAMBIO_PERFIL_RESUELTO = "CAMBIO_PERFIL_RESUELTO", "Cambio de datos resuelto"
+        # --- Proyectos (RF-08): cambios en el itemizado ---
+        ITEMIZADO_MODIFICADO = "ITEMIZADO_MODIFICADO", "Itemizado del proyecto modificado"
         # --- Configuración (RF-57) ---
         PARAMETROS_MODIFICADOS = "PARAMETROS_MODIFICADOS", "Parámetros del sistema modificados"
 
@@ -63,6 +65,7 @@ class RegistroAuditoria(models.Model):
         FACTURACION = "FACTURACION", "Facturación"
         USUARIOS = "Usuarios", "Usuarios"
         CONFIGURACION = "CONFIGURACION", "Configuración"
+        PROYECTOS = "PROYECTOS", "Proyectos"
 
     # Qué módulo agrupa cada acción. Se deduce sola, para que quien llama a
     # registrar() no tenga que acordarse.
@@ -86,6 +89,7 @@ class RegistroAuditoria(models.Model):
         Accion.CAMBIO_PERFIL_PEDIDO: Modulo.USUARIOS,
         Accion.CAMBIO_PERFIL_RESUELTO: Modulo.USUARIOS,
         Accion.PARAMETROS_MODIFICADOS: Modulo.CONFIGURACION,
+        Accion.ITEMIZADO_MODIFICADO: Modulo.PROYECTOS,
     }
 
     # Tipo de operación por defecto de cada acción (RF-50). registrar() permite
@@ -110,6 +114,7 @@ class RegistroAuditoria(models.Model):
         Accion.CAMBIO_PERFIL_PEDIDO: Operacion.CREAR,
         Accion.CAMBIO_PERFIL_RESUELTO: Operacion.EDITAR,
         Accion.PARAMETROS_MODIFICADOS: Operacion.EDITAR,
+        Accion.ITEMIZADO_MODIFICADO: Operacion.EDITAR,
     }
 
     # El usuario puede quedar en null: si se da de baja la cuenta, la bitácora

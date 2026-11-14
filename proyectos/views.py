@@ -19,6 +19,7 @@ from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
 from django.views.generic import ListView, CreateView, UpdateView, DetailView
 
+from auditoria.models import RegistroAuditoria, registrar
 from usuarios.descargas import descargar_archivo
 from usuarios.models import ParametrosSistema
 from usuarios.permisos import RolRequeridoMixin, rol_requerido
@@ -26,9 +27,13 @@ from .models import Proyecto, Itemizado, TipoDocumento, ArchivoProyecto
 from .forms import (ProyectoForm, ItemizadoForm, ItemizadoFormSet,
                     ArchivoProyectoForm, CambioEstadoProyectoForm, TipoDocumentoForm)
 
-# RF-07 a RF-10 (CU-07 a CU-10): registrar la obra, cargar su itemizado,
-# asignar jefes y cambiar su estado es trabajo del Administrador. Una lista
-# vacía en rol_requerido / roles_permitidos deja pasar sólo a ADMIN.
+# RF-07 / RF-08 (decisión del grupo): el Jefe de Proyecto también registra
+# obras y edita los datos y el itemizado, pero sólo de las obras que tiene
+# asignadas. El Administrador, en todas.
+ROLES_OBRA = ["JEFE_PROYECTO"]
+# RF-09 (asignar o quitar jefes), RF-10 (cambiar estado) y eliminar una obra:
+# sólo el Administrador. Una lista vacía en rol_requerido / roles_permitidos
+# deja pasar sólo a ADMIN.
 ROLES_GESTION = []
 # Quiénes consultan proyectos: el Jefe de Proyecto (sólo los suyos),
 # Adquisiciones y Contabilidad.
@@ -42,6 +47,23 @@ def exigir_acceso_proyecto(usuario, proyecto):
     """Un Jefe de Proyecto sólo entra a las obras que tiene asignadas."""
     if usuario.rol == "JEFE_PROYECTO" and not proyecto.dirigida_por(usuario):
         raise PermissionDenied("Este proyecto no está entre los que tienes asignados.")
+
+
+def auditar_itemizado(usuario, proyecto, creadas=(), editadas=(), eliminadas=()):
+    """
+    RF-08: cada cambio en el itemizado queda en la bitácora con usuario y fecha
+    (la fecha la pone registrar()). Una línea por partida, con su operación.
+    """
+    Op = RegistroAuditoria.Operacion
+    for partidas, operacion, verbo in ((creadas, Op.CREAR, "Agregó"),
+                                       (editadas, Op.EDITAR, "Modificó"),
+                                       (eliminadas, Op.ELIMINAR, "Eliminó")):
+        for p in partidas:
+            registrar(usuario, RegistroAuditoria.Accion.ITEMIZADO_MODIFICADO,
+                      f"{verbo} la partida {p.codigo_partida} «{p.descripcion}» "
+                      f"({p.cant_presupuestada:g} {p.unidad_medida}) de {proyecto.nombre}.",
+                      f"{proyecto.centro_costo or proyecto.nombre} / {p.codigo_partida}",
+                      operacion=operacion)
 
 
 class ProyectoListView(RolRequeridoMixin, ListView):
@@ -73,7 +95,13 @@ class _ProyectoConItemizadoMixin:
         # obra; se le dice al Administrador y se le lleva a crear la cuenta.
         from usuarios.models import usuarios_asignables
         ctx["sin_jefes"] = not usuarios_asignables("JEFE_PROYECTO").exists()
+        ctx["puede_asignar_jefes"] = self.request.user.rol == "ADMIN"
         return ctx
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["usuario"] = self.request.user
+        return kwargs
 
     def form_valid(self, form):
         formset = ItemizadoFormSet(self.request.POST, instance=form.instance)
@@ -81,10 +109,18 @@ class _ProyectoConItemizadoMixin:
         # a medio cargar es peor que una obra sin cargar.
         with transaction.atomic():
             self.object = form.save()
+            # RF-07: el Jefe de Proyecto que registra la obra queda a cargo de ella
+            if self.request.user.rol == "JEFE_PROYECTO":
+                self.object.jefes.add(self.request.user)
             formset.instance = self.object
             valido = formset.is_valid()
             if valido:
                 formset.save()
+                auditar_itemizado(
+                    self.request.user, self.object,
+                    creadas=formset.new_objects,
+                    editadas=[obj for obj, _ in formset.changed_objects],
+                    eliminadas=formset.deleted_objects)
             else:
                 transaction.set_rollback(True)
         if not valido:
@@ -107,7 +143,7 @@ class _ProyectoConItemizadoMixin:
 
 class ProyectoCreateView(RolRequeridoMixin, _ProyectoConItemizadoMixin, CreateView):
     """CU-07 Registrando proyecto, con su itemizado (CU-08) y sus jefes (CU-09)."""
-    roles_permitidos = ROLES_GESTION
+    roles_permitidos = ROLES_OBRA
     model = Proyecto
     form_class = ProyectoForm
     template_name = "proyectos/proyecto_form.html"
@@ -116,13 +152,18 @@ class ProyectoCreateView(RolRequeridoMixin, _ProyectoConItemizadoMixin, CreateVi
 
 
 class ProyectoUpdateView(RolRequeridoMixin, _ProyectoConItemizadoMixin, UpdateView):
-    """CU-07 Editando proyecto (y su itemizado, CU-10)."""
-    roles_permitidos = ROLES_GESTION
+    """Editando los datos de la obra y su itemizado (JP sólo en sus obras)."""
+    roles_permitidos = ROLES_OBRA
     model = Proyecto
     form_class = ProyectoForm
     template_name = "proyectos/proyecto_form.html"
     success_url = reverse_lazy("proyectos:lista")
     success_message = "Proyecto actualizado correctamente."
+
+    def get_object(self, queryset=None):
+        proyecto = super().get_object(queryset)
+        exigir_acceso_proyecto(self.request.user, proyecto)
+        return proyecto
 
 
 @rol_requerido(*ROLES_GESTION)
@@ -204,16 +245,18 @@ def proyecto_cambiar_estado(request, pk):
     return redirect("proyectos:detalle", pk=proyecto.pk)
 
 
-@rol_requerido(*ROLES_GESTION)
+@rol_requerido(*ROLES_OBRA)
 def itemizado_crear(request, proyecto_pk):
     """CU-08 Agregando una partida al itemizado de un proyecto."""
     proyecto = get_object_or_404(Proyecto, pk=proyecto_pk)
+    exigir_acceso_proyecto(request.user, proyecto)
     if request.method == "POST":
         form = ItemizadoForm(request.POST)
         if form.is_valid():
             item = form.save(commit=False)
             item.proyecto = proyecto
             item.save()
+            auditar_itemizado(request.user, proyecto, creadas=[item])
             messages.success(request, "Partida agregada al itemizado.")
             return redirect("proyectos:detalle", pk=proyecto.pk)
     else:
@@ -221,14 +264,17 @@ def itemizado_crear(request, proyecto_pk):
     return render(request, "proyectos/itemizado_form.html", {"form": form, "proyecto": proyecto})
 
 
-@rol_requerido(*ROLES_GESTION)
+@rol_requerido(*ROLES_OBRA)
 def itemizado_editar(request, pk):
-    """CU-10 Editando itemizado."""
+    """CU-08 Editando una partida del itemizado."""
     item = get_object_or_404(Itemizado, pk=pk)
+    exigir_acceso_proyecto(request.user, item.proyecto)
     if request.method == "POST":
         form = ItemizadoForm(request.POST, instance=item)
         if form.is_valid():
             form.save()
+            if form.has_changed():
+                auditar_itemizado(request.user, item.proyecto, editadas=[item])
             messages.success(request, "Partida actualizada.")
             return redirect("proyectos:detalle", pk=item.proyecto.pk)
     else:

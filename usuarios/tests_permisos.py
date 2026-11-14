@@ -69,11 +69,32 @@ class MatrizPermisosTest(TestCase):
             self.verificar(url, {ADM, EA})
 
     # ---------------------------------------------------------------- Módulo 2
-    def test_m2_gestion_de_proyectos_solo_administrador(self):
+    def test_m2_crear_editar_obra_e_itemizado(self):
+        # RF-07/RF-08: ADMIN y el JP asignado a la obra
         for url in (reverse("proyectos:crear"),
                     reverse("proyectos:editar", args=[self.proyecto.pk]),
-                    reverse("proyectos:itemizado_crear", args=[self.proyecto.pk])):
-            self.verificar(url, {ADM})
+                    reverse("proyectos:itemizado_crear", args=[self.proyecto.pk]),
+                    reverse("proyectos:itemizado_editar", args=[self.partida.pk])):
+            self.verificar(url, {ADM, JP})
+
+    def test_m2_jefes_estado_y_eliminar_solo_administrador(self):
+        self.verificar(reverse("proyectos:eliminar", args=[self.proyecto.pk]), {ADM})
+        for rol in (JP, EA, BOD, CONT):
+            self.client.force_login(self.u[rol])
+            codigo = self.client.post(reverse("proyectos:cambiar_estado", args=[self.proyecto.pk]),
+                                      {"estado": "FINALIZADO"}).status_code
+            self.assertEqual(codigo, 403, rol)
+
+    def test_m2_jefe_ajeno_recibe_403_en_todo(self):
+        ajeno = Usuario.objects.create_user("jp_ajeno_m", password="x", email="ajm@m5.cl",
+                                            rol="JEFE_PROYECTO")
+        self.client.force_login(ajeno)
+        for url in (reverse("proyectos:detalle", args=[self.proyecto.pk]),
+                    reverse("proyectos:editar", args=[self.proyecto.pk]),
+                    reverse("proyectos:itemizado_crear", args=[self.proyecto.pk]),
+                    reverse("proyectos:itemizado_editar", args=[self.partida.pk]),
+                    reverse("proyectos:pdf", args=[self.proyecto.pk])):
+            self.assertEqual(self.client.get(url).status_code, 403, url)
 
     def test_m2_consulta_de_proyectos(self):
         self.verificar(reverse("proyectos:detalle", args=[self.proyecto.pk]), {ADM, JP, EA, CONT})

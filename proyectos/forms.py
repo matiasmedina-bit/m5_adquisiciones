@@ -21,7 +21,7 @@ class ProyectoForm(forms.ModelForm):
             "presupuesto_total": forms.NumberInput(attrs={"class": "form-control"}),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, usuario=None, **kwargs):
         super().__init__(*args, **kwargs)
         # CU-07: todos los datos de la obra son obligatorios.
         for campo in ("centro_costo", "fecha_termino", "presupuesto_total"):
@@ -46,6 +46,12 @@ class ProyectoForm(forms.ModelForm):
         self.fields["jefes"].help_text = (
             "Marca a todos los que llevan la obra. Cualquiera de ellos puede "
             "emitir solicitudes de material para este proyecto.")
+        # RF-09 (asignar o quitar jefes) y RF-10 (cambiar estado) son sólo del
+        # Administrador. Al Jefe de Proyecto los campos ni se le ofrecen: así
+        # tampoco puede colarlos en el POST.
+        if usuario is not None and usuario.rol != "ADMIN":
+            self.fields.pop("jefes", None)
+            self.fields.pop("estado", None)
 
     def clean_centro_costo(self):
         """RF-07: el centro de costo no puede repetirse en otro proyecto."""

@@ -8,8 +8,11 @@
       <i class="bi bi-file-earmark-pdf me-1"></i>Exportar PDF
     </a>
     {% endif %}
-    {% if user.rol == 'ADMIN' %}
+    {% if user.rol == 'ADMIN' or user.rol == 'JEFE_PROYECTO' %}
+    {# El JP sólo llega a esta ficha si la obra es suya #}
     <a href="{% url 'proyectos:editar' proyecto.pk %}" class="btn btn-outline-primary btn-sm">Editar proyecto</a>
+    {% endif %}
+    {% if user.rol == 'ADMIN' %}
     {% if not proyecto.tiene_movimiento %}
       <a href="{% url 'proyectos:eliminar' proyecto.pk %}" class="btn btn-outline-danger btn-sm">Eliminar</a>
     {% endif %}
@@ -37,7 +40,7 @@
 
 <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
   <h2 class="h5 mb-0">Itemizado (partidas)</h2>
-  {% if user.rol == 'ADMIN' %}
+  {% if user.rol == 'ADMIN' or user.rol == 'JEFE_PROYECTO' %}
   <a href="{% url 'proyectos:itemizado_crear' proyecto.pk %}" class="btn btn-primary btn-sm">+ Agregar partida</a>
   {% endif %}
 </div>
@@ -55,7 +58,7 @@
       <td>{{ item.cant_presupuestada }}</td>
       <td>{{ item.cant_ejecutada }}</td>
       <td>{{ item.saldo_disponible }}</td>
-      <td class="text-end">{% if user.rol == 'ADMIN' %}<a href="{% url 'proyectos:itemizado_editar' item.pk %}" class="btn btn-sm btn-outline-primary">Editar</a>{% endif %}</td>
+      <td class="text-end">{% if user.rol == 'ADMIN' or user.rol == 'JEFE_PROYECTO' %}<a href="{% url 'proyectos:itemizado_editar' item.pk %}" class="btn btn-sm btn-outline-primary">Editar</a>{% endif %}</td>
     </tr>
   {% empty %}
     <tr><td colspan="7" class="text-center text-muted py-3">Sin partidas aún.</td></tr>

@@ -14,7 +14,7 @@
     <div class="card-body">
       <div class="row g-3">
         {% for field in form %}
-          {% if field.name != 'jefes' %}
+          {% if field.name != 'jefes' %}{# los jefes van en su propia tarjeta #}
             <div class="col-md-6">
               <label class="form-label small mb-1">{{ field.label }}</label>
               {{ field }}
@@ -27,6 +27,7 @@
     </div>
   </div>
 
+  {% if puede_asignar_jefes %}
   <div class="card shadow-sm mb-3">
     <div class="card-header py-2 fw-semibold">Jefes de proyecto</div>
     <div class="card-body">
@@ -54,6 +55,10 @@
       {% if form.jefes.errors %}<div class="text-danger small mt-2">{{ form.jefes.errors|striptags }}</div>{% endif %}
     </div>
   </div>
+  {% elif not form.instance.pk %}
+  <div class="alert alert-info small">Quedarás asignado como Jefe de Proyecto de esta obra.
+    Para sumar a otros jefes, pídeselo al Administrador.</div>
+  {% endif %}
 
   <div class="card shadow-sm mb-3">
     <div class="card-header py-2 d-flex justify-content-between align-items-center">
