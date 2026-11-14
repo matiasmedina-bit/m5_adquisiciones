@@ -73,10 +73,22 @@ class CentroCostoTest(TestCase):
     def test_centro_costo_nuevo_es_valido(self):
         form = ProyectoForm(data={
             "nombre": "Obra 2", "mandante": "M", "centro_costo": "CC-002",
-            "fecha_inicio": "2026-06-01", "estado": "PLANIFICACION",
+            "fecha_inicio": "2026-06-01", "fecha_termino": "2027-06-01",
             "presupuesto_total": 0,
         })
-        self.assertTrue(form.is_valid())
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_cu07_centro_de_costo_y_termino_son_obligatorios(self):
+        form = ProyectoForm(data={
+            "nombre": "Obra 3", "mandante": "M", "fecha_inicio": "2026-06-01",
+            "presupuesto_total": 0,
+        })
+        self.assertFalse(form.is_valid())
+        self.assertIn("centro_costo", form.errors)
+        self.assertIn("fecha_termino", form.errors)
+
+    def test_cu07_la_obra_nace_en_planificacion(self):
+        self.assertNotIn("estado", ProyectoForm().fields)
 
 
 class JefeProyectoTest(TestCase):
@@ -185,6 +197,9 @@ class ProyectoPDFTest(TestCase):
         vacio = Proyecto.objects.create(
             nombre="Obra sin datos", mandante="M", fecha_inicio=date(2026, 7, 1))
         from django.urls import reverse
+        # Una obra sin jefe sólo la ve quien no está restringido a sus obras
+        self.client.force_login(Usuario.objects.create_user(
+            "adm_pdf", password="clave12345", email="admpdf@m5.cl", rol="ADMIN"))
         resp = self.client.get(reverse("proyectos:pdf", args=[vacio.pk]))
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.content.startswith(b"%PDF"))
@@ -222,6 +237,7 @@ class ArchivoProyectoCU54Test(TestCase):
         self.proyecto = Proyecto.objects.create(
             nombre="Torre Poniente", mandante="Inmobiliaria X",
             fecha_inicio=date(2026, 6, 1))
+        self.proyecto.jefes.add(self.jefe)
         self.tipo = TipoDocumento.objects.create(
             nombre="Plano", descripcion="Planimetría")
         self.client.login(username="jefe54", password="clave12345")
@@ -362,6 +378,7 @@ class EdicionOfflineTest(TestCase):
             "adm_off", password="clave12345", email="a@m5.cl", rol="ADMIN")
         self.proyecto = Proyecto.objects.create(
             nombre="Obra Offline", mandante="M5", fecha_inicio=date(2026, 6, 1))
+        self.proyecto.jefes.add(self.jefe)
         self.tipo = TipoDocumento.objects.create(nombre="Plano")
         self.archivo = ArchivoProyecto.objects.create(
             proyecto=self.proyecto, tipo=self.tipo, nombre="Plano estructura",
@@ -470,6 +487,7 @@ class UmbralTamanoCU57Test(TestCase):
             "jp57", password="clave12345", email="j57@m5.cl", rol="JEFE_PROYECTO")
         self.proyecto = Proyecto.objects.create(
             nombre="Obra Umbral", mandante="M5", fecha_inicio=date(2026, 6, 1))
+        self.proyecto.jefes.add(self.jefe)
         self.tipo = TipoDocumento.objects.create(nombre="Plano")
         # Umbral bajo para no tener que generar archivos enormes en la prueba
         parametros = ParametrosSistema.actuales()
@@ -532,13 +550,16 @@ class ObraConItemizadoYVariosJefesTest(TestCase):
                 rol="JEFE_PROYECTO", first_name=f"Jefe{i}", last_name="Equipo")
             for i in range(3)
         ]
-        self.client.login(username="jefe_obra0", password="clave12345")
+        # RF-07: la obra la registra el Administrador, no un Jefe de Proyecto
+        Usuario.objects.create_user(
+            "admin_obra", password="clave12345", email="adm@m5.cl", rol="ADMIN")
+        self.client.login(username="admin_obra", password="clave12345")
 
     def _datos(self, **extra):
         datos = {
             "nombre": "Smart Fit Talca", "mandante": "Smart Fit",
             "centro_costo": "CC-2026-099",
-            "fecha_inicio": "2026-11-02", "estado": "EJECUCION",
+            "fecha_inicio": "2026-11-02", "fecha_termino": "2027-11-02",
             "presupuesto_total": "50000000",
             "jefes": [j.pk for j in self.jefes],
             # formset del itemizado
@@ -590,6 +611,8 @@ class ObraConItemizadoYVariosJefesTest(TestCase):
         from solicitudes.forms import SolicitudForm
         self.client.post(reverse("proyectos:crear"), self._datos())
         obra = Proyecto.objects.get(nombre="Smart Fit Talca")
+        obra.estado = Proyecto.Estado.EJECUCION   # RF-12: sólo obras en ejecución
+        obra.save()
         for jefe in self.jefes:
             opciones = list(SolicitudForm(usuario=jefe).fields["proyecto"].queryset)
             self.assertIn(obra, opciones, f"{jefe.username} no ve su propia obra")
@@ -600,6 +623,8 @@ class ObraConItemizadoYVariosJefesTest(TestCase):
             "jefe_ajeno", password="clave12345", email="aj@m5.cl", rol="JEFE_PROYECTO")
         self.client.post(reverse("proyectos:crear"), self._datos())
         obra = Proyecto.objects.get(nombre="Smart Fit Talca")
+        obra.estado = Proyecto.Estado.EJECUCION
+        obra.save()
         self.assertNotIn(obra, list(SolicitudForm(usuario=ajeno).fields["proyecto"].queryset))
 
     def test_eliminar_una_obra_sin_movimiento(self):
@@ -619,3 +644,85 @@ class ObraConItemizadoYVariosJefesTest(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(Proyecto.objects.filter(pk=obra.pk).exists())
         self.assertTrue(obra.tiene_movimiento)
+
+
+# --------------------------------------------------------------------------
+#  RF-07 a RF-10: la gestión de la obra es del Administrador; el Jefe de
+#  Proyecto sólo consulta las obras que tiene asignadas.
+# --------------------------------------------------------------------------
+class GestionProyectoSoloAdministradorTest(TestCase):
+    def setUp(self):
+        self.admin = Usuario.objects.create_user(
+            "adm_p", password="clave12345", email="admp@m5.cl", rol="ADMIN")
+        self.jefe = Usuario.objects.create_user(
+            "jp_p", password="clave12345", email="jpp@m5.cl", rol="JEFE_PROYECTO")
+        self.ajeno = Usuario.objects.create_user(
+            "jp_aj", password="clave12345", email="jpa@m5.cl", rol="JEFE_PROYECTO")
+        self.adq = Usuario.objects.create_user(
+            "adq_p", password="clave12345", email="adqp@m5.cl", rol="ENCARGADO_ADQUISICIONES")
+        self.obra = Proyecto.objects.create(
+            nombre="Obra RF07", mandante="M", centro_costo="CC-RF07",
+            fecha_inicio=date(2026, 6, 1), fecha_termino=date(2027, 6, 1))
+        self.obra.jefes.add(self.jefe)
+        self.partida = Itemizado.objects.create(
+            proyecto=self.obra, codigo_partida="1.1", descripcion="Hormigón",
+            unidad_medida="m3", cant_presupuestada=10)
+
+    def _como(self, usuario):
+        self.client.force_login(usuario)
+
+    def test_rf07_jefe_de_proyecto_no_registra_obras(self):
+        for u in (self.jefe, self.adq):
+            self._como(u)
+            self.assertEqual(self.client.get(reverse("proyectos:crear")).status_code, 403)
+
+    def test_rf07_administrador_registra_obras(self):
+        self._como(self.admin)
+        self.assertEqual(self.client.get(reverse("proyectos:crear")).status_code, 200)
+
+    def test_rf08_rf09_jefe_no_edita_ni_se_asigna_ni_carga_itemizado(self):
+        self._como(self.jefe)
+        urls = [reverse("proyectos:editar", args=[self.obra.pk]),
+                reverse("proyectos:itemizado_crear", args=[self.obra.pk]),
+                reverse("proyectos:itemizado_editar", args=[self.partida.pk])]
+        for url in urls:
+            self.assertEqual(self.client.get(url).status_code, 403, url)
+
+    def test_rf10_cambiar_estado_solo_administrador(self):
+        url = reverse("proyectos:cambiar_estado", args=[self.obra.pk])
+        self._como(self.jefe)
+        self.assertEqual(self.client.post(url, {"estado": "FINALIZADO"}).status_code, 403)
+        self._como(self.admin)
+        self.client.post(url, {"estado": "EJECUCION"})
+        self.obra.refresh_from_db()
+        self.assertEqual(self.obra.estado, "EJECUCION")
+
+    def test_rf10_solo_los_tres_estados_del_documento(self):
+        self._como(self.admin)
+        self.client.post(reverse("proyectos:cambiar_estado", args=[self.obra.pk]),
+                         {"estado": "SUSPENDIDO"})
+        self.obra.refresh_from_db()
+        self.assertEqual(self.obra.estado, "PLANIFICACION")
+        self.assertEqual([v for v, _ in Proyecto.Estado.choices],
+                         ["PLANIFICACION", "EJECUCION", "FINALIZADO"])
+
+    def test_jefe_solo_ve_sus_obras(self):
+        self._como(self.ajeno)
+        self.assertEqual(
+            self.client.get(reverse("proyectos:detalle", args=[self.obra.pk])).status_code, 403)
+        self.assertNotContains(self.client.get(reverse("proyectos:lista")), "Obra RF07")
+        self._como(self.jefe)
+        self.assertEqual(
+            self.client.get(reverse("proyectos:detalle", args=[self.obra.pk])).status_code, 200)
+        self.assertContains(self.client.get(reverse("proyectos:lista")), "Obra RF07")
+
+    def test_jefe_ajeno_no_descarga_la_ficha_pdf(self):
+        self._como(self.ajeno)
+        self.assertEqual(
+            self.client.get(reverse("proyectos:pdf", args=[self.obra.pk])).status_code, 403)
+
+    def test_cu09_sin_jefes_se_avisa_y_se_enlaza_a_crear_usuario(self):
+        Usuario.objects.filter(rol="JEFE_PROYECTO").update(estado=False, is_active=False)
+        self._como(self.admin)
+        resp = self.client.get(reverse("proyectos:crear"))
+        self.assertContains(resp, reverse("usuarios:crear"))

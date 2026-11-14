@@ -19,7 +19,6 @@ class Proyecto(models.Model):
         PLANIFICACION = "PLANIFICACION", "En planificación"
         EJECUCION = "EJECUCION", "En ejecución"
         FINALIZADO = "FINALIZADO", "Finalizado"
-        SUSPENDIDO = "SUSPENDIDO", "Suspendido"
 
     nombre = models.CharField("Nombre del proyecto", max_length=150)
     mandante = models.CharField("Mandante", max_length=150)
@@ -49,8 +48,13 @@ class Proyecto(models.Model):
 
     @property
     def esta_finalizado(self):
-        """CU-10: un proyecto finalizado no admite nuevas solicitudes."""
+        """CU-11 (RF-11): un proyecto finalizado no admite nuevas solicitudes."""
         return self.estado == self.Estado.FINALIZADO
+
+    @property
+    def admite_solicitudes(self):
+        """RF-12: sólo se pide material para obras "En ejecución"."""
+        return self.estado == self.Estado.EJECUCION
 
     def dirigida_por(self, usuario):
         """True si este usuario es uno de los jefes de la obra."""
@@ -58,6 +62,18 @@ class Proyecto(models.Model):
         if pk is None:
             return False
         return self.jefes.filter(pk=pk).exists()
+
+    @classmethod
+    def visibles_para(cls, usuario):
+        """
+        Las obras que un usuario puede consultar. El Jefe de Proyecto sólo ve
+        las que tiene asignadas (RF-09, RF-41); el resto de los roles que
+        entran al módulo ven todas.
+        """
+        qs = cls.objects.all()
+        if getattr(usuario, "rol", None) == "JEFE_PROYECTO":
+            qs = qs.filter(jefes=usuario).distinct()
+        return qs
 
     @property
     def nombres_jefes(self):
@@ -69,7 +85,7 @@ class Proyecto(models.Model):
         """
         True si la obra ya tiene historia: solicitudes, órdenes de compra,
         archivos o herramientas prestadas. Una obra con movimiento no se borra
-        —se finaliza o se suspende— porque detrás hay plata comprometida y
+        —se finaliza— porque detrás hay plata comprometida y
         documentos que alguien va a necesitar rastrear.
         """
         if self.solicitudes.exists() or self.archivos.exists():

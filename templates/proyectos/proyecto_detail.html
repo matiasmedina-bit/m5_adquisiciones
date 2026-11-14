@@ -2,19 +2,32 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-2">
   <h1 class="h3 mb-0">{{ proyecto.nombre }}</h1>
-  {% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ADMIN' %}
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-2 flex-wrap">
+    {% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
     <a href="{% url 'proyectos:pdf' proyecto.pk %}" target="_blank" class="btn btn-outline-secondary btn-sm">
       <i class="bi bi-file-earmark-pdf me-1"></i>Exportar PDF
     </a>
+    {% endif %}
+    {% if user.rol == 'ADMIN' %}
     <a href="{% url 'proyectos:editar' proyecto.pk %}" class="btn btn-outline-primary btn-sm">Editar proyecto</a>
     {% if not proyecto.tiene_movimiento %}
       <a href="{% url 'proyectos:eliminar' proyecto.pk %}" class="btn btn-outline-danger btn-sm">Eliminar</a>
     {% endif %}
+    {% endif %}
   </div>
-  {% endif %}
 </div>
 <p class="text-muted">Mandante: {{ proyecto.mandante }} · Centro de costo: {{ proyecto.centro_costo|default:"—" }} · Estado: {{ proyecto.get_estado_display }} · Presupuesto: ${{ proyecto.presupuesto_total }}</p>
+{% if user.rol == 'ADMIN' %}
+{# CU-10: cambiar el estado operativo, con confirmación antes de aplicarlo #}
+<form method="post" action="{% url 'proyectos:cambiar_estado' proyecto.pk %}"
+      class="d-flex flex-wrap align-items-center gap-2 mb-3"
+      onsubmit="const s=this.estado; return confirm('¿Cambiar el estado de «{{ proyecto.nombre|escapejs }}» a «' + s.options[s.selectedIndex].text + '»?' + (s.value==='FINALIZADO' ? '\n\nUna obra finalizada ya no admite nuevas solicitudes de materiales.' : ''));">
+  {% csrf_token %}
+  <label class="small text-muted" for="{{ form_estado.estado.id_for_label }}">Cambiar estado:</label>
+  <div style="max-width: 14rem">{{ form_estado.estado }}</div>
+  <button type="submit" class="btn btn-sm btn-outline-primary">Aplicar</button>
+</form>
+{% endif %}
 <p class="text-muted">
   Jefes de proyecto:
   {% with nombres=proyecto.nombres_jefes %}
@@ -24,7 +37,7 @@
 
 <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
   <h2 class="h5 mb-0">Itemizado (partidas)</h2>
-  {% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ADMIN' %}
+  {% if user.rol == 'ADMIN' %}
   <a href="{% url 'proyectos:itemizado_crear' proyecto.pk %}" class="btn btn-primary btn-sm">+ Agregar partida</a>
   {% endif %}
 </div>
@@ -42,7 +55,7 @@
       <td>{{ item.cant_presupuestada }}</td>
       <td>{{ item.cant_ejecutada }}</td>
       <td>{{ item.saldo_disponible }}</td>
-      <td class="text-end">{% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ADMIN' %}<a href="{% url 'proyectos:itemizado_editar' item.pk %}" class="btn btn-sm btn-outline-primary">Editar</a>{% endif %}</td>
+      <td class="text-end">{% if user.rol == 'ADMIN' %}<a href="{% url 'proyectos:itemizado_editar' item.pk %}" class="btn btn-sm btn-outline-primary">Editar</a>{% endif %}</td>
     </tr>
   {% empty %}
     <tr><td colspan="7" class="text-center text-muted py-3">Sin partidas aún.</td></tr>

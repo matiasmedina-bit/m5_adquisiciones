@@ -11,6 +11,7 @@ CU-59 Subiendo versión editada y liberando bloqueo (RF-56)
 import os
 
 from django.contrib import messages
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
@@ -22,21 +23,34 @@ from usuarios.models import ParametrosSistema
 from usuarios.permisos import RolRequeridoMixin, rol_requerido
 from .models import Proyecto, Itemizado, TipoDocumento, ArchivoProyecto
 from .forms import (ProyectoForm, ItemizadoForm, ItemizadoFormSet,
-                    ArchivoProyectoForm, TipoDocumentoForm)
+                    ArchivoProyectoForm, CambioEstadoProyectoForm, TipoDocumentoForm)
 
-ROLES_GESTION = ["JEFE_PROYECTO"]
+# RF-07 a RF-10 (CU-07 a CU-10): registrar la obra, cargar su itemizado,
+# asignar jefes y cambiar su estado es trabajo del Administrador. Una lista
+# vacía en rol_requerido / roles_permitidos deja pasar sólo a ADMIN.
+ROLES_GESTION = []
+# Quiénes consultan proyectos: el Jefe de Proyecto (sólo los suyos),
+# Adquisiciones y Contabilidad.
+ROLES_CONSULTA = ["JEFE_PROYECTO", "ENCARGADO_ADQUISICIONES", "CONTABILIDAD"]
 # CU-54: quiénes pueden almacenar documentos en la carpeta del proyecto.
 # ADMIN entra siempre por la regla general de usuarios.permisos.
 ROLES_ARCHIVO = ["JEFE_PROYECTO", "ENCARGADO_ADQUISICIONES", "CONTABILIDAD"]
 
 
+def exigir_acceso_proyecto(usuario, proyecto):
+    """Un Jefe de Proyecto sólo entra a las obras que tiene asignadas."""
+    if usuario.rol == "JEFE_PROYECTO" and not proyecto.dirigida_por(usuario):
+        raise PermissionDenied("Este proyecto no está entre los que tienes asignados.")
+
+
 class ProyectoListView(RolRequeridoMixin, ListView):
-    # CONTABILIDAD entra porque puede almacenar documentos del proyecto (CU-54);
-    # sin el listado tenía el permiso concedido y ninguna puerta para usarlo.
-    roles_permitidos = ROLES_GESTION + ["ENCARGADO_ADQUISICIONES", "CONTABILIDAD"]
+    roles_permitidos = ROLES_CONSULTA
     model = Proyecto
     template_name = "proyectos/proyecto_list.html"
     context_object_name = "proyectos"
+
+    def get_queryset(self):
+        return Proyecto.visibles_para(self.request.user)
 
 
 class _ProyectoConItemizadoMixin:
@@ -54,6 +68,10 @@ class _ProyectoConItemizadoMixin:
         if "itemizado" not in ctx:
             ctx["itemizado"] = ItemizadoFormSet(
                 instance=getattr(self, "object", None))
+        # CU-09 Excepción 1: sin jefes de proyecto no hay a quién asignar la
+        # obra; se le dice al Administrador y se le lleva a crear la cuenta.
+        from usuarios.models import usuarios_asignables
+        ctx["sin_jefes"] = not usuarios_asignables("JEFE_PROYECTO").exists()
         return ctx
 
     def form_valid(self, form):
@@ -63,11 +81,19 @@ class _ProyectoConItemizadoMixin:
         with transaction.atomic():
             self.object = form.save()
             formset.instance = self.object
-            if not formset.is_valid():
+            valido = formset.is_valid()
+            if valido:
+                formset.save()
+            else:
                 transaction.set_rollback(True)
-                return self.render_to_response(
-                    self.get_context_data(form=form, itemizado=formset))
-            formset.save()
+        if not valido:
+            # Se dibuja fuera del bloque: dentro de una transacción marcada
+            # para deshacerse no se puede volver a consultar la base.
+            if form.instance.pk and not Proyecto.objects.filter(pk=form.instance.pk).exists():
+                form.instance.pk = None
+                self.object = None
+            return self.render_to_response(
+                self.get_context_data(form=form, itemizado=formset))
         messages.success(self.request, self.success_message)
         return redirect(self.get_success_url())
 
@@ -79,7 +105,7 @@ class _ProyectoConItemizadoMixin:
 
 
 class ProyectoCreateView(RolRequeridoMixin, _ProyectoConItemizadoMixin, CreateView):
-    """CU-06 Registrando proyecto, con su itemizado (CU-09)."""
+    """CU-07 Registrando proyecto, con su itemizado (CU-08) y sus jefes (CU-09)."""
     roles_permitidos = ROLES_GESTION
     model = Proyecto
     form_class = ProyectoForm
@@ -98,7 +124,7 @@ class ProyectoUpdateView(RolRequeridoMixin, _ProyectoConItemizadoMixin, UpdateVi
     success_message = "Proyecto actualizado correctamente."
 
 
-@rol_requerido("JEFE_PROYECTO")
+@rol_requerido(*ROLES_GESTION)
 def proyecto_eliminar(request, pk):
     """
     Borra una obra cargada por error.
@@ -106,8 +132,7 @@ def proyecto_eliminar(request, pk):
     Sólo si no tiene historia. Una obra con solicitudes, órdenes de compra,
     documentos o herramientas prestadas no se borra: detrás hay plata
     comprometida y papeles que alguien va a tener que rastrear después. Para
-    esas está «Finalizado» o «Suspendido», que la sacan de circulación sin
-    romper el historial.
+    esas está «Finalizado», que la saca de circulación sin romper el historial.
     """
     proyecto = get_object_or_404(Proyecto, pk=pk)
 
@@ -116,8 +141,7 @@ def proyecto_eliminar(request, pk):
             request,
             f"«{proyecto.nombre}» no se puede eliminar porque ya tiene movimiento "
             f"—solicitudes, órdenes de compra, documentos o herramientas—. Si la "
-            f"obra terminó o se detuvo, cámbiale el estado a «Finalizado» o "
-            f"«Suspendido» desde Editar.")
+            f"obra terminó, cámbiale el estado a «Finalizado».")
         return redirect("proyectos:detalle", pk=proyecto.pk)
 
     if request.method == "POST":
@@ -131,14 +155,20 @@ def proyecto_eliminar(request, pk):
 
 
 class ProyectoDetailView(RolRequeridoMixin, DetailView):
-    """CU-08 Consultando proyecto (con su itemizado y sus archivos)."""
-    roles_permitidos = ROLES_GESTION + ["ENCARGADO_ADQUISICIONES", "CONTABILIDAD"]
+    """Consultando proyecto (con su itemizado y sus archivos)."""
+    roles_permitidos = ROLES_CONSULTA
     model = Proyecto
     template_name = "proyectos/proyecto_detail.html"
     context_object_name = "proyecto"
 
+    def get_object(self, queryset=None):
+        proyecto = super().get_object(queryset)
+        exigir_acceso_proyecto(self.request.user, proyecto)
+        return proyecto
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
+        ctx["form_estado"] = CambioEstadoProyectoForm(initial={"estado": self.object.estado})
         # CU-54: la carpeta de documentos del proyecto
         ctx["archivos"] = self.object.archivos.select_related("tipo", "subido_por")
         ctx["hay_catalogo"] = TipoDocumento.hay_catalogo()
@@ -148,9 +178,34 @@ class ProyectoDetailView(RolRequeridoMixin, DetailView):
         return ctx
 
 
-@rol_requerido("JEFE_PROYECTO")
+@rol_requerido(*ROLES_GESTION)
+@require_POST
+def proyecto_cambiar_estado(request, pk):
+    """
+    CU-10 (RF-10): el Administrador cambia el estado operativo de la obra entre
+    las tres opciones del documento. Al pasar a "Finalizado" queda bloqueada la
+    emisión de nuevas solicitudes (CU-11), que se valida al crear la SM.
+    """
+    proyecto = get_object_or_404(Proyecto, pk=pk)
+    form = CambioEstadoProyectoForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Elige uno de los tres estados posibles.")
+    elif form.cleaned_data["estado"] == proyecto.estado:
+        messages.info(request, "El proyecto ya estaba en ese estado.")
+    else:
+        anterior = proyecto.get_estado_display()
+        proyecto.estado = form.cleaned_data["estado"]
+        proyecto.save(update_fields=["estado"])
+        aviso = f"«{proyecto.nombre}» pasó de «{anterior}» a «{proyecto.get_estado_display()}»."
+        if proyecto.esta_finalizado:
+            aviso += " Ya no admite nuevas solicitudes de materiales."
+        messages.success(request, aviso)
+    return redirect("proyectos:detalle", pk=proyecto.pk)
+
+
+@rol_requerido(*ROLES_GESTION)
 def itemizado_crear(request, proyecto_pk):
-    """CU-09 Agregando itemizado (partida) a un proyecto."""
+    """CU-08 Agregando una partida al itemizado de un proyecto."""
     proyecto = get_object_or_404(Proyecto, pk=proyecto_pk)
     if request.method == "POST":
         form = ItemizadoForm(request.POST)
@@ -165,7 +220,7 @@ def itemizado_crear(request, proyecto_pk):
     return render(request, "proyectos/itemizado_form.html", {"form": form, "proyecto": proyecto})
 
 
-@rol_requerido("JEFE_PROYECTO")
+@rol_requerido(*ROLES_GESTION)
 def itemizado_editar(request, pk):
     """CU-10 Editando itemizado."""
     item = get_object_or_404(Itemizado, pk=pk)
@@ -191,6 +246,7 @@ def proyecto_pdf(request, pk):
     from .pdf import ReportlabNoInstalado, generar_pdf_proyecto
 
     proyecto = get_object_or_404(Proyecto, pk=pk)
+    exigir_acceso_proyecto(request.user, proyecto)
     try:
         contenido = generar_pdf_proyecto(proyecto)
     except ReportlabNoInstalado as exc:
@@ -216,6 +272,7 @@ def archivo_subir(request, proyecto_pk):
     bloquea la carga y lo avisa, en vez de guardar un archivo sin clasificar.
     """
     proyecto = get_object_or_404(Proyecto, pk=proyecto_pk)
+    exigir_acceso_proyecto(request.user, proyecto)
 
     if not TipoDocumento.hay_catalogo():
         messages.error(
@@ -277,6 +334,7 @@ def archivo_subir(request, proyecto_pk):
 def archivo_eliminar(request, pk):
     """Quita un documento de la carpeta del proyecto."""
     archivo = get_object_or_404(ArchivoProyecto, pk=pk)
+    exigir_acceso_proyecto(request.user, archivo.proyecto)
     proyecto_pk = archivo.proyecto_id
     if request.method == "POST":
         archivo.archivo.delete(save=False)
@@ -328,6 +386,7 @@ def archivo_bloquear(request, pk):
     el pasillo; decir el nombre resuelve el problema en un mensaje.
     """
     archivo = get_object_or_404(ArchivoProyecto, pk=pk)
+    exigir_acceso_proyecto(request.user, archivo.proyecto)
     if archivo.bloqueado_para(request.user):
         quien = archivo.bloqueado_por.get_full_name() or archivo.bloqueado_por.username
         messages.error(
@@ -351,6 +410,7 @@ def archivo_bloquear(request, pk):
 def archivo_liberar(request, pk):
     """Suelta el bloqueo sin subir nada, cuando al final no se editó."""
     archivo = get_object_or_404(ArchivoProyecto, pk=pk)
+    exigir_acceso_proyecto(request.user, archivo.proyecto)
     # El administrador puede destrabar un archivo que quedó tomado por alguien
     # que se fue de la empresa; cualquier otro sólo suelta el suyo.
     if archivo.bloqueado_para(request.user) and request.user.rol != "ADMIN":
@@ -375,6 +435,7 @@ def archivo_subir_version(request, pk):
     con el mismo nombre no es una versión nueva, es otro documento.
     """
     archivo = get_object_or_404(ArchivoProyecto, pk=pk)
+    exigir_acceso_proyecto(request.user, archivo.proyecto)
 
     if not archivo.bloqueado:
         messages.error(request, "Primero tienes que bloquear el archivo para editarlo.")

@@ -23,6 +23,13 @@ class ProyectoForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # CU-07: todos los datos de la obra son obligatorios.
+        for campo in ("centro_costo", "fecha_termino", "presupuesto_total"):
+            self.fields[campo].required = True
+        # CU-07: la obra nace "En planificación". El estado se cambia después,
+        # con la acción «Cambiar estado» (CU-10), no al registrarla.
+        if not self.instance.pk:
+            del self.fields["estado"]
         # Sólo jefes de proyecto activos y ya aprobados (CU-52). Se conservan
         # los que el proyecto ya tuviera asignados, para no perderlos al editar
         # si alguno quedó inactivo después.
@@ -41,10 +48,10 @@ class ProyectoForm(forms.ModelForm):
             "emitir solicitudes de material para este proyecto.")
 
     def clean_centro_costo(self):
-        """RF-14: el centro de costo no puede repetirse en otro proyecto."""
+        """RF-07: el centro de costo no puede repetirse en otro proyecto."""
         centro = (self.cleaned_data.get("centro_costo") or "").strip()
         if not centro:
-            return centro
+            raise forms.ValidationError("Indica el centro de costo de la obra.")
         qs = Proyecto.objects.filter(centro_costo__iexact=centro)
         if self.instance.pk:
             qs = qs.exclude(pk=self.instance.pk)
@@ -61,6 +68,13 @@ class ProyectoForm(forms.ModelForm):
         if inicio and termino and termino < inicio:
             raise forms.ValidationError("La fecha de término no puede ser anterior a la de inicio.")
         return cleaned
+
+
+class CambioEstadoProyectoForm(forms.Form):
+    """CU-10: las tres opciones del documento, y nada más."""
+    estado = forms.ChoiceField(
+        label="Nuevo estado", choices=Proyecto.Estado.choices,
+        widget=forms.Select(attrs={"class": "form-select form-select-sm"}))
 
 
 class ItemizadoForm(forms.ModelForm):
