@@ -18,8 +18,8 @@
         <dl class="row mb-0 small">
           <dt class="col-sm-4 text-muted">Emisión</dt><dd class="col-sm-8">{{ factura.fecha_emision|date:"d-m-Y" }}</dd>
           <dt class="col-sm-4 text-muted">Vencimiento</dt><dd class="col-sm-8">{{ factura.fecha_vencimiento|date:"d-m-Y" }}</dd>
-          <dt class="col-sm-4 text-muted">Monto factura</dt><dd class="col-sm-8 fw-semibold">${{ factura.monto_total|floatformat:0 }}</dd>
-          <dt class="col-sm-4 text-muted">Total OC vinculadas</dt><dd class="col-sm-8">${{ factura.total_ordenes|floatformat:0 }}</dd>
+          <dt class="col-sm-4 text-muted">Monto factura (IVA incl.)</dt><dd class="col-sm-8 fw-semibold">${{ factura.monto_total|floatformat:0 }}</dd>
+          <dt class="col-sm-4 text-muted">Total OC vinculadas (IVA incl.)</dt><dd class="col-sm-8">${{ factura.total_ordenes|floatformat:0 }}</dd>
           <dt class="col-sm-4 text-muted">Diferencia</dt>
           <dd class="col-sm-8 {% if factura.esta_bloqueada %}text-danger fw-semibold{% endif %}">{{ factura.diferencia_pct }}% (tolerancia {{ tolerancia }}%)</dd>
           <dt class="col-sm-4 text-muted">Registró</dt><dd class="col-sm-8">{{ factura.registrado_por.get_full_name|default:factura.registrado_por.username }} · {{ factura.creada|date:"d-m-Y H:i" }}</dd>

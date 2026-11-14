@@ -157,7 +157,11 @@ def cuentas_por_pagar(request):
 
 @rol_requerido(CONT, "ADMIN")
 def factura_export_csv(request):
-    """RF-44: exporta el listado de facturas a CSV (formato Transtecnia)."""
+    """RF-40: exporta el listado de facturas a CSV (formato Transtecnia)."""
+    if not Factura.objects.exists():
+        # CU-41 Excepción 1
+        messages.info(request, "No hay facturas registradas para exportar.")
+        return redirect("facturacion:lista")
     resp = HttpResponse(content_type="text/csv; charset=utf-8")
     resp["Content-Disposition"] = 'attachment; filename="facturas.csv"'
     resp.write("﻿")  # BOM para Excel

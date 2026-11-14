@@ -31,7 +31,7 @@ class FacturaTest(TestCase):
         self.oc = OrdenCompra.objects.create(solicitud=self.sm, proveedor=self.prov,
                                              creada_por=self.ea, estado=OrdenCompra.Estado.ENVIADA)
         OrdenCompraLinea.objects.create(orden=self.oc, material=self.mat, descripcion="Cemento",
-                                        cantidad=100, valor_unitario=5000)  # total OC = 500000
+                                        cantidad=100, valor_unitario=5000)  # OC: neto 500.000, con IVA 595.000
 
     def _crear(self, monto):
         self.client.login(username="cont", password="clave12345")
@@ -43,21 +43,21 @@ class FacturaTest(TestCase):
         })
 
     def test_rf40_monto_ok_marca_oc_facturada(self):
-        self._crear(500000)
+        self._crear(595000)
         f = Factura.objects.get()
         self.oc.refresh_from_db()
         self.assertEqual(f.estado, Factura.Estado.REGISTRADA)
         self.assertTrue(self.oc.facturada)
 
     def test_rf41_diferencia_excesiva_bloquea(self):
-        self._crear(600000)  # +20% > 5%
+        self._crear(720000)  # +21% sobre 595.000 > 5%
         f = Factura.objects.get()
         self.oc.refresh_from_db()
         self.assertEqual(f.estado, Factura.Estado.BLOQUEADA)
         self.assertFalse(self.oc.facturada)
 
     def test_rf42_admin_desbloquea(self):
-        self._crear(600000)
+        self._crear(720000)
         f = Factura.objects.get()
         self.client.login(username="adm", password="clave12345")
         self.client.post(reverse("facturacion:desbloquear", args=[f.pk]),
@@ -67,21 +67,21 @@ class FacturaTest(TestCase):
         self.assertTrue(self.oc.facturada)
 
     def test_rf43_cuentas_por_pagar_ordena_por_vencimiento(self):
-        self._crear(500000)
+        self._crear(595000)
         self.client.login(username="cont", password="clave12345")
         resp = self.client.get(reverse("facturacion:cuentas_por_pagar"))
         self.assertEqual(resp.status_code, 200)
 
     def test_rf44_export_csv(self):
-        self._crear(500000)
+        self._crear(595000)
         self.client.login(username="cont", password="clave12345")
         resp = self.client.get(reverse("facturacion:export_csv"))
         self.assertEqual(resp.status_code, 200)
         self.assertIn("text/csv", resp["Content-Type"])
-        self.assertIn(b"F-500000", resp.content)
+        self.assertIn(b"F-595000", resp.content)
 
     def test_paginas_renderizan(self):
-        self._crear(600000)  # deja una factura bloqueada
+        self._crear(720000)  # deja una factura bloqueada
         f = Factura.objects.get()
         self.client.login(username="cont", password="clave12345")
         for url in [reverse("facturacion:lista"), reverse("facturacion:crear"),
@@ -91,3 +91,40 @@ class FacturaTest(TestCase):
         self.client.login(username="adm", password="clave12345")
         self.assertEqual(
             self.client.get(reverse("facturacion:detalle", args=[f.pk])).status_code, 200)
+
+
+class ToleranciaFacturaRF37Test(FacturaTest):
+    """RF-37: el monto de la factura (con IVA) se compara con el total de la OC con IVA."""
+
+    def test_factura_correcta_con_iva_no_se_bloquea(self):
+        self._crear(595000)
+        self.assertEqual(Factura.objects.get().estado, Factura.Estado.REGISTRADA)
+
+    def test_justo_en_la_tolerancia_pasa_y_sobre_ella_se_bloquea(self):
+        self._crear(624750)            # +5,00 %
+        self.assertEqual(Factura.objects.get(numero="F-624750").estado, Factura.Estado.REGISTRADA)
+        self.oc.facturada = False
+        self.oc.save()
+        self._crear(624751)            # +5,0002 %
+        self.assertEqual(Factura.objects.get(numero="F-624751").estado, Factura.Estado.BLOQUEADA)
+
+    def test_la_tolerancia_es_parametrizable(self):
+        from usuarios.models import ParametrosSistema
+        p = ParametrosSistema.actuales()
+        p.tolerancia_factura_pct = 25
+        p.save()
+        self._crear(720000)
+        self.assertEqual(Factura.objects.get().estado, Factura.Estado.REGISTRADA)
+
+    def test_cu38_vincula_solo_oc_enviadas_no_facturadas(self):
+        from .forms import FacturaForm
+        borrador = OrdenCompra.objects.create(proveedor=self.prov, creada_por=self.ea,
+                                              proyecto=self.proy)
+        opciones = list(FacturaForm().fields["ordenes"].queryset)
+        self.assertIn(self.oc, opciones)
+        self.assertNotIn(borrador, opciones)
+
+    def test_cu41_exc1_sin_facturas_no_baja_un_csv_vacio(self):
+        self.client.login(username="cont", password="clave12345")
+        resp = self.client.get(reverse("facturacion:export_csv"), follow=True)
+        self.assertContains(resp, "No hay facturas registradas")

@@ -32,7 +32,8 @@ class Factura(SinBorradoFisicoMixin):
     ordenes = models.ManyToManyField(OrdenCompra, related_name="facturas", verbose_name="Órdenes de compra")
     fecha_emision = models.DateField("Fecha de emisión")
     fecha_vencimiento = models.DateField("Fecha de vencimiento")
-    monto_total = models.DecimalField("Monto total (CLP)", max_digits=15, decimal_places=0)
+    # El total de la factura, IVA incluido, tal como viene impreso.
+    monto_total = models.DecimalField("Monto total con IVA (CLP)", max_digits=15, decimal_places=0)
     archivo = models.FileField("Archivo digital (PDF/XML)", upload_to=ruta_archivo_factura, blank=True)
     estado = models.CharField("Estado", max_length=12, choices=Estado.choices, default=Estado.REGISTRADA)
     diferencia_pct = models.DecimalField("Diferencia % vs OC", max_digits=6, decimal_places=2, default=0)
@@ -57,7 +58,12 @@ class Factura(SinBorradoFisicoMixin):
 
     @property
     def total_ordenes(self):
-        return sum((oc.total for oc in self.ordenes.all()), Decimal("0"))
+        """
+        RF-37: total de las OC vinculadas, IVA incluido. La factura trae el
+        total con IVA; compararla contra el neto de la OC daba siempre un 19 %
+        de diferencia y bloqueaba facturas correctas.
+        """
+        return sum((oc.total_con_iva for oc in self.ordenes.all()), Decimal("0"))
 
     @property
     def esta_bloqueada(self):
