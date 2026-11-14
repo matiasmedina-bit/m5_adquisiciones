@@ -4,11 +4,13 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include
 from django.contrib.auth import views as auth_views
+from usuarios.forms import LoginForm
 from usuarios.views import home, registro_solicitud
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("login/", auth_views.LoginView.as_view(template_name="registration/login.html"), name="login"),
+    path("login/", auth_views.LoginView.as_view(
+        template_name="registration/login.html", authentication_form=LoginForm), name="login"),
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     # --- CU-56 (RF-53) Recuperación de contraseña y CU-52 (RF-49) activación ---
     # Las dos usan el mismo mecanismo de token firmado de un solo uso; lo que

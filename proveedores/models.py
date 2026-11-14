@@ -2,10 +2,11 @@
 Modelo Proveedor del MERE. Cubre los CU-01 a CU-05.
 """
 from django.db import models
+from usuarios.integridad import SinBorradoFisicoMixin
 from usuarios.validators import validar_rut, limpiar_rut, formatear_rut
 
 
-class Proveedor(models.Model):
+class Proveedor(SinBorradoFisicoMixin):
     """Entidad Proveedor (Proveedor_id, nombre, rut, correo, telefono, condicion_pago, estado)."""
 
     class CondicionPago(models.TextChoices):

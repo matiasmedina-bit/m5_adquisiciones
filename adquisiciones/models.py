@@ -22,6 +22,7 @@ from django.db import models, transaction
 from proveedores.models import Proveedor
 from solicitudes.models import SolicitudMaterial, SolicitudDetalle
 from inventario.models import Material
+from usuarios.integridad import SinBorradoFisicoMixin
 
 
 class Cotizacion(models.Model):
@@ -98,7 +99,7 @@ class CotizacionLinea(models.Model):
         self.cotizacion.save(update_fields=["estado"])
 
 
-class OrdenCompra(models.Model):
+class OrdenCompra(SinBorradoFisicoMixin):
     """RF-23: borrador de Orden de Compra por proveedor con líneas aprobadas."""
 
     class Estado(models.TextChoices):

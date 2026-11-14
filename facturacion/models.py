@@ -14,13 +14,14 @@ from django.db import models
 
 from proveedores.models import Proveedor
 from adquisiciones.models import OrdenCompra
+from usuarios.integridad import SinBorradoFisicoMixin
 
 
 def ruta_archivo_factura(instance, filename):
     return f"facturas/{instance.proveedor_id}/{filename}"
 
 
-class Factura(models.Model):
+class Factura(SinBorradoFisicoMixin):
 
     class Estado(models.TextChoices):
         REGISTRADA = "REGISTRADA", "Registrada"

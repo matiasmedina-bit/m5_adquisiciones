@@ -103,6 +103,10 @@ DATABASES = {
 # Modelo de usuario personalizado (entidad Usuario del MERE)
 AUTH_USER_MODEL = "usuarios.Usuario"
 
+# RF-47 (correo institucional + contraseña) y RNF-08 (bloqueo de 15 minutos
+# tras 5 intentos fallidos). Reemplaza al ModelBackend: ver usuarios/backends.py.
+AUTHENTICATION_BACKENDS = ["usuarios.backends.CorreoOUsuarioBackend"]
+
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
@@ -128,6 +132,26 @@ MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Bootstrap llama "danger" a lo que Django llama "error": sin esta traducción
+# los mensajes de error salían sin color.
+from django.contrib.messages import constants as _mensajes  # noqa: E402
+MESSAGE_TAGS = {_mensajes.ERROR: "danger"}
+
+# --- RNF-07: HTTPS obligatorio en producción ---
+# El certificado lo atiende nginx (ver despliegue/nginx-m5.conf). Django sólo
+# tiene que confiar en el encabezado que nginx le pasa, redirigir lo que llegue
+# por http y marcar las cookies de sesión y CSRF como "sólo por HTTPS".
+# Se activa con USAR_HTTPS=True en el .env; en desarrollo queda apagado para
+# que el runserver siga funcionando por http://127.0.0.1.
+USAR_HTTPS = os.getenv("USAR_HTTPS", "False").lower() == "true"
+if USAR_HTTPS:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "31536000"))
+    SECURE_CONTENT_TYPE_NOSNIFF = True
 
 # Redirecciones de autenticación
 LOGIN_URL = "/login/"

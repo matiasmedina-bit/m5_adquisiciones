@@ -20,6 +20,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from getpass import getpass
 
+from usuarios.integridad import borrado_fisico_permitido
 from usuarios.models import Usuario, ParametrosSistema
 
 CONFIRMACION = "BORRAR DEMO"
@@ -169,7 +170,10 @@ class Command(BaseCommand):
 
         def borrar(etiqueta, queryset):
             cantidad = queryset.count()
-            queryset.delete()
+            # Única excepción al RNF-09: esto corre antes de la puesta en marcha
+            # y sólo elimina los datos de demostración.
+            with borrado_fisico_permitido():
+                queryset.delete()
             if cantidad:
                 borrados[etiqueta] = cantidad
 

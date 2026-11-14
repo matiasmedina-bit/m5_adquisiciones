@@ -2,8 +2,8 @@
 # ============================================================
 #  Respaldo diario del sistema M5
 #
-#  Se instala en /etc/cron.daily/m5-backup y corre solo, una vez
-#  al dia. Guarda DOS cosas, porque con una sola no se puede
+#  Se instala en /opt/m5/m5-backup y lo dispara /etc/cron.d/m5-backup
+#  todos los dias a las 00:00 (RNF-10). Guarda DOS cosas, porque con una sola no se puede
 #  reconstruir el sistema:
 #
 #    1. La base de datos  -> quien pidio que, a quien se le compro,

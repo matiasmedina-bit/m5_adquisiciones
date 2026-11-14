@@ -14,6 +14,8 @@ Bodega (Incremento 2):
 from django.conf import settings
 from django.db import models
 
+from usuarios.integridad import SinBorradoFisicoMixin
+
 
 class Material(models.Model):
     """Entidad Material: catálogo de materiales/herramientas de la constructora."""
@@ -127,7 +129,7 @@ class Material(models.Model):
         return self.prestamos.filter(estado=PrestamoHerramienta.Estado.PRESTADA).exists()
 
 
-class MovimientoInventario(models.Model):
+class MovimientoInventario(SinBorradoFisicoMixin):
     """
     Movimiento de bodega. Al crearse ajusta Material.stock_actual (RF-32).
       ENTRADA              -> recepción desde proveedor (asociada a una OC) o

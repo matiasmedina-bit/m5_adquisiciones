@@ -1,4 +1,5 @@
 from django.contrib import admin
+from usuarios.integridad import SinBorradoAdminMixin
 from .models import Proveedor, ProveedorMaterial
 
 
@@ -9,7 +10,7 @@ class ProveedorMaterialInline(admin.TabularInline):
 
 
 @admin.register(Proveedor)
-class ProveedorAdmin(admin.ModelAdmin):
+class ProveedorAdmin(SinBorradoAdminMixin, admin.ModelAdmin):
     # La condición de pago se acuerda con el proveedor y vale para todo su
     # catálogo: es la que se imprime en la orden de compra.
     list_display = ("nombre", "rut_formateado", "correo", "condicion_pago", "estado")

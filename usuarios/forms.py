@@ -1,6 +1,6 @@
 """Formularios del módulo de usuarios (CU-51 Gestionando cuentas)."""
 from django import forms
-from django.contrib.auth.forms import UserCreationForm, UserChangeForm
+from django.contrib.auth.forms import AuthenticationForm, UserCreationForm, UserChangeForm
 from .models import Usuario, ParametrosSistema, SolicitudCambioPerfil
 
 
@@ -294,3 +294,36 @@ class SolicitudCambioPerfilForm(forms.ModelForm):
                     "Rol desconocido. Son: " + ", ".join(validos),
                 )
         return datos
+
+
+class LoginForm(AuthenticationForm):
+    """
+    RF-47 / CU-48: correo institucional y contraseña.
+
+    Hereda AuthenticationForm (que es la que llama al backend) y sólo cambia la
+    etiqueta del campo y el mensaje cuando la cuenta está bloqueada (RNF-08).
+    El mensaje de credenciales incorrectas no dice cuál de los dos campos falló
+    (CU-48 Excepción 1).
+    """
+    error_messages = {
+        **AuthenticationForm.error_messages,
+        "invalid_login": "Correo o contraseña incorrectos.",
+        "bloqueada": ("Demasiados intentos fallidos. Por seguridad el acceso quedó "
+                      "bloqueado hasta las %(hora)s. Vuelve a intentarlo después."),
+    }
+
+    def __init__(self, request=None, *args, **kwargs):
+        super().__init__(request, *args, **kwargs)
+        self.fields["username"].label = "Correo electrónico institucional"
+
+    def clean(self):
+        try:
+            return super().clean()
+        except forms.ValidationError:
+            hasta = getattr(self.request, "acceso_bloqueado_hasta", None)
+            if hasta:
+                from django.utils import timezone
+                raise forms.ValidationError(
+                    self.error_messages["bloqueada"], code="bloqueada",
+                    params={"hora": timezone.localtime(hasta).strftime("%H:%M")})
+            raise

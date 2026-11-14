@@ -7,7 +7,7 @@
 #
 #  Deja tres cosas:
 #    1. /opt/m5/set_ip.sh          - adaptar la IP en un comando
-#    2. /etc/cron.daily/m5-backup  - respaldo diario de base Y archivos
+#    2. /etc/cron.d/m5-backup      - respaldo diario a las 00:00 (RNF-10)
 #    3. El bloque EMAIL_* en el .env, listo para completar con los
 #       datos que entregue TI de M5
 #
@@ -50,16 +50,22 @@ echo "    Al importar el OVA en M5:  bash /opt/m5/set_ip.sh <ip>"
 # ------------------------------------------------------------
 echo
 echo "==> 2/3  Respaldo diario"
-sudo cp "$AQUI/m5-backup" /etc/cron.daily/m5-backup
-sudo chmod 755 /etc/cron.daily/m5-backup
-sudo chown root:root /etc/cron.daily/m5-backup
+# RNF-10 pide el respaldo a las 00:00. /etc/cron.daily no sirve para eso: en
+# Ubuntu corre cuando anacron lo decide (cerca de las 06:25). Por eso el
+# script queda en /opt/m5 y lo dispara una linea de /etc/cron.d a medianoche.
+sudo cp "$AQUI/m5-backup" /opt/m5/m5-backup
+sudo chmod 755 /opt/m5/m5-backup
+sudo chown root:root /opt/m5/m5-backup
+sudo rm -f /etc/cron.daily/m5-backup
+echo "0 0 * * * root /opt/m5/m5-backup" | sudo tee /etc/cron.d/m5-backup >/dev/null
+sudo chmod 644 /etc/cron.d/m5-backup
 sudo mkdir -p /var/backups/m5
 sudo chmod 700 /var/backups/m5
-verde "    Instalado en /etc/cron.daily/m5-backup"
-echo "    Ahora respalda la base Y la carpeta de archivos subidos."
+verde "    Programado todos los dias a las 00:00 (/etc/cron.d/m5-backup)"
+echo "    Respalda la base Y la carpeta de archivos subidos."
 
 echo "    Probandolo (puede demorar unos segundos)..."
-if sudo /etc/cron.daily/m5-backup; then
+if sudo /opt/m5/m5-backup; then
     verde "    Respaldo de prueba correcto:"
     sudo ls -lh /var/backups/m5 | tail -3
 else

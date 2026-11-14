@@ -1,4 +1,5 @@
 from django.contrib import admin
+from usuarios.integridad import SinBorradoAdminMixin
 from .models import Material, MovimientoInventario, PrestamoHerramienta
 
 
@@ -11,7 +12,7 @@ class MaterialAdmin(admin.ModelAdmin):
 
 
 @admin.register(MovimientoInventario)
-class MovimientoInventarioAdmin(admin.ModelAdmin):
+class MovimientoInventarioAdmin(SinBorradoAdminMixin, admin.ModelAdmin):
     list_display = ("fecha", "tipo", "material", "cantidad", "proyecto",
                     "orden_compra", "registrado_por")
     list_filter = ("tipo",)

@@ -321,3 +321,61 @@ class ParametrosSistema(models.Model):
     @property
     def umbral_archivo_bytes(self):
         return self.umbral_archivo_mb * 1024 * 1024
+
+
+# ==========================================================================
+#  RNF-08 — Bloqueo temporal tras intentos fallidos de inicio de sesión
+# ==========================================================================
+
+class IntentoAcceso(models.Model):
+    """
+    Contador de intentos fallidos por cuenta.
+
+    La clave es la cuenta (``u<pk>``) cuando el identificador corresponde a un
+    usuario, de modo que equivocarse con el correo o con el nombre de usuario
+    suma al mismo contador. Si el identificador no existe se cuenta igual, con
+    el texto escrito: así el bloqueo no le revela a nadie qué cuentas existen.
+    """
+    MAX_INTENTOS = 5
+    MINUTOS_BLOQUEO = 15
+
+    clave = models.CharField("Cuenta o identificador", max_length=160, unique=True)
+    fallidos = models.PositiveSmallIntegerField("Intentos fallidos consecutivos", default=0)
+    bloqueado_hasta = models.DateTimeField("Bloqueado hasta", null=True, blank=True)
+    ultimo_intento = models.DateTimeField("Último intento", auto_now=True)
+
+    class Meta:
+        verbose_name = "Intento de acceso"
+        verbose_name_plural = "Intentos de acceso"
+
+    def __str__(self):
+        return f"{self.clave}: {self.fallidos} fallido(s)"
+
+    @classmethod
+    def bloqueado(cls, clave):
+        """Devuelve la fecha de fin del bloqueo si la cuenta está bloqueada, o None."""
+        from django.utils import timezone
+        registro = cls.objects.filter(clave=clave).first()
+        if registro and registro.bloqueado_hasta and registro.bloqueado_hasta > timezone.now():
+            return registro.bloqueado_hasta
+        return None
+
+    @classmethod
+    def registrar_fallo(cls, clave):
+        """Suma un fallo; al quinto consecutivo bloquea la cuenta 15 minutos."""
+        from datetime import timedelta
+        from django.utils import timezone
+        registro, _ = cls.objects.get_or_create(clave=clave)
+        # Un bloqueo vencido se olvida: el siguiente error vuelve a contar desde 1
+        if registro.bloqueado_hasta and registro.bloqueado_hasta <= timezone.now():
+            registro.fallidos = 0
+            registro.bloqueado_hasta = None
+        registro.fallidos += 1
+        if registro.fallidos >= cls.MAX_INTENTOS:
+            registro.bloqueado_hasta = timezone.now() + timedelta(minutes=cls.MINUTOS_BLOQUEO)
+        registro.save()
+        return registro
+
+    @classmethod
+    def limpiar(cls, clave):
+        cls.objects.filter(clave=clave).delete()

@@ -17,6 +17,7 @@ from inventario.models import Material, MovimientoInventario
 from proveedores.models import Proveedor
 from proyectos.models import Itemizado, Proyecto
 from solicitudes.models import SolicitudDetalle, SolicitudMaterial
+from usuarios.integridad import borrado_fisico_permitido
 from usuarios.models import Usuario
 
 from .consultas import (compras_por_proveedor, consumo_por_proyecto,
@@ -236,8 +237,9 @@ class MermasCU44Test(BaseReportes):
     # --- Excepción 1 ---
 
     def test_sin_mermas_muestra_mensaje_no_tabla_vacia(self):
-        MovimientoInventario.objects.filter(
-            tipo=MovimientoInventario.Tipo.MERMA).delete()
+        with borrado_fisico_permitido():  # sólo para dejar el escenario vacío
+            MovimientoInventario.objects.filter(
+                tipo=MovimientoInventario.Tipo.MERMA).delete()
         r = mermas_y_perdidas()
         self.assertTrue(r["vacio"])
         self.assertEqual(r["filas"], [])
@@ -352,8 +354,9 @@ class ExportacionCU46Test(BaseReportes):
 
     def test_un_reporte_vacio_tambien_se_exporta(self):
         """Poder llevarse la evidencia de que no hubo mermas también sirve."""
-        MovimientoInventario.objects.filter(
-            tipo=MovimientoInventario.Tipo.MERMA).delete()
+        with borrado_fisico_permitido():  # sólo para dejar el escenario vacío
+            MovimientoInventario.objects.filter(
+                tipo=MovimientoInventario.Tipo.MERMA).delete()
         resp = self._descargar("mermas", "pdf")
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.content.startswith(b"%PDF"))
