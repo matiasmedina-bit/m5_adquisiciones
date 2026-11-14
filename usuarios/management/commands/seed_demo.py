@@ -210,21 +210,22 @@ class Command(BaseCommand):
         # --- Solicitud de ejemplo ---
         ea = Usuario.objects.get(username="encargado")
         if not SolicitudMaterial.objects.exists():
+            # RF-12: las SM las emite el Jefe de Proyecto de la obra
             sol = SolicitudMaterial.objects.create(
-                proyecto=proyecto, emisor=ea,
+                proyecto=proyecto, emisor=jefe_user,
                 observaciones="Materiales para fundaciones del primer nivel.")
             SolicitudDetalle.objects.create(solicitud=sol, material=objs["Cemento Portland 25kg"],
                 cantidad_solicitada=200, unidad_medida="saco", partida=it1)
             SolicitudDetalle.objects.create(solicitud=sol, material=objs["Fierro estriado 12mm"],
                 cantidad_solicitada=150, unidad_medida="barra", partida=it1)
-            self.stdout.write(f"  Solicitud creada: {sol.correlativo}")
+            self.stdout.write(f"  Solicitud creada: {sol.numero}")
 
         # ------------------------------------------------------------------
         # Incremento 2: cadena aprobada -> cotización -> OC -> recepción -> factura
         # ------------------------------------------------------------------
         if not Cotizacion.objects.exists():
             sol2 = SolicitudMaterial.objects.create(
-                proyecto=proyecto, emisor=ea, estado=SolicitudMaterial.Estado.APROBADA,
+                proyecto=proyecto, emisor=jefe_user, estado=SolicitudMaterial.Estado.EMITIDA,
                 observaciones="Compra de cemento y fierro para losa nivel 2.")
             d_cem = SolicitudDetalle.objects.create(
                 solicitud=sol2, material=objs["Cemento Portland 25kg"],

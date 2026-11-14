@@ -58,7 +58,7 @@
       <div class="card-body d-flex align-items-center gap-3">
         <div class="stat-icon is-blue"><i class="bi bi-card-checklist"></i></div>
         <div>
-          <div class="text-muted small">Solicitudes pendientes</div>
+          <div class="text-muted small">{% if user.rol == 'JEFE_PROYECTO' %}Borradores sin emitir{% else %}Solicitudes por cotizar{% endif %}</div>
           <div class="fw-bold fs-4">{{ stats.solicitudes_pendientes }}</div>
         </div>
       </div>

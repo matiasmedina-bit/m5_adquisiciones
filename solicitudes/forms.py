@@ -22,23 +22,27 @@ class SolicitudForm(forms.ModelForm):
     def __init__(self, *args, usuario=None, **kwargs):
         super().__init__(*args, **kwargs)
         from proyectos.models import Proyecto
-        qs = Proyecto.objects.exclude(estado=Proyecto.Estado.FINALIZADO)
-        # Un Jefe de Proyecto pide para las obras que dirige —y una obra la
-        # dirigen varios a la vez, así que basta con estar entre ellos. Se le
-        # dejan además las que todavía no tienen ningún jefe asignado, porque
-        # si no, al cargar un proyecto nuevo nadie podría solicitar material
-        # hasta que alguien se acuerde de asignarlo.
+        self._usuario = usuario
+        # RF-12: sólo obras "En ejecución". Un Jefe de Proyecto, además, sólo
+        # las que tiene asignadas (una obra la dirigen varios a la vez, así que
+        # basta con estar entre ellos).
+        qs = Proyecto.objects.filter(estado=Proyecto.Estado.EJECUCION)
         if usuario is not None and usuario.rol == "JEFE_PROYECTO":
-            from django.db.models import Q
-            qs = qs.filter(Q(jefes=usuario) | Q(jefes__isnull=True)).distinct()
-        self.fields["proyecto"].queryset = qs
+            qs = qs.filter(jefes=usuario).distinct()
+        self.fields["proyecto"].queryset = qs.order_by("nombre")
+        self.fields["proyecto"].error_messages["invalid_choice"] = (
+            "Ese proyecto no está disponible: solo puedes pedir material para "
+            "obras «En ejecución» que tengas asignadas.")
 
     def clean_proyecto(self):
         proyecto = self.cleaned_data["proyecto"]
+        # CU-11 Excepción 1 (por si llega por otra vía que el selector)
         if proyecto and proyecto.esta_finalizado:
             raise forms.ValidationError(
-                "No se pueden generar solicitudes para un proyecto finalizado."
-            )
+                "El proyecto está finalizado: no admite nuevas solicitudes de materiales.")
+        if proyecto and not proyecto.admite_solicitudes:
+            raise forms.ValidationError(
+                "Solo se pueden pedir materiales para proyectos «En ejecución».")
         return proyecto
 
 
@@ -92,32 +96,31 @@ class SolicitudDetalleForm(forms.ModelForm):
                                                    "placeholder": "Requerida si la cantidad supera el saldo del itemizado"}),
         }
 
-    def __init__(self, *args, solicitud=None, **kwargs):
+    def __init__(self, *args, solicitud=None, proyecto=None, **kwargs):
         super().__init__(*args, **kwargs)
         self._solicitud = solicitud
         if self._solicitud is None and getattr(self.instance, "solicitud_id", None):
             self._solicitud = self.instance.solicitud
+        self._proyecto = proyecto or (self._solicitud.proyecto if self._solicitud else None)
 
         self.fields["material"].queryset = Material.objects.filter(activo=True)
         self.fields["proveedor"].queryset = Proveedor.objects.filter(estado=True)
         self.fields["proveedor"].empty_label = "\u2014 Cualquier proveedor \u2014"
         self.fields["proveedor_material"].queryset = ProveedorMaterial.objects.filter(
             disponible=True, proveedor__estado=True)
+        # La partida es obligatoria (RF-12), pero se valida en clean(): las
+        # filas vacías del formset de creación no deben exigirla.
         for opcional in ("material", "proveedor", "proveedor_material", "unidad_medida",
                          "valor_unitario", "detalle", "partida", "justificacion"):
             self.fields[opcional].required = False
 
-        if self._solicitud is not None:
-            self.fields["partida"].queryset = Itemizado.objects.filter(
-                proyecto=self._solicitud.proyecto)
-            self.fields["partida"].empty_label = "\u2014 Sin partida \u2014"
+        if self._proyecto is not None:
+            self.fields["partida"].queryset = Itemizado.objects.filter(proyecto=self._proyecto)
         else:
-            # Sin solicitud todavía (pantalla de creación) el proyecto se elige
-            # en la misma página: el selector se llena por API y la validación
-            # debe aceptar cualquier partida. SolicitudDetalle.save() descarta
-            # la que no sea del proyecto elegido.
+            # Sin proyecto todavía (el selector se llena por API al elegirlo):
+            # la vista vuelve a validar con el proyecto elegido antes de guardar.
             self.fields["partida"].queryset = Itemizado.objects.all()
-            self.fields["partida"].empty_label = "— Sin partida —"
+        self.fields["partida"].empty_label = "— Elige la partida —"
 
         # Al editar, el buscador muestra lo que ya estaba elegido
         if self.instance.pk and not self.initial.get("nombre_libre"):
@@ -151,7 +154,8 @@ class SolicitudDetalleForm(forms.ModelForm):
             return cleaned
 
         if oferta:
-            # Vino del catálogo de un proveedor: ese ítem manda
+            # Vino del catálogo de un proveedor: ese ítem manda, y queda
+            # amarrado a su material del catálogo maestro.
             cleaned["material"] = oferta.resolver_material()
             cleaned["proveedor"] = oferta.proveedor
             if not cleaned.get("unidad_medida"):
@@ -159,13 +163,13 @@ class SolicitudDetalleForm(forms.ModelForm):
             if not cleaned.get("valor_unitario"):
                 cleaned["valor_unitario"] = oferta.precio or 0
         elif not material and nombre_libre:
-            # Material que no está en ningún catálogo: se crea en el general
-            material_obj = Material.objects.filter(nombre__iexact=nombre_libre).first()
-            if material_obj is None:
-                material_obj = Material.objects.create(
-                    nombre=nombre_libre,
-                    unidad_medida=cleaned.get("unidad_medida") or "un")
-            cleaned["material"] = material_obj
+            # RF-12: el material se elige del catálogo maestro; no se crea
+            # escribiendo un nombre libre en la solicitud.
+            self.add_error(
+                "nombre_libre",
+                f"«{nombre_libre}» no está en el catálogo. Elige un material de la "
+                f"lista; si no existe, pide a Administración que lo registre.")
+            return cleaned
 
         material_final = cleaned.get("material")
         if material_final and not cleaned.get("unidad_medida"):
@@ -174,15 +178,25 @@ class SolicitudDetalleForm(forms.ModelForm):
         if not cleaned.get("cantidad_solicitada"):
             self.add_error("cantidad_solicitada", "Indica cuánto necesitas.")
 
-        # RF-16: alerta / justificación obligatoria si excede el saldo del itemizado
+        # RF-12 / CU-12 Exc. 1: la línea se vincula obligatoriamente a una partida
         partida = cleaned.get("partida")
+        if not partida:
+            self.add_error("partida", "Vincula la línea a una partida del itemizado.")
+            return cleaned
+        if self._proyecto is not None and partida.proyecto_id != self._proyecto.pk:
+            self.add_error("partida", "Esa partida no pertenece al proyecto de la solicitud.")
+            return cleaned
+
+        # RF-13 / CU-13: alerta y justificación obligatoria si excede el saldo
         cantidad = cleaned.get("cantidad_solicitada")
         justificacion = (cleaned.get("justificacion") or "").strip()
-        if partida and cantidad is not None and cantidad > partida.saldo_disponible and not justificacion:
+        saldo = partida.saldo_restante(
+            excluir_solicitud=self._solicitud.pk if self._solicitud else None)
+        if cantidad is not None and cantidad > saldo and not justificacion:
             self.add_error(
                 "justificacion",
-                f"La cantidad ({cantidad}) supera el saldo de la partida "
-                f"«{partida.codigo_partida}» ({partida.saldo_disponible}). "
+                f"La cantidad ({cantidad:g}) supera el saldo restante de la partida "
+                f"«{partida.codigo_partida}» ({saldo:g} {partida.unidad_medida}). "
                 f"Debes ingresar una justificación.",
             )
         return cleaned

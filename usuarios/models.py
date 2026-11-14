@@ -379,3 +379,31 @@ class IntentoAcceso(models.Model):
     @classmethod
     def limpiar(cls, clave):
         cls.objects.filter(clave=clave).delete()
+
+
+# ==========================================================================
+#  Notificaciones dentro del sistema (RF-15, RF-20, RF-22, RF-25, RF-30, RF-35)
+# ==========================================================================
+
+class Notificacion(models.Model):
+    """
+    Aviso para un usuario. Se muestra en la campana de la barra superior y,
+    además, se manda por correo (ver usuarios/notificaciones.py): el correo
+    puede no estar configurado o perderse, la campana no.
+    """
+    usuario = models.ForeignKey(
+        Usuario, on_delete=models.CASCADE, related_name="notificaciones",
+        verbose_name="Destinatario")
+    titulo = models.CharField("Título", max_length=150)
+    mensaje = models.TextField("Mensaje", blank=True)
+    url = models.CharField("Enlace", max_length=250, blank=True)
+    leida = models.BooleanField("Leída", default=False)
+    fecha = models.DateTimeField("Fecha", auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Notificación"
+        verbose_name_plural = "Notificaciones"
+        ordering = ["-fecha"]
+
+    def __str__(self):
+        return f"{self.usuario.username}: {self.titulo}"

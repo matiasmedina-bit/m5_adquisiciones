@@ -36,7 +36,7 @@ EA = "ENCARGADO_ADQUISICIONES"
 @rol_requerido(EA)
 def cotizacion_bandeja(request):
     solicitudes = (SolicitudMaterial.objects
-                   .filter(estado__in=[SolicitudMaterial.Estado.APROBADA,
+                   .filter(estado__in=[SolicitudMaterial.Estado.EMITIDA,
                                        SolicitudMaterial.Estado.EN_COTIZACION])
                    .select_related("proyecto", "emisor")
                    .order_by("fecha"))  # cronológico ascendente
@@ -199,10 +199,13 @@ def _todas_las_lineas_aprobadas(solicitud):
 
 
 def _refrescar_estado_cotizacion(solicitud):
-    """RF-22: cuando todos los materiales tienen línea aprobada, la SM pasa a 'En cotización'."""
-    if _todas_las_lineas_aprobadas(solicitud) and solicitud.estado == SolicitudMaterial.Estado.APROBADA:
-        solicitud.estado = SolicitudMaterial.Estado.EN_COTIZACION
-        solicitud.save(update_fields=["estado"])
+    """RF-20 / CU-20: cuando todos los materiales tienen línea aprobada, la SM
+    pasa a 'En cotización' (se notifica al JP) y se habilita generar la OC."""
+    if _todas_las_lineas_aprobadas(solicitud) and solicitud.estado == SolicitudMaterial.Estado.EMITIDA:
+        solicitud.cambiar_estado(
+            SolicitudMaterial.Estado.EN_COTIZACION,
+            "Todos los materiales tienen una cotización aprobada. Adquisiciones "
+            "ya puede generar la orden de compra.")
 
 
 @transaction.atomic
@@ -235,8 +238,11 @@ def _generar_ordenes_compra(solicitud, usuario, folio_con_punto=False):
                   f"por la solicitud {solicitud.correlativo}.", orden.correlativo)
         ordenes.append(orden)
 
-    solicitud.estado = SolicitudMaterial.Estado.OC_GENERADA
-    solicitud.save(update_fields=["estado"])
+    solicitud.cambiar_estado(
+        SolicitudMaterial.Estado.OC_GENERADA,
+        "Órdenes de compra generadas: "
+        + ", ".join(f"{o.correlativo} ({o.proveedor.nombre})" for o in ordenes)
+        + ". Quedan en borrador esperando la aprobación del Jefe de Proyecto.")
     return ordenes
 
 
@@ -584,10 +590,8 @@ def _enviar_orden_al_proveedor(request, orden):
     # anticipada no tiene solicitud que avanzar: nació en Adquisiciones.
     if orden.solicitud_id and orden.solicitud.estado in (
             SolicitudMaterial.Estado.EN_COTIZACION,
-            SolicitudMaterial.Estado.APROBADA,
-            SolicitudMaterial.Estado.OC_GENERADA):
-        orden.solicitud.estado = SolicitudMaterial.Estado.OC_GENERADA
-        orden.solicitud.save(update_fields=["estado"])
+            SolicitudMaterial.Estado.EMITIDA):
+        orden.solicitud.cambiar_estado(SolicitudMaterial.Estado.OC_GENERADA)
 
 
 def _refrescar_estado_recepcion_sm(solicitud):
@@ -595,18 +599,25 @@ def _refrescar_estado_recepcion_sm(solicitud):
     ordenes = solicitud.ordenes_compra.all()
     if not ordenes:
         return
-    estados = set(o.estado for o in ordenes)
+    # Las OC rechazadas o en borrador todavía no son una entrega pendiente
+    # de nadie; el estado de la SM lo deciden las que salieron al proveedor.
+    vigentes = [o for o in ordenes if o.estado not in (
+        OrdenCompra.Estado.BORRADOR, OrdenCompra.Estado.RECHAZADA)]
+    if not vigentes:
+        return
+    estados = set(o.estado for o in vigentes)
     if estados <= {OrdenCompra.Estado.RECIBIDA}:
-        solicitud.estado = SolicitudMaterial.Estado.RECIBIDA
+        nuevo = SolicitudMaterial.Estado.RECIBIDA
     elif estados & {OrdenCompra.Estado.RECEPCION_PARCIAL, OrdenCompra.Estado.RECIBIDA}:
-        solicitud.estado = SolicitudMaterial.Estado.RECEPCION_PARCIAL
+        nuevo = SolicitudMaterial.Estado.RECEPCION_PARCIAL
     elif estados & {OrdenCompra.Estado.NO_RECIBIDA}:
         # Alguna OC no llegó: la SM vuelve a OC_GENERADA para que se vea que
         # sigue pendiente, en vez de quedarse muda esperando.
-        solicitud.estado = SolicitudMaterial.Estado.OC_GENERADA
+        nuevo = SolicitudMaterial.Estado.OC_GENERADA
     else:
         return
-    solicitud.save(update_fields=["estado"])
+    detalle = "; ".join(f"{o.correlativo}: {o.get_estado_display()}" for o in vigentes)
+    solicitud.cambiar_estado(nuevo, f"Estado de recepción de sus órdenes de compra: {detalle}.")
 
 
 # ----------------------------------------------------------------------------

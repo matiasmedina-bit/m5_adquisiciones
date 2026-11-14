@@ -65,7 +65,7 @@ class BaseReportes(TestCase):
 
         self.sm = SolicitudMaterial.objects.create(
             proyecto=self.proyecto, emisor=self.ea,
-            estado=SolicitudMaterial.Estado.APROBADA)
+            estado=SolicitudMaterial.Estado.EMITIDA)
         SolicitudDetalle.objects.create(
             solicitud=self.sm, material=self.cemento, cantidad_solicitada=100,
             unidad_medida="saco", valor_unitario=5000, partida=self.partida)

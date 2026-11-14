@@ -132,9 +132,35 @@ class Itemizado(models.Model):
     def __str__(self):
         return f"{self.codigo_partida} - {self.descripcion}"
 
+    def cantidad_comprometida(self, excluir_solicitud=None):
+        """
+        Lo ya pedido contra esta partida en solicitudes emitidas (de la emisión
+        en adelante; no cuentan borradores ni rechazadas).
+        """
+        from django.db.models import Sum
+        lineas = self.lineas_solicitud.exclude(
+            solicitud__estado__in=["BORRADOR", "RECHAZADA"])
+        if excluir_solicitud:
+            lineas = lineas.exclude(solicitud_id=excluir_solicitud)
+        return lineas.aggregate(t=Sum("cantidad_solicitada"))["t"] or 0
+
+    def saldo_restante(self, excluir_solicitud=None):
+        """
+        RF-13: saldo restante del itemizado presupuestado.
+
+        Se descuenta lo que ya se pidió en otras solicitudes o lo ya ejecutado
+        en obra, lo que sea mayor: ambos miden el uso de la misma partida
+        (lo pedido termina ejecutándose), así que sumarlos contaría dos veces
+        el mismo material. Sin lo pedido, dos solicitudes que juntas excedían
+        la partida pasaban sin alerta.
+        """
+        usado = max(self.cant_ejecutada or 0,
+                    self.cantidad_comprometida(excluir_solicitud=excluir_solicitud))
+        return self.cant_presupuestada - usado
+
     @property
     def saldo_disponible(self):
-        return self.cant_presupuestada - self.cant_ejecutada
+        return self.saldo_restante()
 
 
 # ==========================================================================

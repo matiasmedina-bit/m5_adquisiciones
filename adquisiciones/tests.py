@@ -9,7 +9,7 @@ from django.urls import reverse
 
 from usuarios.models import Usuario
 from proveedores.models import Proveedor
-from proyectos.models import Proyecto
+from proyectos.models import Itemizado, Proyecto
 from inventario.models import Material
 from solicitudes.models import SolicitudMaterial, SolicitudDetalle
 from .models import Cotizacion, CotizacionLinea, OrdenCompra, OrdenCompraLinea
@@ -23,14 +23,14 @@ class BaseAdq(TestCase):
         self.jefe = Usuario.objects.create_user("jp", password="clave12345",
                                                 email="jp@m5.cl", rol="JEFE_PROYECTO")
         self.proyecto = Proyecto.objects.create(
-            nombre="Obra", mandante="M", fecha_inicio=date(2026, 6, 1))
+            nombre="Obra", mandante="M", fecha_inicio=date(2026, 6, 1), estado="EJECUCION")
         self.proyecto.jefes.add(self.jefe)
         self.prov1 = Proveedor.objects.create(nombre="Prov 1", rut="11111111-1", correo="p1@x.cl")
         self.prov2 = Proveedor.objects.create(nombre="Prov 2", rut="12345678-5", correo="p2@x.cl")
         self.mat_a = Material.objects.create(nombre="Cemento", unidad_medida="saco", precio_referencia=4500)
         self.mat_b = Material.objects.create(nombre="Fierro", unidad_medida="barra", precio_referencia=8900)
         self.sm = SolicitudMaterial.objects.create(
-            proyecto=self.proyecto, emisor=self.ea, estado=SolicitudMaterial.Estado.APROBADA)
+            proyecto=self.proyecto, emisor=self.jefe, estado=SolicitudMaterial.Estado.EMITIDA)
         self.d_a = SolicitudDetalle.objects.create(
             solicitud=self.sm, material=self.mat_a, cantidad_solicitada=100, unidad_medida="saco")
         self.d_b = SolicitudDetalle.objects.create(
@@ -250,7 +250,7 @@ class TrazabilidadCU47Test(BaseAdq):
         """Una SM sin OC todavía: la pantalla lo dice, no deja el hueco mudo."""
         sm2 = SolicitudMaterial.objects.create(
             proyecto=self.proyecto, emisor=self.ea,
-            estado=SolicitudMaterial.Estado.ENVIADA)
+            estado=SolicitudMaterial.Estado.EMITIDA)
         SolicitudDetalle.objects.create(
             solicitud=sm2, material=self.mat_b, cantidad_solicitada=10,
             unidad_medida="barra")
@@ -342,26 +342,21 @@ class CortesDeFlujoTest(BaseAdq):
 
 
 class SolicitudRechazadaTest(BaseAdq):
-    """Corte 3: una SM rechazada no se podía corregir y había que rehacerla."""
+    """Una SM rechazada se corrige y se vuelve a emitir, sin rehacerla."""
 
-    def setUp(self):
-        super().setUp()
-        self.sm.estado = SolicitudMaterial.Estado.ENVIADA
-        self.sm.save()
+    def _rechazar(self, motivo):
+        self.client.login(username="ea", password="clave12345")
+        self.client.post(reverse("solicitudes:rechazar", args=[self.sm.pk]), {"motivo": motivo})
 
     def test_el_rechazo_guarda_el_motivo(self):
-        self.client.login(username="jp", password="clave12345")
-        self.client.post(reverse("solicitudes:resolver", args=[self.sm.pk, "rechazar"]),
-                         {"motivo": "La cantidad de cemento no calza con el itemizado"})
+        self._rechazar("La cantidad de cemento no calza con el itemizado")
         self.sm.refresh_from_db()
         self.assertEqual(self.sm.estado, SolicitudMaterial.Estado.RECHAZADA)
         self.assertIn("no calza", self.sm.motivo_rechazo)
 
-    def test_el_encargado_ve_por_qué_se_la_rechazaron(self):
+    def test_el_jefe_ve_por_que_se_la_rechazaron(self):
+        self._rechazar("Falta la justificación de la partida OG-02")
         self.client.login(username="jp", password="clave12345")
-        self.client.post(reverse("solicitudes:resolver", args=[self.sm.pk, "rechazar"]),
-                         {"motivo": "Falta la justificación de la partida OG-02"})
-        self.client.login(username="ea", password="clave12345")
         resp = self.client.get(reverse("solicitudes:detalle", args=[self.sm.pk]))
         self.assertContains(resp, "Falta la justificación")
 
@@ -372,7 +367,7 @@ class SolicitudRechazadaTest(BaseAdq):
         lineas_antes = self.sm.detalles.count()
         correlativo = self.sm.correlativo
 
-        self.client.login(username="ea", password="clave12345")
+        self.client.login(username="jp", password="clave12345")
         self.client.post(reverse("solicitudes:devolver_borrador", args=[self.sm.pk]))
 
         self.sm.refresh_from_db()
@@ -382,17 +377,17 @@ class SolicitudRechazadaTest(BaseAdq):
         self.assertEqual(self.sm.detalles.count(), lineas_antes)
 
     def test_solo_se_devuelve_una_rechazada(self):
-        self.client.login(username="ea", password="clave12345")
+        self.client.login(username="jp", password="clave12345")
         self.client.post(reverse("solicitudes:devolver_borrador", args=[self.sm.pk]))
         self.sm.refresh_from_db()
-        self.assertEqual(self.sm.estado, SolicitudMaterial.Estado.ENVIADA)  # sin cambios
+        self.assertEqual(self.sm.estado, SolicitudMaterial.Estado.EMITIDA)  # sin cambios
 
     def test_el_boton_aparece_en_la_pantalla(self):
         self.sm.estado = SolicitudMaterial.Estado.RECHAZADA
         self.sm.save()
-        self.client.login(username="ea", password="clave12345")
+        self.client.login(username="jp", password="clave12345")
         resp = self.client.get(reverse("solicitudes:detalle", args=[self.sm.pk]))
-        self.assertContains(resp, "Corregir y volver a enviar")
+        self.assertContains(resp, "Corregir y volver a emitir")
 
 
 class LecturaEntreModulosTest(BaseAdq):
@@ -455,12 +450,15 @@ class FlujoPorRolTest(TestCase):
             "bodega", password="clave12345", email="bodega@m5.cl", rol="BODEGUERO")
         self.obra = Proyecto.objects.create(
             nombre="Edificio Los Aromos", mandante="M5",
-            fecha_inicio=date(2026, 6, 1))
+            fecha_inicio=date(2026, 6, 1), estado="EJECUCION")
         self.obra.jefes.add(self.jefe)
         self.prov = Proveedor.objects.create(
             nombre="Ferretería Central", rut="11111111-1", correo="vende@prov.cl")
         self.material = Material.objects.create(
             nombre="Cemento", unidad_medida="saco", precio_referencia=4500)
+        self.partida = Itemizado.objects.create(
+            proyecto=self.obra, codigo_partida="OG-01", descripcion="Obra gruesa",
+            unidad_medida="saco", cant_presupuestada=1000)
 
     def _entrar(self, usuario):
         c = Client()
@@ -481,12 +479,12 @@ class FlujoPorRolTest(TestCase):
             estado=SolicitudMaterial.Estado.BORRADOR)
         SolicitudDetalle.objects.create(
             solicitud=sm, material=self.material, cantidad_solicitada=80,
-            unidad_medida="saco")
+            unidad_medida="saco", partida=self.partida)
 
-        c.post(reverse("solicitudes:enviar", args=[sm.pk]))
+        c.post(reverse("solicitudes:emitir", args=[sm.pk]))
 
         sm.refresh_from_db()
-        self.assertEqual(sm.estado, SolicitudMaterial.Estado.APROBADA)
+        self.assertEqual(sm.estado, SolicitudMaterial.Estado.EMITIDA)
 
     def test_la_solicitud_del_jefe_le_aparece_a_adquisiciones(self):
         sm = SolicitudMaterial.objects.create(
@@ -494,41 +492,32 @@ class FlujoPorRolTest(TestCase):
             estado=SolicitudMaterial.Estado.BORRADOR)
         SolicitudDetalle.objects.create(
             solicitud=sm, material=self.material, cantidad_solicitada=80,
-            unidad_medida="saco")
-        self._entrar(self.jefe).post(reverse("solicitudes:enviar", args=[sm.pk]))
+            unidad_medida="saco", partida=self.partida)
+        self._entrar(self.jefe).post(reverse("solicitudes:emitir", args=[sm.pk]))
+        sm.refresh_from_db()   # el correlativo se asigna al emitir
 
         bandeja = self._entrar(self.ea).get(reverse("adquisiciones:cotizacion_bandeja"))
         self.assertContains(bandeja, sm.correlativo)
 
-    def test_lo_que_arma_adquisiciones_si_pasa_por_el_jefe(self):
-        """Compromete plata de una obra que dirige otro, así que se le consulta."""
-        c = self._entrar(self.ea)
-        sm = SolicitudMaterial.objects.create(
-            proyecto=self.obra, emisor=self.ea,
-            estado=SolicitudMaterial.Estado.BORRADOR)
-        SolicitudDetalle.objects.create(
-            solicitud=sm, material=self.material, cantidad_solicitada=10,
-            unidad_medida="saco")
-
-        c.post(reverse("solicitudes:enviar", args=[sm.pk]))
-
-        sm.refresh_from_db()
-        self.assertEqual(sm.estado, SolicitudMaterial.Estado.ENVIADA)
+    def test_adquisiciones_no_crea_solicitudes(self):
+        """RF-12: la SM la crea el Jefe de Proyecto; Adquisiciones la cotiza."""
+        resp = self._entrar(self.ea).get(reverse("solicitudes:crear"))
+        self.assertEqual(resp.status_code, 403)
 
     def test_un_jefe_no_toca_la_solicitud_de_la_obra_de_otro(self):
         otro = Usuario.objects.create_user(
             "jefe2", password="clave12345", email="j2@m5.cl", rol="JEFE_PROYECTO")
         obra_ajena = Proyecto.objects.create(
-            nombre="Obra ajena", mandante="M5", fecha_inicio=date(2026, 6, 1))
+            nombre="Obra ajena", mandante="M5", fecha_inicio=date(2026, 6, 1), estado="EJECUCION")
         obra_ajena.jefes.add(otro)
         sm = SolicitudMaterial.objects.create(
             proyecto=obra_ajena, emisor=otro,
             estado=SolicitudMaterial.Estado.BORRADOR)
         SolicitudDetalle.objects.create(
             solicitud=sm, material=self.material, cantidad_solicitada=5,
-            unidad_medida="saco")
+            unidad_medida="saco", partida=self.partida)
 
-        resp = self._entrar(self.jefe).post(reverse("solicitudes:enviar", args=[sm.pk]))
+        resp = self._entrar(self.jefe).post(reverse("solicitudes:emitir", args=[sm.pk]))
 
         self.assertEqual(resp.status_code, 403)
         sm.refresh_from_db()
@@ -544,8 +533,8 @@ class FlujoPorRolTest(TestCase):
             estado=SolicitudMaterial.Estado.BORRADOR)
         detalle = SolicitudDetalle.objects.create(
             solicitud=sm, material=self.material, cantidad_solicitada=80,
-            unidad_medida="saco")
-        cj.post(reverse("solicitudes:enviar", args=[sm.pk]))
+            unidad_medida="saco", partida=self.partida)
+        cj.post(reverse("solicitudes:emitir", args=[sm.pk]))
 
         # 2. Adquisiciones cotiza
         ce = self._entrar(self.ea)
@@ -628,7 +617,7 @@ class FlujoPorRolTest(TestCase):
         """Ahí sí hay un jefe de obra que responde por ese presupuesto."""
         sm = SolicitudMaterial.objects.create(
             proyecto=self.obra, emisor=self.jefe,
-            estado=SolicitudMaterial.Estado.APROBADA)
+            estado=SolicitudMaterial.Estado.EMITIDA)
         orden = OrdenCompra.objects.create(
             solicitud=sm, proveedor=self.prov, creada_por=self.ea)
         OrdenCompraLinea.objects.create(
@@ -674,7 +663,7 @@ class EncargadoAdquisicionesTest(TestCase):
             rol="JEFE_PROYECTO")
         self.obra = Proyecto.objects.create(
             nombre="Edificio Central", mandante="M5",
-            fecha_inicio=date(2026, 6, 1))
+            fecha_inicio=date(2026, 6, 1), estado="EJECUCION")
         self.obra.jefes.add(self.jefe)
         self.prov = Proveedor.objects.create(
             nombre="Ferretería Central", rut="11111111-1", correo="vende@prov.cl")
@@ -689,7 +678,7 @@ class EncargadoAdquisicionesTest(TestCase):
     def _solicitud_lista_para_cotizar(self):
         sm = SolicitudMaterial.objects.create(
             proyecto=self.obra, emisor=self.jefe,
-            estado=SolicitudMaterial.Estado.APROBADA)
+            estado=SolicitudMaterial.Estado.EMITIDA)
         detalle = SolicitudDetalle.objects.create(
             solicitud=sm, material=self.material, cantidad_solicitada=100,
             unidad_medida="saco")
@@ -990,7 +979,7 @@ class CicloSinAdministradorTest(TestCase):
             "jefe_b", password="clave12345", email="jb@m5.cl", rol="JEFE_PROYECTO")
         self.obra = Proyecto.objects.create(
             nombre="Smart Fit Chillán", mandante="Smart Fit",
-            fecha_inicio=date(2026, 6, 1))
+            fecha_inicio=date(2026, 6, 1), estado="EJECUCION")
         self.obra.jefes.add(self.jefe_a, self.jefe_b)
         self.prov = Proveedor.objects.create(
             nombre="Carlos Herrera", rut="77201840-1", correo="v@herrera.cl")
@@ -998,26 +987,28 @@ class CicloSinAdministradorTest(TestCase):
             nombre="Sodimac SA", rut="96792430-K", correo="v@sodimac.cl")
         self.material = Material.objects.create(
             nombre="Fierro hormigón 8mm", unidad_medida="un")
+        self.partida = Itemizado.objects.create(
+            proyecto=self.obra, codigo_partida="E-01", descripcion="Enfierradura",
+            unidad_medida="un", cant_presupuestada=10000)
 
-    def _solicitud(self, emisor, estado=SolicitudMaterial.Estado.ENVIADA):
+    def _solicitud(self, emisor, estado=SolicitudMaterial.Estado.EMITIDA):
         sm = SolicitudMaterial.objects.create(
             proyecto=self.obra, emisor=emisor, estado=estado)
         SolicitudDetalle.objects.create(
             solicitud=sm, material=self.material, cantidad_solicitada=100,
-            unidad_medida="un", valor_unitario=1944)
+            unidad_medida="un", valor_unitario=1944, partida=self.partida)
         return sm
 
     # --- los dos jefes de la obra trabajan igual ------------------------
-    def test_los_dos_jefes_de_la_obra_pueden_enviar_su_solicitud(self):
+    def test_los_dos_jefes_de_la_obra_pueden_emitir_su_solicitud(self):
         for jefe in (self.jefe_a, self.jefe_b):
             self.client.login(username=jefe.username, password="clave12345")
             sm = self._solicitud(jefe, SolicitudMaterial.Estado.BORRADOR)
-            resp = self.client.post(reverse("solicitudes:enviar", args=[sm.pk]))
+            resp = self.client.post(reverse("solicitudes:emitir", args=[sm.pk]))
             self.assertEqual(resp.status_code, 302)
             sm.refresh_from_db()
-            # Lo que pide un jefe de la obra ya viene autorizado: pasa derecho
-            # a cotización sin esperar visto bueno de nadie.
-            self.assertEqual(sm.estado, SolicitudMaterial.Estado.APROBADA,
+            # RF-12: al confirmar queda "Emitida" y entra a la bandeja.
+            self.assertEqual(sm.estado, SolicitudMaterial.Estado.EMITIDA,
                              f"{jefe.username} no pudo emitir su solicitud")
 
     def test_un_jefe_ve_la_solicitud_que_emitio_el_otro_de_su_obra(self):
@@ -1028,29 +1019,19 @@ class CicloSinAdministradorTest(TestCase):
         self.assertTrue(resp.context["puede_gestionar"])
 
     # --- adquisiciones resuelve y sigue a cotizar -----------------------
-    def test_adquisiciones_ve_los_botones_de_aprobar_y_rechazar(self):
-        sm = self._solicitud(self.ea)
+    def test_adquisiciones_ve_cotizar_y_rechazar(self):
+        sm = self._solicitud(self.jefe_a)
         self.client.login(username="adq", password="clave12345")
         resp = self.client.get(reverse("solicitudes:detalle", args=[sm.pk]))
         self.assertEqual(resp.status_code, 200)
-        self.assertTrue(resp.context["puede_resolver"],
-                        "Adquisiciones sigue sin poder resolver la solicitud")
-        self.assertContains(resp, "Aprobar")
-
-    def test_al_aprobar_adquisiciones_queda_en_la_pantalla_de_cotizacion(self):
-        sm = self._solicitud(self.ea)
-        self.client.login(username="adq", password="clave12345")
-        resp = self.client.post(
-            reverse("solicitudes:resolver", args=[sm.pk, "aprobar"]))
-        sm.refresh_from_db()
-        self.assertEqual(sm.estado, SolicitudMaterial.Estado.APROBADA)
-        self.assertRedirects(
-            resp, reverse("adquisiciones:cotizacion_sm", args=[sm.pk]))
+        self.assertTrue(resp.context["puede_cotizar"])
+        self.assertTrue(resp.context["puede_rechazar"])
+        self.assertContains(resp, reverse("adquisiciones:cotizacion_sm", args=[sm.pk]))
 
     def test_adquisiciones_puede_rechazar_con_motivo(self):
-        sm = self._solicitud(self.ea)
+        sm = self._solicitud(self.jefe_a)
         self.client.login(username="adq", password="clave12345")
-        self.client.post(reverse("solicitudes:resolver", args=[sm.pk, "rechazar"]),
+        self.client.post(reverse("solicitudes:rechazar", args=[sm.pk]),
                          {"motivo": "la cantidad no calza con el itemizado"})
         sm.refresh_from_db()
         self.assertEqual(sm.estado, SolicitudMaterial.Estado.RECHAZADA)
@@ -1058,7 +1039,7 @@ class CicloSinAdministradorTest(TestCase):
 
     # --- la cotización vacía que dejaba la OC bloqueada -----------------
     def test_una_cotizacion_sin_precios_no_se_guarda(self):
-        sm = self._solicitud(self.ea, SolicitudMaterial.Estado.APROBADA)
+        sm = self._solicitud(self.jefe_a, SolicitudMaterial.Estado.EMITIDA)
         detalle = sm.detalles.first()
         self.client.login(username="adq", password="clave12345")
         self.client.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]), {
@@ -1070,7 +1051,7 @@ class CicloSinAdministradorTest(TestCase):
                          "Se guardó una cotización sin valores: deja la OC bloqueada")
 
     def test_cotizacion_con_precio_se_guarda_y_deja_generar_la_oc(self):
-        sm = self._solicitud(self.ea, SolicitudMaterial.Estado.APROBADA)
+        sm = self._solicitud(self.jefe_a, SolicitudMaterial.Estado.EMITIDA)
         detalle = sm.detalles.first()
         self.client.login(username="adq", password="clave12345")
         self.client.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]), {
@@ -1095,7 +1076,7 @@ class CicloSinAdministradorTest(TestCase):
         self.assertEqual(orden.lineas.count(), 1)
 
     def test_se_puede_borrar_una_cotizacion_mal_cargada(self):
-        sm = self._solicitud(self.ea, SolicitudMaterial.Estado.APROBADA)
+        sm = self._solicitud(self.jefe_a, SolicitudMaterial.Estado.EMITIDA)
         cot = Cotizacion.objects.create(
             solicitud=sm, proveedor=self.otro_prov, creada_por=self.ea,
             costo_despacho=0, tiempo_entrega_dias=1)
@@ -1105,7 +1086,7 @@ class CicloSinAdministradorTest(TestCase):
         self.assertFalse(Cotizacion.objects.filter(pk=cot.pk).exists())
 
     def test_no_se_borra_una_cotizacion_con_lineas_ya_aprobadas(self):
-        sm = self._solicitud(self.ea, SolicitudMaterial.Estado.APROBADA)
+        sm = self._solicitud(self.jefe_a, SolicitudMaterial.Estado.EMITIDA)
         cot = Cotizacion.objects.create(
             solicitud=sm, proveedor=self.prov, creada_por=self.ea,
             costo_despacho=0, tiempo_entrega_dias=1)
@@ -1122,9 +1103,9 @@ class CicloSinAdministradorTest(TestCase):
         """Obra → solicitud del jefe → cotización → OC → envío al proveedor."""
         self.client.login(username="jefe_a", password="clave12345")
         sm = self._solicitud(self.jefe_a, SolicitudMaterial.Estado.BORRADOR)
-        self.client.post(reverse("solicitudes:enviar", args=[sm.pk]))
+        self.client.post(reverse("solicitudes:emitir", args=[sm.pk]))
         sm.refresh_from_db()
-        self.assertEqual(sm.estado, SolicitudMaterial.Estado.APROBADA)
+        self.assertEqual(sm.estado, SolicitudMaterial.Estado.EMITIDA)
 
         self.client.login(username="adq", password="clave12345")
         bandeja = self.client.get(reverse("adquisiciones:cotizacion_bandeja"))

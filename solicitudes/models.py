@@ -22,17 +22,23 @@ class SolicitudMaterial(models.Model):
     """Entidad Solicitud_Material (cabecera de la solicitud)."""
 
     class Estado(models.TextChoices):
+        # Antes de confirmar (RF-12): el Jefe de Proyecto arma la solicitud,
+        # agrega líneas y adjuntos. Todavía no tiene número ni existe para
+        # Adquisiciones.
         BORRADOR = "BORRADOR", "Borrador"
-        ENVIADA = "ENVIADA", "Enviada"
-        APROBADA = "APROBADA", "Aprobada"
-        RECHAZADA = "RECHAZADA", "Rechazada"
-        # --- Incremento 2 (Adquisiciones / Bodega) ---
+        # RF-15: los seis estados del documento
+        EMITIDA = "EMITIDA", "Emitida"
         EN_COTIZACION = "EN_COTIZACION", "En cotización"
         OC_GENERADA = "OC_GENERADA", "OC generada"
+        RECHAZADA = "RECHAZADA", "Rechazada"
         RECEPCION_PARCIAL = "RECEPCION_PARCIAL", "Entregada parcialmente"
         RECIBIDA = "RECIBIDA", "Entregada"
 
-    correlativo = models.CharField("Correlativo", max_length=20, unique=True, editable=False)
+    # RF-12: número correlativo único y secuencial, asignado por el sistema al
+    # confirmar (emitir) la SM. No se ingresa ni se modifica a mano. Un
+    # borrador todavía no tiene número.
+    correlativo = models.CharField(
+        "Correlativo", max_length=20, unique=True, editable=False, null=True, blank=True)
     proyecto = models.ForeignKey(Proyecto, on_delete=models.PROTECT, related_name="solicitudes")
     # Usuario que emite la solicitud (Encargado de Adquisiciones)
     emisor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="solicitudes_emitidas")
@@ -49,15 +55,80 @@ class SolicitudMaterial(models.Model):
         ordering = ["-fecha"]
 
     def __str__(self):
-        return f"{self.correlativo} - {self.proyecto.nombre}"
+        return f"{self.numero} - {self.proyecto.nombre}"
+
+    @property
+    def numero(self):
+        """El correlativo, o una etiqueta provisoria mientras es borrador."""
+        return self.correlativo or f"Borrador N° {self.pk or 'nuevo'}"
+
+    @staticmethod
+    def _siguiente_correlativo():
+        """
+        Próximo SM-000001, SM-000002… Se serializa bloqueando la fila única de
+        parámetros: dos emisiones simultáneas no pueden llevarse el mismo
+        número, y la restricción unique del campo es la red de seguridad.
+        """
+        from usuarios.models import ParametrosSistema
+        ParametrosSistema.actuales()
+        ParametrosSistema.objects.select_for_update().get(pk=1)
+        ultimo = (SolicitudMaterial.objects
+                  .filter(correlativo__startswith="SM-")
+                  .order_by("-correlativo")
+                  .values_list("correlativo", flat=True)
+                  .first())
+        try:
+            numero = int(ultimo.split("-")[1]) + 1 if ultimo else 1
+        except (IndexError, ValueError):
+            numero = SolicitudMaterial.objects.count() + 1
+        candidato = f"SM-{numero:06d}"
+        while SolicitudMaterial.objects.filter(correlativo=candidato).exists():
+            numero += 1
+            candidato = f"SM-{numero:06d}"
+        return candidato
 
     def save(self, *args, **kwargs):
-        if not self.correlativo:
-            # Genera correlativo tipo SM-000001
-            ultimo = SolicitudMaterial.objects.order_by("-id").first()
-            siguiente = (ultimo.id + 1) if ultimo else 1
-            self.correlativo = f"SM-{siguiente:06d}"
-        super().save(*args, **kwargs)
+        if not self.correlativo and self.estado != self.Estado.BORRADOR:
+            from django.db import transaction
+            with transaction.atomic():
+                self.correlativo = self._siguiente_correlativo()
+                return super().save(*args, **kwargs)
+        return super().save(*args, **kwargs)
+
+    # ------------------------------------------------------------------
+    # RF-15 / CU-15: todo cambio de estado pasa por aquí y se notifica
+    # ------------------------------------------------------------------
+    def jefes_responsables(self):
+        """Los Jefes de Proyecto a notificar: los de la obra y quien la emitió."""
+        jefes = list(self.proyecto.jefes.all())
+        if self.emisor.rol == "JEFE_PROYECTO" and self.emisor not in jefes:
+            jefes.append(self.emisor)
+        return jefes
+
+    def cambiar_estado(self, nuevo, descripcion="", campos_extra=()):
+        """
+        Cambia el estado, lo guarda y notifica al Jefe de Proyecto responsable
+        (RF-15). La descripción es opcional (CU-15 Excepción 1: sin ella se
+        notifica sólo el nuevo estado).
+        """
+        if nuevo == self.estado:
+            return False
+        self.estado = nuevo
+        campos = ["estado", *campos_extra]
+        if not self.correlativo and nuevo != self.Estado.BORRADOR:
+            self.save()  # asigna el correlativo
+        else:
+            self.save(update_fields=campos)
+        from django.urls import reverse
+        from usuarios.notificaciones import notificar
+        titulo = f"Solicitud {self.numero}: {self.get_estado_display()}"
+        cuerpo = (f"La solicitud {self.numero} de {self.proyecto.nombre} cambió al "
+                  f"estado «{self.get_estado_display()}».")
+        if descripcion:
+            cuerpo += f"\n\n{descripcion}"
+        notificar(self.jefes_responsables(), titulo, cuerpo,
+                  url=reverse("solicitudes:detalle", args=[self.pk]))
+        return True
 
     @property
     def editable(self):
@@ -65,16 +136,18 @@ class SolicitudMaterial(models.Model):
         return self.estado == self.Estado.BORRADOR
 
     @property
+    def rechazable(self):
+        """Adquisiciones puede rechazar una SM emitida mientras no tenga OC."""
+        return self.estado in (self.Estado.EMITIDA, self.Estado.EN_COTIZACION)
+
+    @property
     def total_items(self):
         return self.detalles.count()
 
     @property
     def puede_cotizarse(self):
-        """RF-19: una SM aprobada por el Jefe de Proyecto entra a la bandeja
-        de Adquisiciones para cotizar (equivale al estado 'Emitida' del documento)."""
-        return self.estado in (
-            self.Estado.APROBADA, self.Estado.EN_COTIZACION,
-        )
+        """RF-16/RF-17: una SM emitida entra a la bandeja de Adquisiciones."""
+        return self.estado in (self.Estado.EMITIDA, self.Estado.EN_COTIZACION)
 
     @property
     def total_adjuntos(self):
@@ -149,10 +222,12 @@ class SolicitudDetalle(models.Model):
 
     @property
     def excede_itemizado(self):
-        """RF-16: True si la cantidad pedida supera el saldo disponible de la partida."""
+        """RF-13: True si la cantidad pedida supera el saldo restante de la partida
+        (sin contar la propia solicitud)."""
         if not self.partida:
             return False
-        return self.cantidad_solicitada > self.partida.saldo_disponible
+        return self.cantidad_solicitada > self.partida.saldo_restante(
+            excluir_solicitud=self.solicitud_id)
 
     @property
     def valor_total(self):
@@ -193,7 +268,8 @@ class SolicitudDetalle(models.Model):
 
 
 def ruta_adjunto_solicitud(instance, filename):
-    return f"solicitudes/{instance.solicitud.correlativo}/{filename}"
+    # Por pk y no por correlativo: un borrador todavía no tiene número.
+    return f"solicitudes/{instance.solicitud_id}/{filename}"
 
 
 class SolicitudAdjunto(models.Model):

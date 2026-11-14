@@ -1,17 +1,17 @@
 {% extends 'base.html' %}
-{% block title %}{{ solicitud.correlativo }}{% endblock %}
+{% block title %}{{ solicitud.numero }}{% endblock %}
 {% block content %}
 
 <div class="d-flex justify-content-between align-items-start mb-3">
   <div>
-    <h1 class="h3 mb-0">{{ solicitud.correlativo }}</h1>
+    <h1 class="h3 mb-0">{{ solicitud.numero }}</h1>
     <small class="text-muted">{{ solicitud.proyecto.nombre }} · {{ solicitud.fecha|date:"d-m-Y H:i" }}</small>
   </div>
   <div class="d-flex gap-2 align-items-center">
     <span class="badge fs-6
-      {% if solicitud.estado == 'APROBADA' or solicitud.estado == 'RECIBIDA' %}bg-success
+      {% if solicitud.estado == 'RECIBIDA' %}bg-success
       {% elif solicitud.estado == 'RECHAZADA' %}bg-danger
-      {% elif solicitud.estado == 'ENVIADA' %}bg-warning text-dark
+      {% elif solicitud.estado == 'EMITIDA' %}bg-warning text-dark
       {% elif solicitud.estado == 'EN_COTIZACION' or solicitud.estado == 'OC_GENERADA' or solicitud.estado == 'RECEPCION_PARCIAL' %}bg-info text-dark
       {% else %}bg-secondary{% endif %}">
       {{ solicitud.get_estado_display }}
@@ -21,7 +21,7 @@
 
 {% if solicitud.estado == 'RECHAZADA' and solicitud.motivo_rechazo %}
 <div class="alert alert-danger">
-  <strong>El Jefe de Proyecto rechazó esta solicitud.</strong><br>
+  <strong>Adquisiciones rechazó esta solicitud.</strong><br>
   {{ solicitud.motivo_rechazo }}
 </div>
 {% endif %}
@@ -57,8 +57,9 @@
           <thead class="table-light">
             <tr>
               <th>Material</th><th>Proveedor</th><th>Partida</th>
-              <th class="text-end">Cantidad</th><th class="text-end">Valor unit.</th>
-              <th class="text-end">Subtotal</th><th></th>
+              <th class="text-end">Cantidad</th>
+              {% if not oculta_precios %}<th class="text-end">Valor unit.</th>
+              <th class="text-end">Subtotal</th>{% endif %}<th></th>
             </tr>
           </thead>
           <tbody>
@@ -87,12 +88,14 @@
                 {{ d.cantidad_solicitada|floatformat:"-2" }}
                 <span class="text-muted fw-normal">{{ d.unidad_medida }}</span>
               </td>
+              {% if not oculta_precios %}
               <td class="text-end text-nowrap">
                 {% if d.valor_unitario %}${{ d.valor_unitario|floatformat:"0g" }}{% else %}<span class="text-muted">—</span>{% endif %}
               </td>
               <td class="text-end text-nowrap">
                 {% if d.valor_total %}${{ d.valor_total|floatformat:"0g" }}{% else %}<span class="text-muted">—</span>{% endif %}
               </td>
+              {% endif %}
               <td class="text-end">
                 {% if solicitud.editable and puede_gestionar %}
                   <form method="post" action="{% url 'solicitudes:detalle_eliminar' d.pk %}" class="d-inline"
@@ -107,7 +110,7 @@
             <tr><td colspan="7" class="text-center text-muted py-3">Sin materiales aún.</td></tr>
           {% endfor %}
           </tbody>
-          {% if solicitud.total_items %}
+          {% if solicitud.total_items and not oculta_precios %}
           <tfoot class="table-light">
             <tr>
               <td colspan="5" class="text-end fw-semibold">Total estimado</td>
@@ -138,6 +141,7 @@
               <label class="form-label small mb-1">Material</label>
               {{ form.nombre_libre }}
               {{ form.material }}{{ form.proveedor_material }}{{ form.unidad_medida }}
+              {% if form.nombre_libre.errors %}<div class="text-danger small">{{ form.nombre_libre.errors|striptags }}</div>{% endif %}
               <div class="sugerencias list-group position-absolute shadow" style="z-index:1050;display:none;max-height:280px;overflow-y:auto;width:calc(100% - 1.5rem);"></div>
               <div class="elegido small text-success mt-1" style="display:none;"></div>
               {% if form.material.errors %}<div class="text-danger small">{{ form.material.errors|striptags }}</div>{% endif %}
@@ -163,8 +167,9 @@
               {{ form.detalle }}
             </div>
             <div class="col-md-3 celda-partida">
-              <label class="form-label small mb-1">Partida del itemizado</label>
+              <label class="form-label small mb-1">Partida del itemizado <span class="text-danger">*</span></label>
               {{ form.partida }}
+              {% if form.partida.errors %}<div class="text-danger small">{{ form.partida.errors|striptags }}</div>{% endif %}
 
               <div class="alerta-itemizado alert alert-warning py-1 px-2 mt-1 mb-0 small" style="display:none;">
                 <strong>⚠ Excede el itemizado.</strong>
@@ -197,7 +202,7 @@
               <a href="{{ a.archivo.url }}" target="_blank">{{ a.nombre|default:a }}</a>
               <span class="text-muted small ms-2">{{ a.subido_por.get_full_name|default:a.subido_por.username }} · {{ a.fecha|date:"d-m-Y H:i" }}</span>
             </span>
-            {% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'JEFE_PROYECTO' or user.rol == 'ADMIN' %}
+            {% if puede_gestionar %}
             <form method="post" action="{% url 'solicitudes:adjunto_eliminar' a.pk %}" class="d-inline"
                   onsubmit="return confirm('¿Eliminar este archivo adjunto?')">
                 {% csrf_token %}
@@ -209,7 +214,8 @@
           <li class="list-group-item text-muted px-0">Sin archivos adjuntos.</li>
           {% endfor %}
         </ul>
-        {% if solicitud.total_adjuntos < max_adjuntos %}
+        {% if not puede_gestionar %}
+        {% elif solicitud.total_adjuntos < max_adjuntos %}
         <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
           {% csrf_token %}
           <input type="hidden" name="accion" value="adjuntar">
@@ -227,14 +233,18 @@
           </div>
         </form>
         {% else %}
-        <p class="text-muted small mb-0">Se alcanzó el máximo de {{ max_adjuntos }} archivos.</p>
+        <p class="text-muted small mb-0">Se alcanzó el máximo de {{ max_adjuntos }} archivos. Elimina uno para agregar otro.</p>
         {% endif %}
       </div>
     </div>
 
-    {% if ordenes_compra %}
+    {% if solicitud.estado != 'BORRADOR' %}
+    {# RF-36 / CU-37: estado de recepción de cada OC por separado #}
     <div class="card shadow-sm mb-3">
       <div class="card-header py-2 fw-semibold">Órdenes de compra y recepción</div>
+      {% if not ordenes_compra %}
+      <div class="card-body text-muted small">Aún no hay órdenes de compra asociadas a esta solicitud.</div>
+      {% else %}
       <div class="table-responsive">
         <table class="table align-middle mb-0">
           <thead class="table-light">
@@ -245,13 +255,17 @@
             <tr>
               <td class="fw-semibold">{{ oc.correlativo }}</td>
               <td>{{ oc.proveedor.nombre }}</td>
-              <td class="text-center"><span class="badge bg-secondary">{{ oc.get_estado_display }}</span></td>
+              <td class="text-center">
+                <span class="badge {% if oc.estado == 'RECIBIDA' %}bg-success{% elif oc.estado == 'RECEPCION_PARCIAL' %}bg-info text-dark{% elif oc.estado == 'NO_RECIBIDA' or oc.estado == 'RECHAZADA' %}bg-danger{% elif oc.estado == 'ENVIADA' %}bg-primary{% else %}bg-secondary{% endif %}">{{ oc.get_estado_display }}</span>
+                <div class="small text-muted">{% if oc.estado == 'RECIBIDA' %}Recibida{% elif oc.estado == 'RECEPCION_PARCIAL' or oc.estado == 'ENVIADA' or oc.estado == 'NO_RECIBIDA' or oc.estado == 'APROBADA' %}Pendiente de recepción{% else %}—{% endif %}</div>
+              </td>
               <td class="text-end"><a href="{% url 'adquisiciones:orden_detalle' oc.pk %}" class="btn btn-sm btn-outline-primary">Ver OC</a></td>
             </tr>
           {% endfor %}
           </tbody>
         </table>
       </div>
+      {% endif %}
     </div>
     {% endif %}
 
@@ -310,48 +324,42 @@
             ✏ Editar datos generales
           </a>
           {% if solicitud.total_items > 0 %}
-
-            <form method="post" action="{% url 'solicitudes:enviar' solicitud.pk %}"
-                  onsubmit="return confirm('¿Enviar esta solicitud para aprobación?')">
+            {# RF-12: al confirmar se asigna el correlativo y queda "Emitida" #}
+            <form method="post" action="{% url 'solicitudes:emitir' solicitud.pk %}"
+                  onsubmit="return confirm('¿Emitir esta solicitud? Se le asignará su número y pasará a Adquisiciones. Después ya no se puede modificar.')">
               {% csrf_token %}
-              <button type="submit" class="btn btn-success w-100">📤 Enviar para aprobación</button>
+              <button type="submit" class="btn btn-success w-100">📤 Emitir solicitud</button>
             </form>
           {% else %}
-            <button class="btn btn-success" disabled title="Agrega al menos un material">📤 Enviar para aprobación</button>
+            <button class="btn btn-success" disabled title="Agrega al menos un material">📤 Emitir solicitud</button>
           {% endif %}
         {% endif %}
 
-        {% if solicitud.estado == 'ENVIADA' and puede_resolver %}
-          <form method="post" action="{% url 'solicitudes:resolver' solicitud.pk 'aprobar' %}"
-                onsubmit="return confirm('¿Aprobar esta solicitud?')">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-success w-100">✅ Aprobar</button>
-          </form>
-          <form method="post" action="{% url 'solicitudes:resolver' solicitud.pk 'rechazar' %}">
-            {% csrf_token %}
+        {% if puede_cotizar %}
+          <a href="{% url 'adquisiciones:cotizacion_sm' solicitud.pk %}" class="btn btn-primary">
+            💲 Ir a cotización
+          </a>
+        {% endif %}
 
-            <label class="form-label small mb-1 mt-2">Motivo del rechazo</label>
-            <input type="text" name="motivo" class="form-control form-control-sm mb-2"
-                   placeholder="Ej: la cantidad de cemento no calza con el itemizado" required>
-            <button type="submit" class="btn btn-danger w-100">✗ Rechazar</button>
+        {% if puede_rechazar %}
+          <form method="post" action="{% url 'solicitudes:rechazar' solicitud.pk %}"
+                onsubmit="return confirm('¿Rechazar esta solicitud? Se notificará al Jefe de Proyecto.')">
+            {% csrf_token %}
+            <label class="form-label small mb-1 mt-2" for="motivo-rechazo">Motivo del rechazo</label>
+            <input type="text" name="motivo" id="motivo-rechazo" class="form-control form-control-sm mb-2"
+                   placeholder="Ej: el material no corresponde a la partida" required>
+            <button type="submit" class="btn btn-outline-danger w-100">✗ Rechazar solicitud</button>
           </form>
         {% endif %}
 
         {% if solicitud.estado == 'RECHAZADA' and puede_gestionar %}
-
           <form method="post" action="{% url 'solicitudes:devolver_borrador' solicitud.pk %}">
             {% csrf_token %}
-            <button type="submit" class="btn btn-warning w-100">↩ Corregir y volver a enviar</button>
+            <button type="submit" class="btn btn-warning w-100">↩ Corregir y volver a emitir</button>
           </form>
           <p class="small text-muted mb-0">
-            Vuelve a borrador conservando las líneas y los adjuntos.
+            Vuelve a borrador conservando su número, las líneas y los adjuntos.
           </p>
-        {% endif %}
-
-        {% if solicitud.puede_cotizarse and puede_gestionar %}
-          <a href="{% url 'adquisiciones:cotizacion_sm' solicitud.pk %}" class="btn btn-primary">
-            💲 Ir a cotización
-          </a>
         {% endif %}
 
         <a href="{% url 'solicitudes:lista' %}" class="btn btn-outline-secondary">← Volver al listado</a>

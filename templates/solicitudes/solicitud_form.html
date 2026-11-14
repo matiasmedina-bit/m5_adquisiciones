@@ -2,7 +2,14 @@
 {% block title %}Nueva solicitud{% endblock %}
 
 {% block content %}
-<h1 class="h3 mb-3">{% if solicitud %}Editar solicitud {{ solicitud.correlativo }}{% else %}Nueva solicitud de material{% endif %}</h1>
+<h1 class="h3 mb-3">{% if solicitud %}Editar solicitud {{ solicitud.numero }}{% else %}Nueva solicitud de material{% endif %}</h1>
+
+{% if sin_proyectos %}
+<div class="alert alert-warning">
+  No tienes obras <strong>«En ejecución»</strong> asignadas, así que no puedes emitir
+  solicitudes de material. Pide al Administrador que te asigne a la obra o que cambie su estado.
+</div>
+{% endif %}
 
 <form method="post" id="form-solicitud">
   {% csrf_token %}
@@ -38,7 +45,7 @@
               <th style="min-width:260px">Material</th>
               <th style="min-width:130px">Cantidad</th>
               <th style="min-width:120px">Valor unitario</th>
-              <th style="min-width:230px">Partida del itemizado</th>
+              <th style="min-width:230px">Partida del itemizado <span class="text-danger">*</span></th>
               <th style="min-width:170px">Detalle <span class="text-muted fw-normal">(opcional)</span></th>
               <th style="width:44px"></th>
             </tr>
@@ -56,6 +63,7 @@
                   <div class="sugerencias list-group position-absolute w-100 shadow" style="z-index:1050;display:none;max-height:280px;overflow-y:auto;"></div>
                   <div class="elegido small text-success mt-1" style="display:none;"></div>
                   {% if detalle_form.material.errors %}<div class="text-danger small">{{ detalle_form.material.errors|striptags }}</div>{% endif %}
+                  {% if detalle_form.nombre_libre.errors %}<div class="text-danger small">{{ detalle_form.nombre_libre.errors|striptags }}</div>{% endif %}
                 </td>
                 <td>
                   <div class="input-group input-group-sm">
@@ -73,13 +81,14 @@
                 </td>
                 <td class="celda-partida">
                   {{ detalle_form.partida }}
+                  {% if detalle_form.partida.errors %}<div class="text-danger small">{{ detalle_form.partida.errors|striptags }}</div>{% endif %}
 
                   <div class="alerta-itemizado alert alert-warning py-1 px-2 mt-1 mb-1 small" style="display:none;">
                     <strong>⚠ Excede el itemizado.</strong>
                     <span class="texto-exceso"></span>
                     Justifica para poder continuar.
                   </div>
-                  <div class="bloque-justificacion" style="display:none;">
+                  <div class="bloque-justificacion" {% if not detalle_form.justificacion.errors %}style="display:none;"{% endif %}>
                     {{ detalle_form.justificacion }}
                     {% if detalle_form.justificacion.errors %}<div class="text-danger small">{{ detalle_form.justificacion.errors|striptags }}</div>{% endif %}
                   </div>

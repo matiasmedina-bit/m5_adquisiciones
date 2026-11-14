@@ -165,7 +165,7 @@ def home(request):
     if rol in ("ENCARGADO_ADQUISICIONES",) or es_admin:
         stats["proveedores"] = Proveedor.objects.count()
         stats["cotizar"] = SolicitudMaterial.objects.filter(
-            estado__in=[SolicitudMaterial.Estado.APROBADA,
+            estado__in=[SolicitudMaterial.Estado.EMITIDA,
                         SolicitudMaterial.Estado.EN_COTIZACION]).count()
         stats["oc_borrador"] = OrdenCompra.objects.filter(
             estado=OrdenCompra.Estado.BORRADOR).count()
@@ -177,8 +177,14 @@ def home(request):
         stats["proyectos"] = proyectos.count()
 
     if rol in ("JEFE_PROYECTO", "ENCARGADO_ADQUISICIONES") or es_admin:
-        stats["solicitudes_pendientes"] = SolicitudMaterial.objects.filter(
-            estado=SolicitudMaterial.Estado.ENVIADA).count()
+        # Lo que cada uno tiene por atender: el JP, sus borradores sin emitir;
+        # Adquisiciones y Administración, las SM emitidas que esperan cotización.
+        if rol == "JEFE_PROYECTO":
+            pendientes = SolicitudMaterial.objects.filter(
+                estado=SolicitudMaterial.Estado.BORRADOR, emisor=request.user)
+        else:
+            pendientes = SolicitudMaterial.objects.filter(estado=SolicitudMaterial.Estado.EMITIDA)
+        stats["solicitudes_pendientes"] = pendientes.count()
 
     if rol in ("BODEGUERO", "ENCARGADO_ADQUISICIONES") or es_admin:
         stats["materiales_criticos"] = Material.objects.filter(
@@ -594,3 +600,38 @@ def usuario_eliminar(request, pk):
     usuario.delete()
     messages.success(request, f"Cuenta «{nombre}» eliminada definitivamente.")
     return redirect("usuarios:lista")
+
+
+# --------------------------------------------------------------------------
+# Notificaciones (RF-15 y demás avisos del sistema)
+# --------------------------------------------------------------------------
+@login_required
+def notificaciones_lista(request):
+    from .models import Notificacion
+    avisos = list(request.user.notificaciones.all()[:100])
+    sin_leer = [a.pk for a in avisos if not a.leida]
+    return render(request, "usuarios/notificaciones.html", {
+        "avisos": avisos, "sin_leer_ids": sin_leer,
+        "total_sin_leer": Notificacion.objects.filter(usuario=request.user, leida=False).count(),
+    })
+
+
+@login_required
+def notificacion_abrir(request, pk):
+    """Marca el aviso como leído y lleva a lo que avisa."""
+    from django.utils.http import url_has_allowed_host_and_scheme
+    aviso = get_object_or_404(request.user.notificaciones, pk=pk)
+    if not aviso.leida:
+        aviso.leida = True
+        aviso.save(update_fields=["leida"])
+    destino = aviso.url
+    if destino and url_has_allowed_host_and_scheme(destino, allowed_hosts={request.get_host()}):
+        return redirect(destino)
+    return redirect("usuarios:notificaciones")
+
+
+@login_required
+@require_POST
+def notificaciones_marcar_leidas(request):
+    request.user.notificaciones.filter(leida=False).update(leida=True)
+    return redirect("usuarios:notificaciones")

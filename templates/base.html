@@ -118,6 +118,15 @@
         {% endif %}
       </ul>
       <div class="d-flex align-items-center gap-2 mt-2 mt-lg-0">
+        <a href="{% url 'usuarios:notificaciones' %}" class="nav-link position-relative px-2 text-white"
+           title="Notificaciones" aria-label="Notificaciones{% if notificaciones_sin_leer %}: {{ notificaciones_sin_leer }} sin leer{% endif %}">
+          <i class="bi bi-bell fs-5"></i>
+          {% if notificaciones_sin_leer %}
+          <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size:.65rem">
+            {{ notificaciones_sin_leer }}
+          </span>
+          {% endif %}
+        </a>
         <a href="{% url 'usuarios:mi_perfil' %}"
            class="m5-perfil-link d-flex align-items-center gap-2 pe-2 border-end border-white border-opacity-25"
            title="Mi perfil">

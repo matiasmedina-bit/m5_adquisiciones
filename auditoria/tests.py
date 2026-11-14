@@ -12,7 +12,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from usuarios.models import Usuario
-from proyectos.models import Proyecto
+from proyectos.models import Itemizado, Proyecto
 from inventario.models import Material, MovimientoInventario
 from solicitudes.models import SolicitudMaterial, SolicitudDetalle
 from .models import RegistroAuditoria, registrar
@@ -82,7 +82,12 @@ class AuditoriaDeAccionesTest(TestCase):
         self.bodeguero = Usuario.objects.create_user(
             username="bod53", password="clave12345", email="b@m5.cl", rol="BODEGUERO")
         self.proyecto = Proyecto.objects.create(
-            nombre="Obra Auditada", mandante="M5", fecha_inicio=date(2026, 6, 1))
+            nombre="Obra Auditada", mandante="M5", fecha_inicio=date(2026, 6, 1),
+            estado=Proyecto.Estado.EJECUCION)
+        self.proyecto.jefes.add(self.jp)
+        self.partida = Itemizado.objects.create(
+            proyecto=self.proyecto, codigo_partida="A-1", descripcion="Obra gruesa",
+            unidad_medida="saco", cant_presupuestada=1000)
         self.material = Material.objects.create(
             nombre="Cemento", unidad_medida="saco", precio_referencia=4500)
 
@@ -110,31 +115,30 @@ class AuditoriaDeAccionesTest(TestCase):
     # --- emisión de solicitudes ---
 
     def test_la_emision_de_una_sm_queda_registrada(self):
-        sol = SolicitudMaterial.objects.create(proyecto=self.proyecto, emisor=self.ea)
+        sol = SolicitudMaterial.objects.create(proyecto=self.proyecto, emisor=self.jp)
         SolicitudDetalle.objects.create(
-            solicitud=sol, material=self.material, cantidad_solicitada=5)
-        self.client.login(username="ea53", password="clave12345")
-        self.client.post(reverse("solicitudes:enviar", args=[sol.pk]))
+            solicitud=sol, material=self.material, cantidad_solicitada=5, partida=self.partida)
+        self.client.login(username="jp53", password="clave12345")
+        self.client.post(reverse("solicitudes:emitir", args=[sol.pk]))
+        sol.refresh_from_db()
         reg = RegistroAuditoria.objects.get(accion=RegistroAuditoria.Accion.SM_EMITIDA)
-        self.assertEqual(reg.usuario, self.ea)
+        self.assertEqual(reg.usuario, self.jp)
         self.assertEqual(reg.referencia, sol.correlativo)
 
-    def test_la_aprobacion_de_una_sm_queda_registrada_con_su_jefe(self):
+    def test_el_rechazo_de_una_sm_queda_registrado_con_quien_rechazo(self):
         sol = SolicitudMaterial.objects.create(
-            proyecto=self.proyecto, emisor=self.ea,
-            estado=SolicitudMaterial.Estado.ENVIADA)
-        SolicitudDetalle.objects.create(
-            solicitud=sol, material=self.material, cantidad_solicitada=5)
-        self.client.login(username="jp53", password="clave12345")
-        self.client.post(reverse("solicitudes:resolver", args=[sol.pk, "aprobar"]))
-        reg = RegistroAuditoria.objects.get(accion=RegistroAuditoria.Accion.SM_APROBADA)
-        self.assertEqual(reg.usuario, self.jp)
-
-    def test_una_sm_que_no_se_puede_enviar_no_ensucia_la_bitacora(self):
-        """Excepción 1 en la práctica: si la acción no ocurre, no hay registro."""
-        sol = SolicitudMaterial.objects.create(proyecto=self.proyecto, emisor=self.ea)
+            proyecto=self.proyecto, emisor=self.jp,
+            estado=SolicitudMaterial.Estado.EMITIDA)
         self.client.login(username="ea53", password="clave12345")
-        self.client.post(reverse("solicitudes:enviar", args=[sol.pk]))  # sin ítems
+        self.client.post(reverse("solicitudes:rechazar", args=[sol.pk]), {"motivo": "Mal especificada"})
+        reg = RegistroAuditoria.objects.get(accion=RegistroAuditoria.Accion.SM_RECHAZADA)
+        self.assertEqual(reg.usuario, self.ea)
+
+    def test_una_sm_que_no_se_puede_emitir_no_ensucia_la_bitacora(self):
+        """Excepción 1 en la práctica: si la acción no ocurre, no hay registro."""
+        sol = SolicitudMaterial.objects.create(proyecto=self.proyecto, emisor=self.jp)
+        self.client.login(username="jp53", password="clave12345")
+        self.client.post(reverse("solicitudes:emitir", args=[sol.pk]))  # sin ítems
         self.assertEqual(RegistroAuditoria.objects.count(), 0)
 
     # --- gestión de cuentas ---

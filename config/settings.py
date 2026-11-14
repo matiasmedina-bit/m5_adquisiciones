@@ -81,6 +81,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "usuarios.context_processors.pendientes_count",
+                "usuarios.context_processors.notificaciones",
             ],
         },
     },

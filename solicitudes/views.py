@@ -1,97 +1,94 @@
 """
-Vistas de Solicitudes de Material.
-CU-11 Generando solicitud de materiales
-CU-12 Agregando materiales a la solicitud
-CU-14 Editando solicitud (en borrador)
-CU-16 Registrando emisor y fecha de la solicitud (asignados automáticamente al crear)
-CU-17 Visualizando estado de la solicitud
-Flujo de estados (enviar / aprobar / rechazar) que apoya la visualización del CU-17.
+Vistas de Solicitudes de Material — Módulo 3 (RF-12 a RF-15).
+
+CU-12 Creando Solicitud de Materiales (Jefe de Proyecto, obra "En ejecución")
+CU-13 Justificando exceso de itemizado (en SolicitudDetalleForm)
+CU-14 Adjuntando archivos de respaldo (hasta 3, PDF/JPG, 5 MB)
+CU-15 Notificando cambios de estado (SolicitudMaterial.cambiar_estado)
+
+Ciclo de vida (RF-15):
+
+    Borrador ──emitir──► Emitida ──(todas las líneas aprobadas)──► En cotización
+       ▲                   │                                           │
+       │                   └──────── rechazar (Adquisiciones) ─────────┤
+       └── corregir ── Rechazada ◄─────────────────────────────────────┘
+                                         En cotización ──► OC generada
+                          OC generada ──► Entregada parcialmente ──► Entregada
+
+"Borrador" es el estado previo a la confirmación que pide el RF-12: mientras la
+SM se arma no tiene número ni la ve Adquisiciones. Al emitirla recibe su
+correlativo y queda "Emitida".
 """
-from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
-from django.core.mail import send_mail
-from django.views.decorators.http import require_POST
+from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.views.decorators.http import require_POST
 from django.views.generic import ListView
 
-from usuarios.permisos import RolRequeridoMixin, rol_requerido
 from auditoria.models import RegistroAuditoria, registrar
-from .models import SolicitudMaterial, SolicitudDetalle, SolicitudAdjunto
+from usuarios.notificaciones import notificar, usuarios_con_rol
+from usuarios.permisos import RolRequeridoMixin, rol_requerido
 from .forms import (
-    SolicitudForm, SolicitudDetalleForm, SolicitudDetalleFormSet, SolicitudAdjuntoForm,
+    SolicitudAdjuntoForm, SolicitudDetalleForm, SolicitudDetalleFormSet, SolicitudForm,
 )
+from .models import SolicitudAdjunto, SolicitudDetalle, SolicitudMaterial
+
+E = SolicitudMaterial.Estado
+EA = "ENCARGADO_ADQUISICIONES"
+# Quiénes consultan solicitudes. Bodega y Contabilidad sólo leen (Bodega sin
+# precios): necesitan saber qué se pidió para recibirlo y para cruzar facturas.
+ROLES_CONSULTA = ["JEFE_PROYECTO", EA, "BODEGUERO", "CONTABILIDAD"]
 
 
-def _exigir_propiedad(usuario, solicitud):
-    """
-    Un Jefe de Proyecto trabaja lo suyo: las solicitudes que él emitió y las de
-    las obras que dirige. Sin esto, cualquier jefe podría editar o enviar el
-    pedido de la obra de otro, que es plata de un presupuesto que no maneja.
-
-    Adquisiciones y Administración no tienen esta restricción: su trabajo es
-    justamente mirar las solicitudes de todas las obras.
-    """
+# ---------------------------------------------------------------------------
+# Reglas de acceso
+# ---------------------------------------------------------------------------
+def es_responsable(usuario, solicitud):
+    """El Jefe de Proyecto que la emitió o que dirige la obra (o el ADMIN)."""
+    if usuario.rol == "ADMIN":
+        return True
     if usuario.rol != "JEFE_PROYECTO":
-        return
-    es_suya = solicitud.emisor_id == usuario.pk
-    dirige_la_obra = solicitud.proyecto.dirigida_por(usuario)
-    if not (es_suya or dirige_la_obra):
+        return False
+    return solicitud.emisor_id == usuario.pk or solicitud.proyecto.dirigida_por(usuario)
+
+
+def exigir_lectura(usuario, solicitud):
+    """Un Jefe de Proyecto sólo ve las solicitudes de sus obras."""
+    if usuario.rol == "JEFE_PROYECTO" and not es_responsable(usuario, solicitud):
         raise PermissionDenied(
-            "Esta solicitud es de otra obra. Solo puedes trabajar las de los "
-            "proyectos que diriges.")
+            "Esta solicitud es de otra obra. Solo puedes ver las de los proyectos que diriges.")
 
 
-def _avisar_a_adquisiciones(solicitud):
-    """
-    Avisa que hay una solicitud esperando cotización.
-
-    No es lo que hace llegar el pedido —para eso basta con que quede en estado
-    aprobado y aparezca en la bandeja de cotizaciones— sino el empujón para que
-    nadie tenga que estar mirando la pantalla. Si el correo no está configurado
-    el pedido llega igual, sólo que sin aviso.
-    """
-    from usuarios.models import Usuario
-
-    destinos = list(
-        Usuario.objects
-        .filter(rol="ENCARGADO_ADQUISICIONES", estado=True)
-        .exclude(email="")
-        .values_list("email", flat=True)
-    )
-    if not destinos:
-        return
-    try:
-        send_mail(
-            subject=f"Solicitud {solicitud.correlativo} lista para cotizar",
-            message=(
-                f"{solicitud.emisor.get_full_name() or solicitud.emisor.username} "
-                f"emitió la solicitud {solicitud.correlativo} para "
-                f"{solicitud.proyecto.nombre}, con {solicitud.total_items} ítem(s).\n\n"
-                f"Queda esperando cotización en el sistema."
-            ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=destinos,
-            fail_silently=True,
-        )
-    except Exception:  # pragma: no cover - el aviso nunca bloquea la solicitud
-        pass
+def exigir_responsable(usuario, solicitud):
+    """Armar, emitir, adjuntar o corregir la SM es del Jefe de Proyecto responsable."""
+    if not es_responsable(usuario, solicitud):
+        raise PermissionDenied(
+            "Solo el Jefe de Proyecto responsable de la obra puede modificar esta solicitud.")
 
 
+def solicitudes_visibles(usuario):
+    qs = SolicitudMaterial.objects.select_related("proyecto", "emisor")
+    if usuario.rol == "JEFE_PROYECTO":
+        qs = qs.filter(Q(emisor=usuario) | Q(proyecto__jefes=usuario)).distinct()
+    elif usuario.rol != "ADMIN":
+        # Los borradores no existen todavía para el resto: no están confirmados.
+        qs = qs.exclude(estado=E.BORRADOR)
+    return qs
+
+
+# ---------------------------------------------------------------------------
+# Listado
+# ---------------------------------------------------------------------------
 class SolicitudListView(RolRequeridoMixin, ListView):
-    """CU-17 Consultando solicitudes (listado)."""
-    # Bodega y Contabilidad ya pueden abrir una solicitud concreta; sin el
-    # listado tenían que llegar a ella de memoria, por la URL. Bodega necesita
-    # ver qué se pidió para saber qué le va a llegar, y Contabilidad para cruzar
-    # la factura con lo que se encargó.
-    roles_permitidos = ["ENCARGADO_ADQUISICIONES", "JEFE_PROYECTO",
-                        "BODEGUERO", "CONTABILIDAD", "ADMIN"]
+    roles_permitidos = ROLES_CONSULTA
     model = SolicitudMaterial
     template_name = "solicitudes/solicitud_list.html"
     context_object_name = "solicitudes"
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = solicitudes_visibles(self.request.user)
         estado = self.request.GET.get("estado")
         if estado:
             qs = qs.filter(estado=estado)
@@ -99,65 +96,149 @@ class SolicitudListView(RolRequeridoMixin, ListView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        todas = SolicitudMaterial.objects.all()
+        todas = solicitudes_visibles(self.request.user)
         ctx["metricas"] = {
             "total": todas.count(),
-            "borradores": todas.filter(estado=SolicitudMaterial.Estado.BORRADOR).count(),
-            "enviadas": todas.filter(estado=SolicitudMaterial.Estado.ENVIADA).count(),
-            "aprobadas": todas.filter(estado=SolicitudMaterial.Estado.APROBADA).count(),
-            "rechazadas": todas.filter(estado=SolicitudMaterial.Estado.RECHAZADA).count(),
+            "borradores": todas.filter(estado=E.BORRADOR).count(),
+            "emitidas": todas.filter(estado=E.EMITIDA).count(),
+            "en_curso": todas.filter(estado__in=[E.EN_COTIZACION, E.OC_GENERADA,
+                                                 E.RECEPCION_PARCIAL]).count(),
+            "entregadas": todas.filter(estado=E.RECIBIDA).count(),
+            "rechazadas": todas.filter(estado=E.RECHAZADA).count(),
         }
         ctx["estado_filtro"] = self.request.GET.get("estado", "")
-        ctx["estados"] = SolicitudMaterial.Estado
+        ctx["estado_filtro_label"] = dict(E.choices).get(ctx["estado_filtro"], "")
+        ctx["estados"] = E.choices
+        ctx["puede_crear"] = self.request.user.rol in ("JEFE_PROYECTO", "ADMIN")
         return ctx
 
 
-@rol_requerido("ENCARGADO_ADQUISICIONES", "JEFE_PROYECTO")
+# ---------------------------------------------------------------------------
+# CU-12 — Crear (borrador) y emitir
+# ---------------------------------------------------------------------------
+@rol_requerido("JEFE_PROYECTO")
 def solicitud_crear(request):
     """
-    CU-11 Generando solicitud de materiales. CU-12 Agregar ítems en la misma pantalla.
-
-    La origina quien detecta la falta. En la obra ese es el Jefe de Proyecto, que
-    sabe qué material se está acabando; en la oficina, el Encargado de
-    Adquisiciones, cuando el pedido le llega por teléfono o se adelanta a una
-    obra que todavía no parte. Los dos pueden emitirla.
+    CU-12: el Jefe de Proyecto elige una obra "En ejecución" que tiene asignada
+    y agrega una o más líneas (material del catálogo, cantidad, partida). La
+    SM queda en borrador hasta que la emite (confirma) desde su detalle, donde
+    además puede adjuntar los respaldos (CU-14).
     """
     if request.method == "POST":
         form = SolicitudForm(request.POST, usuario=request.user)
-        formset = SolicitudDetalleFormSet(request.POST)
+        proyecto = form.cleaned_data["proyecto"] if form.is_valid() else None
+        # Con el proyecto ya conocido, cada línea valida su partida contra
+        # el itemizado de esa obra (RF-12) y su saldo (RF-13).
+        formset = SolicitudDetalleFormSet(request.POST, form_kwargs={"proyecto": proyecto})
         if form.is_valid() and formset.is_valid():
             solicitud = form.save(commit=False)
             solicitud.emisor = request.user
+            solicitud.estado = E.BORRADOR
             solicitud.save()
             formset.instance = solicitud
             formset.save()
-            messages.success(request, f"Solicitud {solicitud.correlativo} creada.")
+            messages.success(
+                request,
+                "Solicitud guardada en borrador. Revisa las líneas, adjunta los "
+                "respaldos si corresponde y presiona «Emitir solicitud» para confirmarla.")
             return redirect("solicitudes:detalle", pk=solicitud.pk)
     else:
         form = SolicitudForm(usuario=request.user)
         formset = SolicitudDetalleFormSet()
-    return render(request, "solicitudes/solicitud_form.html", {"form": form, "formset": formset})
+    return render(request, "solicitudes/solicitud_form.html", {
+        "form": form, "formset": formset,
+        "sin_proyectos": not form.fields["proyecto"].queryset.exists(),
+    })
 
 
-@rol_requerido("ENCARGADO_ADQUISICIONES", "JEFE_PROYECTO", "CONTABILIDAD", "BODEGUERO")
-def solicitud_detalle(request, pk):
-    """CU-17 Consultando solicitud (cabecera + líneas) y CU-12 agregar ítems.
-    Inc.2: RF-16 (justificación por exceso de itemizado) y RF-17 (adjuntos)."""
+@rol_requerido("JEFE_PROYECTO")
+@require_POST
+def solicitud_emitir(request, pk):
+    """
+    RF-12: al confirmar, el sistema asigna el correlativo y la SM queda
+    "Emitida". Se revalida todo: entre que se armó el borrador y se emite,
+    otra solicitud pudo consumir el saldo de la partida (RF-13).
+    """
     solicitud = get_object_or_404(SolicitudMaterial, pk=pk)
+    exigir_responsable(request.user, solicitud)
+    if solicitud.estado != E.BORRADOR:
+        messages.error(request, "Esta solicitud ya fue emitida.")
+        return redirect("solicitudes:detalle", pk=solicitud.pk)
+    if not solicitud.proyecto.admite_solicitudes:
+        messages.error(
+            request,
+            "El proyecto está finalizado: no admite nuevas solicitudes de materiales."
+            if solicitud.proyecto.esta_finalizado else
+            "El proyecto ya no está «En ejecución»: no se puede emitir la solicitud.")
+        return redirect("solicitudes:detalle", pk=solicitud.pk)
+
+    detalles = list(solicitud.detalles.select_related("partida", "material"))
+    problemas = []
+    if not detalles:
+        problemas.append("Agrega al menos un material.")
+    for d in detalles:
+        if not d.partida_id:
+            problemas.append(f"«{d.material.nombre}» no está vinculado a una partida del itemizado.")
+        elif d.excede_itemizado and not d.justificacion.strip():
+            problemas.append(
+                f"«{d.material.nombre}» supera el saldo restante de la partida "
+                f"{d.partida.codigo_partida} y no tiene justificación.")
+    if problemas:
+        for p in problemas:
+            messages.error(request, p)
+        return redirect("solicitudes:detalle", pk=solicitud.pk)
+
+    solicitud.cambiar_estado(
+        E.EMITIDA, f"Emitida por {request.user.get_full_name() or request.user.username}, "
+                   f"con {len(detalles)} ítem(s).")
+    # CU-53: la emisión de una SM es una acción auditable
+    registrar(request.user, RegistroAuditoria.Accion.SM_EMITIDA,
+              f"Emitió la solicitud de material para {solicitud.proyecto.nombre} "
+              f"({len(detalles)} ítem(s)).", solicitud.correlativo)
+    # Aviso a Adquisiciones: la SM entró a su bandeja (RF-16)
+    notificar(usuarios_con_rol(EA),
+              f"Solicitud {solicitud.correlativo} lista para cotizar",
+              f"{request.user.get_full_name() or request.user.username} emitió la solicitud "
+              f"{solicitud.correlativo} para {solicitud.proyecto.nombre}, con "
+              f"{len(detalles)} ítem(s).",
+              url=reverse("adquisiciones:cotizacion_sm", args=[solicitud.pk]))
+    messages.success(
+        request, f"Solicitud emitida con el número {solicitud.correlativo}. "
+                 f"Adquisiciones ya la tiene en su bandeja.")
+    return redirect("solicitudes:detalle", pk=solicitud.pk)
+
+
+# ---------------------------------------------------------------------------
+# Detalle (consulta + edición del borrador + adjuntos)
+# ---------------------------------------------------------------------------
+@rol_requerido(*ROLES_CONSULTA)
+def solicitud_detalle(request, pk):
+    solicitud = get_object_or_404(
+        SolicitudMaterial.objects.select_related("proyecto", "emisor"), pk=pk)
+    exigir_lectura(request.user, solicitud)
+    if solicitud.estado == E.BORRADOR and not es_responsable(request.user, solicitud):
+        raise PermissionDenied("Esta solicitud todavía no fue emitida.")
+
+    responsable = es_responsable(request.user, solicitud)
     detalle_form = SolicitudDetalleForm(solicitud=solicitud)
     cab_form = SolicitudForm(instance=solicitud, usuario=request.user)
     adjunto_form = SolicitudAdjuntoForm()
 
     if request.method == "POST":
+        # Todas las acciones de esta pantalla modifican la SM: sólo el
+        # responsable (Excepción: Adquisiciones trabaja la SM desde la
+        # pantalla de cotización, no desde aquí).
+        exigir_responsable(request.user, solicitud)
         accion = request.POST.get("accion")
 
-        # RF-17: adjuntar archivo de respaldo (permitido mientras la SM no esté cerrada)
+        # CU-14: adjuntar archivo de respaldo
         if accion == "adjuntar":
             if solicitud.total_adjuntos >= SolicitudAdjunto.MAX_POR_SOLICITUD:
+                # CU-14 Excepción 3
                 messages.error(
                     request,
-                    f"La solicitud ya tiene el máximo de {SolicitudAdjunto.MAX_POR_SOLICITUD} archivos.",
-                )
+                    f"La solicitud ya tiene el máximo de {SolicitudAdjunto.MAX_POR_SOLICITUD} "
+                    f"archivos. Elimina uno para agregar otro.")
                 return redirect("solicitudes:detalle", pk=solicitud.pk)
             adjunto_form = SolicitudAdjuntoForm(request.POST, request.FILES)
             if adjunto_form.is_valid():
@@ -171,11 +252,17 @@ def solicitud_detalle(request, pk):
         elif solicitud.editable and accion == "agregar_material":
             detalle_form = SolicitudDetalleForm(request.POST, solicitud=solicitud)
             if detalle_form.is_valid():
-                detalle = detalle_form.save(commit=False)
-                detalle.solicitud = solicitud
-                detalle.save()
-                messages.success(request, "Material agregado.")
-                return redirect("solicitudes:detalle", pk=solicitud.pk)
+                if not detalle_form.cleaned_data.get("material"):
+                    detalle_form.add_error("nombre_libre", "Elige un material del catálogo.")
+                elif solicitud.detalles.filter(material=detalle_form.cleaned_data["material"]).exists():
+                    detalle_form.add_error(
+                        "nombre_libre", "Ese material ya está en la solicitud: edita su cantidad.")
+                else:
+                    detalle = detalle_form.save(commit=False)
+                    detalle.solicitud = solicitud
+                    detalle.save()
+                    messages.success(request, "Material agregado.")
+                    return redirect("solicitudes:detalle", pk=solicitud.pk)
 
         elif solicitud.editable and accion == "editar_cabecera":
             cab_form = SolicitudForm(request.POST, instance=solicitud, usuario=request.user)
@@ -184,28 +271,24 @@ def solicitud_detalle(request, pk):
                 messages.success(request, "Solicitud actualizada.")
                 return redirect("solicitudes:detalle", pk=solicitud.pk)
 
-    E = SolicitudMaterial.Estado
-    orden = [E.BORRADOR, E.ENVIADA, E.APROBADA, E.EN_COTIZACION, E.OC_GENERADA, E.RECIBIDA]
+        elif accion in ("agregar_material", "editar_cabecera"):
+            messages.error(request, "Una solicitud emitida ya no se modifica.")
+            return redirect("solicitudes:detalle", pk=solicitud.pk)
+
+    # Línea de progreso
     iconos = {
-        "BORRADOR": "✏", "ENVIADA": "📤", "APROBADA": "✓", "RECHAZADA": "✗",
-        "EN_COTIZACION": "$", "OC_GENERADA": "🧾", "RECEPCION_PARCIAL": "◧", "RECIBIDA": "📦",
+        "BORRADOR": "✏", "EMITIDA": "📤", "RECHAZADA": "✗", "EN_COTIZACION": "$",
+        "OC_GENERADA": "🧾", "RECEPCION_PARCIAL": "◧", "RECIBIDA": "📦",
     }
-    labels = {
-        "BORRADOR": "Borrador", "ENVIADA": "Enviada", "APROBADA": "Aprobada", "RECHAZADA": "Rechazada",
-        "EN_COTIZACION": "En cotización", "OC_GENERADA": "OC generada",
-        "RECEPCION_PARCIAL": "Entrega parcial", "RECIBIDA": "Entregada",
-    }
-    estado_actual = solicitud.estado
-    if estado_actual == E.RECHAZADA:
-        pasos = [E.BORRADOR, E.ENVIADA, E.RECHAZADA]
-    elif estado_actual == E.RECEPCION_PARCIAL:
-        pasos = [E.BORRADOR, E.ENVIADA, E.APROBADA, E.EN_COTIZACION, E.OC_GENERADA, E.RECEPCION_PARCIAL]
+    if solicitud.estado == E.RECHAZADA:
+        pasos = [E.BORRADOR, E.EMITIDA, E.RECHAZADA]
+    elif solicitud.estado == E.RECEPCION_PARCIAL:
+        pasos = [E.BORRADOR, E.EMITIDA, E.EN_COTIZACION, E.OC_GENERADA, E.RECEPCION_PARCIAL]
     else:
-        pasos = orden
-    idx_actual = pasos.index(estado_actual) if estado_actual in pasos else len(pasos)
+        pasos = [E.BORRADOR, E.EMITIDA, E.EN_COTIZACION, E.OC_GENERADA, E.RECIBIDA]
+    idx = pasos.index(solicitud.estado) if solicitud.estado in pasos else len(pasos)
     estados_progreso = [
-        (labels[e], iconos[e], e == estado_actual, pasos.index(e) < idx_actual)
-        for e in pasos
+        (E(e).label, iconos[e], e == solicitud.estado, pasos.index(e) < idx) for e in pasos
     ]
 
     return render(request, "solicitudes/solicitud_detail.html", {
@@ -215,48 +298,21 @@ def solicitud_detalle(request, pk):
         "adjunto_form": adjunto_form,
         "estados_progreso": estados_progreso,
         "max_adjuntos": SolicitudAdjunto.MAX_POR_SOLICITUD,
-        # Las plantillas comparaban el rol a mano y dejaban al ADMIN sin botones,
-        # aunque el decorador sí lo deja pasar. Se calcula aquí, con la misma
-        # regla que usuarios.permisos: ADMIN siempre puede.
-        # Los botones de trabajar la solicitud (agregar material, editar, enviar)
-        # los ve Adquisiciones siempre, y el Jefe de Proyecto sobre lo suyo: su
-        # propio pedido o el de una obra que dirige.
-        "puede_gestionar": (
-            request.user.rol in ("ENCARGADO_ADQUISICIONES", "ADMIN")
-            or (request.user.rol == "JEFE_PROYECTO"
-                and (solicitud.emisor_id == request.user.pk
-                     or solicitud.proyecto.dirigida_por(request.user)))
-        ),
-        # Quién da el visto bueno a una solicitud enviada. El Jefe de Proyecto
-        # responde por el presupuesto de la obra, y el Encargado de
-        # Adquisiciones porque es el dueño del proceso de compra: si tiene que
-        # esperar a que alguien más apruebe lo que él mismo va a cotizar, el
-        # pedido se queda detenido y termina resolviéndolo el administrador,
-        # que es justo lo que no debe pasar.
-        "puede_resolver": request.user.rol in (
-            "JEFE_PROYECTO", "ENCARGADO_ADQUISICIONES", "ADMIN"),
-        # RF-39: órdenes de compra generadas a partir de esta SM y su recepción
-        "ordenes_compra": solicitud.ordenes_compra.all() if hasattr(solicitud, "ordenes_compra") else [],
+        "puede_gestionar": responsable,
+        # RF-26/RF-33: Bodega no ve precios
+        "oculta_precios": request.user.rol == "BODEGUERO",
+        "puede_cotizar": request.user.rol in (EA, "ADMIN") and solicitud.puede_cotizarse,
+        "puede_rechazar": request.user.rol in (EA, "ADMIN") and solicitud.rechazable,
+        # RF-36: OC generadas a partir de esta SM, cada una con su recepción
+        "ordenes_compra": solicitud.ordenes_compra.select_related("proveedor").all(),
     })
 
 
-@rol_requerido("ENCARGADO_ADQUISICIONES", "JEFE_PROYECTO", "ADMIN")
-@require_POST
-def adjunto_eliminar(request, pk):
-    """RF-17: quitar un archivo adjunto de la solicitud."""
-    adjunto = get_object_or_404(SolicitudAdjunto, pk=pk)
-    solicitud = adjunto.solicitud
-    adjunto.archivo.delete(save=False)
-    adjunto.delete()
-    messages.success(request, "Archivo eliminado.")
-    return redirect("solicitudes:detalle", pk=solicitud.pk)
-
-
-@rol_requerido("ENCARGADO_ADQUISICIONES", "JEFE_PROYECTO")
+@rol_requerido("JEFE_PROYECTO")
 def solicitud_editar(request, pk):
-    """CU-14 Editando solicitud (solo en borrador)."""
+    """Editar los datos generales del borrador."""
     solicitud = get_object_or_404(SolicitudMaterial, pk=pk)
-    _exigir_propiedad(request.user, solicitud)
+    exigir_responsable(request.user, solicitud)
     if not solicitud.editable:
         messages.error(request, "Solo se pueden editar solicitudes en borrador.")
         return redirect("solicitudes:detalle", pk=solicitud.pk)
@@ -271,124 +327,78 @@ def solicitud_editar(request, pk):
     return render(request, "solicitudes/solicitud_form.html", {"form": form, "solicitud": solicitud})
 
 
-@rol_requerido("ENCARGADO_ADQUISICIONES", "JEFE_PROYECTO")
+@rol_requerido("JEFE_PROYECTO")
 @require_POST
 def detalle_eliminar(request, pk):
-    """CU-14: quitar una línea de la solicitud mientras está en borrador."""
+    """Quitar una línea mientras la solicitud está en borrador."""
     detalle = get_object_or_404(SolicitudDetalle, pk=pk)
     solicitud = detalle.solicitud
-    _exigir_propiedad(request.user, solicitud)
+    exigir_responsable(request.user, solicitud)
     if solicitud.editable:
         detalle.delete()
         messages.success(request, "Material quitado de la solicitud.")
     else:
-        messages.error(request, "No se puede modificar una solicitud que ya fue enviada.")
+        messages.error(request, "No se puede modificar una solicitud que ya fue emitida.")
     return redirect("solicitudes:detalle", pk=solicitud.pk)
 
 
-@rol_requerido("ENCARGADO_ADQUISICIONES", "JEFE_PROYECTO")
+@rol_requerido("JEFE_PROYECTO")
 @require_POST
-def solicitud_enviar(request, pk):
-    """CU-16: enviar la solicitud para aprobación (BORRADOR -> ENVIADA)."""
+def adjunto_eliminar(request, pk):
+    """CU-14 Excepción 3: quitar un adjunto para poder subir otro."""
+    adjunto = get_object_or_404(SolicitudAdjunto, pk=pk)
+    solicitud = adjunto.solicitud
+    exigir_responsable(request.user, solicitud)
+    adjunto.archivo.delete(save=False)
+    adjunto.delete()
+    messages.success(request, "Archivo eliminado.")
+    return redirect("solicitudes:detalle", pk=solicitud.pk)
+
+
+# ---------------------------------------------------------------------------
+# Rechazo (Adquisiciones) y corrección (Jefe de Proyecto)
+# ---------------------------------------------------------------------------
+@rol_requerido(EA)
+@require_POST
+def solicitud_rechazar(request, pk):
+    """
+    Adquisiciones rechaza una SM emitida que no puede atender (por ejemplo,
+    materiales mal especificados). El motivo es obligatorio y viaja en la
+    notificación al Jefe de Proyecto (RF-15: "Rechazada" con descripción).
+    """
     solicitud = get_object_or_404(SolicitudMaterial, pk=pk)
-    _exigir_propiedad(request.user, solicitud)
-    if solicitud.estado != SolicitudMaterial.Estado.BORRADOR:
-        messages.error(request, "La solicitud ya fue enviada.")
-    elif solicitud.total_items == 0:
-        messages.error(request, "No puedes enviar una solicitud sin materiales.")
+    motivo = (request.POST.get("motivo") or "").strip()
+    if not solicitud.rechazable:
+        messages.error(request, "Solo se rechaza una solicitud emitida que aún no tiene orden de compra.")
+    elif not motivo:
+        messages.error(request, "Indica el motivo del rechazo.")
     else:
-        # Quién la ESCRIBIÓ decide si necesita visto bueno, no quién aprieta el
-        # botón: la autorización es sobre el pedido, no sobre el clic.
-        #
-        # El Jefe de Proyecto responde por el presupuesto de su obra, así que lo
-        # que él pide ya está autorizado y pasa derecho a Adquisiciones para
-        # cotizar. Cualquier otro —Adquisiciones adelantándose, Administración
-        # registrando un pedido que llegó por teléfono— compromete plata de una
-        # obra que dirige otro, y por eso se manda a aprobar.
-        propia = solicitud.emisor.rol == "JEFE_PROYECTO"
-        if propia:
-            solicitud.estado = SolicitudMaterial.Estado.APROBADA
-            aviso = (f"Solicitud {solicitud.correlativo} enviada a Adquisiciones "
-                     f"para cotizar.")
-        else:
-            solicitud.estado = SolicitudMaterial.Estado.ENVIADA
-            aviso = f"Solicitud {solicitud.correlativo} enviada para aprobación."
-        solicitud.save()
-        # CU-53: la emisión de una SM es una acción auditable
-        registrar(request.user, RegistroAuditoria.Accion.SM_EMITIDA,
-                  f"Emitió la solicitud de material para {solicitud.proyecto.nombre} "
-                  f"({solicitud.total_items} ítem(s)).", solicitud.correlativo)
-        if propia:
-            _avisar_a_adquisiciones(solicitud)
-        messages.success(request, aviso)
-    return redirect("solicitudes:detalle", pk=solicitud.pk)
-
-
-@rol_requerido("JEFE_PROYECTO", "ENCARGADO_ADQUISICIONES")
-@require_POST
-def solicitud_resolver(request, pk, accion):
-    """
-    CU-16: aprobar o rechazar una solicitud enviada (ENVIADA -> APROBADA/RECHAZADA).
-
-    Lo resuelve el Jefe de Proyecto —responde por el presupuesto de la obra— o
-    el Encargado de Adquisiciones, que es el dueño del proceso de compra. Antes
-    sólo podía el Jefe, y como el administrador pasa por todas partes, en la
-    práctica terminaba aprobando él todo: el rol de Adquisiciones quedaba
-    mirando una solicitud que no podía mover.
-    """
-    solicitud = get_object_or_404(SolicitudMaterial, pk=pk)
-    if solicitud.estado != SolicitudMaterial.Estado.ENVIADA:
-        messages.error(request, "Solo se pueden resolver solicitudes enviadas.")
-    elif accion == "aprobar":
-        solicitud.estado = SolicitudMaterial.Estado.APROBADA
-        solicitud.save()
-        registrar(request.user, RegistroAuditoria.Accion.SM_APROBADA,
-                  f"Aprobó la solicitud de {solicitud.proyecto.nombre}.",
-                  solicitud.correlativo)
-        # Aprobar y quedarse en la misma pantalla obliga a buscar la solicitud
-        # de nuevo en la bandeja. Lo que sigue después de aprobar es cotizar,
-        # así que a quien va a cotizar se lo deja directamente ahí.
-        if request.user.rol in ("ENCARGADO_ADQUISICIONES", "ADMIN"):
-            messages.success(
-                request,
-                f"Solicitud {solicitud.correlativo} aprobada. Registra las "
-                f"cotizaciones de los proveedores para generar la orden de compra.")
-            return redirect("adquisiciones:cotizacion_sm", pk=solicitud.pk)
-        _avisar_a_adquisiciones(solicitud)
-        messages.success(request, f"Solicitud {solicitud.correlativo} aprobada.")
-    elif accion == "rechazar":
-        solicitud.estado = SolicitudMaterial.Estado.RECHAZADA
-        solicitud.motivo_rechazo = (request.POST.get("motivo") or "").strip()
-        solicitud.save()
+        solicitud.motivo_rechazo = motivo
+        solicitud.cambiar_estado(E.RECHAZADA, f"Motivo: {motivo}", campos_extra=["motivo_rechazo"])
         registrar(request.user, RegistroAuditoria.Accion.SM_RECHAZADA,
-                  f"Rechazó la solicitud de {solicitud.proyecto.nombre}"
-                  + (f": {solicitud.motivo_rechazo}" if solicitud.motivo_rechazo else "."),
+                  f"Rechazó la solicitud de {solicitud.proyecto.nombre}: {motivo}",
                   solicitud.correlativo)
-        messages.warning(request, f"Solicitud {solicitud.correlativo} rechazada.")
+        messages.warning(request, f"Solicitud {solicitud.correlativo} rechazada. Se notificó al Jefe de Proyecto.")
     return redirect("solicitudes:detalle", pk=solicitud.pk)
 
 
-@rol_requerido("ENCARGADO_ADQUISICIONES")
+@rol_requerido("JEFE_PROYECTO")
 @require_POST
 def solicitud_devolver_borrador(request, pk):
     """
-    Una SM rechazada vuelve a borrador para corregirla.
-
-    El Jefe de Proyecto rechaza casi siempre por un detalle —una cantidad mal
-    puesta, una justificación que falta— y antes de esto la única salida era
-    rehacer la solicitud entera: se perdía el correlativo, las líneas y los
-    adjuntos. La Orden de Compra ya tenía esta vuelta; la Solicitud no, y no
-    había ninguna razón para la asimetría.
+    Una SM rechazada vuelve a borrador para corregirla y emitirla de nuevo,
+    conservando su número, líneas y adjuntos (no hay que rehacerla entera).
     """
     solicitud = get_object_or_404(SolicitudMaterial, pk=pk)
-    if solicitud.estado != SolicitudMaterial.Estado.RECHAZADA:
+    exigir_responsable(request.user, solicitud)
+    if solicitud.estado != E.RECHAZADA:
         messages.error(request, "Sólo se corrige una solicitud rechazada.")
     else:
-        solicitud.estado = SolicitudMaterial.Estado.BORRADOR
+        solicitud.estado = E.BORRADOR
         solicitud.motivo_rechazo = ""
         solicitud.save(update_fields=["estado", "motivo_rechazo"])
         messages.success(
             request,
-            f"Solicitud {solicitud.correlativo} devuelta a borrador. "
-            f"Corrige lo que corresponda y vuelve a enviarla.")
+            f"Solicitud {solicitud.numero} devuelta a borrador. Corrige lo que "
+            f"corresponda y vuelve a emitirla.")
     return redirect("solicitudes:detalle", pk=solicitud.pk)

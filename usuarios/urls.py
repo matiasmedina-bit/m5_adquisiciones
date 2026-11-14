@@ -21,6 +21,11 @@ urlpatterns = [
     path("cambios/<int:pk>/resolver/", views.resolver_cambio_perfil,
          name="resolver_cambio"),
 
+    # Notificaciones (RF-15 y demás avisos)
+    path("notificaciones/", views.notificaciones_lista, name="notificaciones"),
+    path("notificaciones/<int:pk>/", views.notificacion_abrir, name="notificacion_abrir"),
+    path("notificaciones/leidas/", views.notificaciones_marcar_leidas, name="notificaciones_leidas"),
+
     # Parámetros generales del sistema
     path("parametros/", views.parametros_sistema, name="parametros"),
 ]
