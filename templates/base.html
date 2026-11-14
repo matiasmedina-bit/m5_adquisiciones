@@ -74,7 +74,7 @@
           </li>
         {% endif %}
 
-        {% if user.is_authenticated %}
+        {% if user.rol == 'JEFE_PROYECTO' or user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
           <li class="nav-item">
             <a class="nav-link {% if request.resolver_match.url_name == 'trazabilidad' %}active{% endif %}"
                href="{% url 'adquisiciones:trazabilidad' %}">

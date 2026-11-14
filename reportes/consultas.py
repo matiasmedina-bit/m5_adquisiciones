@@ -165,7 +165,7 @@ def desviacion_presupuestaria(proyecto):
     # Comprado: líneas de OC aprobadas o posteriores, por partida de la solicitud
     comprado = dict(
         OrdenCompraLinea.objects
-        .filter(orden__solicitud__proyecto=proyecto)
+        .filter(orden__proyecto=proyecto)
         .exclude(orden__estado__in=[OrdenCompra.Estado.BORRADOR,
                                     OrdenCompra.Estado.RECHAZADA])
         .values_list("material_id")

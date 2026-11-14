@@ -260,9 +260,10 @@ class TrazabilidadCU47Test(BaseAdq):
         self.assertTrue(cadena["sin_factura"])
         self.assertContains(resp, "Sin orden de compra emitida")
 
-    def test_bodega_tambien_puede_consultar_la_trazabilidad(self):
+    def test_rf46_bodega_no_usa_el_buscador_de_trazabilidad(self):
+        """RF-46 lo da a Jefe de Proyecto, Adquisiciones y Administración."""
         self.client.login(username="bod47", password="clave12345")
-        self.assertEqual(self._buscar(self.sm.correlativo).status_code, 200)
+        self.assertEqual(self._buscar(self.sm.correlativo).status_code, 403)
 
     def test_la_trazabilidad_exige_sesion(self):
         self.client.logout()

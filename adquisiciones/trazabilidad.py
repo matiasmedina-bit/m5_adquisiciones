@@ -18,6 +18,7 @@ pantallas: la vista sólo elige la plantilla.
 from django.db.models import Q
 
 from facturacion.models import Factura
+from proveedores.models import ProveedorMaterial
 from inventario.models import Material, MovimientoInventario
 from solicitudes.models import SolicitudMaterial, SolicitudDetalle
 from .models import Cotizacion, OrdenCompra
@@ -87,7 +88,26 @@ def cadena_de_solicitud(solicitud):
     }
 
 
-def buscar(texto):
+def _visible(cadena, usuario):
+    """El Jefe de Proyecto sólo reconstruye la cadena de sus obras."""
+    if usuario is None or usuario.rol != "JEFE_PROYECTO":
+        return True
+    solicitud = cadena.get("solicitud")
+    obra = solicitud.proyecto if solicitud else cadena["ordenes"][0].obra
+    return obra is not None and obra.dirigida_por(usuario)
+
+
+def buscar(texto, usuario=None):
+    """Igual que _buscar, pero filtrando lo que el usuario puede ver."""
+    resultado = _buscar(texto)
+    if usuario is not None and usuario.rol == "JEFE_PROYECTO" and resultado["cadenas"]:
+        resultado["cadenas"] = [c for c in resultado["cadenas"] if _visible(c, usuario)]
+        if not resultado["cadenas"] and resultado["tipo"] in ("sm", "oc"):
+            resultado["tipo"] = "sin_resultados"
+    return resultado
+
+
+def _buscar(texto):
     """
     Resuelve la búsqueda del CU-47 y devuelve:
 
@@ -150,8 +170,16 @@ def buscar(texto):
         return {"tipo": "sm" if cadenas else "sin_resultados",
                 "cadenas": cadenas, "materiales": [], "termino": texto}
 
-    # --- Puerta 3: nombre del material ---
-    materiales = list(Material.objects.filter(nombre__icontains=texto)[:10])
+    # --- Puerta 3: código o nombre del material ---
+    # El código puede ser el interno del catálogo maestro (MAT-00012) o el
+    # que usa el proveedor en su catálogo (CEM-001).
+    por_codigo_proveedor = (ProveedorMaterial.objects
+                            .filter(codigo__iexact=texto, material__isnull=False)
+                            .values_list("material_id", flat=True))
+    materiales = list(Material.objects.filter(
+        Q(codigo_interno__iexact=texto) | Q(pk__in=list(por_codigo_proveedor))
+    )[:10]) or list(Material.objects.filter(
+        Q(nombre__icontains=texto) | Q(codigo_interno__icontains=texto))[:10])
     if not materiales:
         return {"tipo": "sin_resultados", "cadenas": [], "materiales": [],
                 "termino": texto}

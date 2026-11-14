@@ -726,15 +726,17 @@ def _refrescar_estado_recepcion_sm(solicitud):
 # ----------------------------------------------------------------------------
 # CU-47 — Buscando trazabilidad de material u Orden de Compra
 # ----------------------------------------------------------------------------
-@rol_requerido(EA, "JEFE_PROYECTO", "CONTABILIDAD", "BODEGUERO")
+@rol_requerido(EA, "JEFE_PROYECTO")
 def trazabilidad_buscar(request):
     """
-    Una sola caja de búsqueda: correlativo de SM, correlativo de OC o nombre
-    del material. La cadena completa se arma en adquisiciones/trazabilidad.py.
+    RF-46 / CU-47 (Jefe de Proyecto, Adquisiciones, Administración): una sola
+    caja de búsqueda —correlativo de SM, folio de OC, código o nombre del
+    material— que reconstruye el ciclo de vida completo. El Jefe de Proyecto
+    sólo ve las cadenas de sus obras.
     """
     from .trazabilidad import buscar
 
-    resultado = buscar(request.GET.get("q", ""))
+    resultado = buscar(request.GET.get("q", ""), usuario=request.user)
     return render(request, "adquisiciones/trazabilidad.html", {
         "resultado": resultado,
         "termino": resultado["termino"],
