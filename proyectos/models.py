@@ -132,6 +132,12 @@ class Itemizado(models.Model):
     def __str__(self):
         return f"{self.codigo_partida} - {self.descripcion}"
 
+    @property
+    def cantidad_consumida(self):
+        """RF-42: lo despachado desde bodega a la obra imputado a esta partida."""
+        from django.db.models import Sum
+        return self.salidas.filter(tipo="SALIDA").aggregate(t=Sum("cantidad"))["t"] or 0
+
     def cantidad_comprometida(self, excluir_solicitud=None):
         """
         Lo ya pedido contra esta partida en solicitudes emitidas (de la emisión

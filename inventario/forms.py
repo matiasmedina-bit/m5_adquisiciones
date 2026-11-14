@@ -145,6 +145,11 @@ class SalidaForm(forms.Form):
         label="Proyecto destino",
         queryset=Proyecto.objects.exclude(estado=Proyecto.Estado.FINALIZADO),
         widget=forms.Select(attrs={"class": "form-select"}))
+    partida = forms.ModelChoiceField(
+        label="Partida del itemizado", queryset=None,
+        error_messages={"required": "Indica a qué partida del itemizado se imputa la salida.",
+                        "invalid_choice": "Esa partida no pertenece a la obra elegida."},
+        widget=forms.Select(attrs={"class": "form-select"}))
     jefe_proyecto = forms.ModelChoiceField(
         label="Jefe de proyecto asignado",
         queryset=None, widget=forms.Select(attrs={"class": "form-select"}))
@@ -158,6 +163,16 @@ class SalidaForm(forms.Form):
         # Activos y ya aprobados: no se despacha material a una cuenta que
         # todavía está esperando la aprobación de un administrador (CU-52).
         self.fields["jefe_proyecto"].queryset = usuarios_asignables("JEFE_PROYECTO")
+        # RF-28: sólo las partidas de la obra elegida. Sin obra elegida, la
+        # lista queda vacía; el navegador la llena al elegir la obra.
+        from proyectos.models import Itemizado
+        proyecto_id = (self.data.get(self.add_prefix("proyecto")) if self.is_bound
+                       else self.initial.get("proyecto"))
+        if proyecto_id and str(proyecto_id).isdigit():
+            self.fields["partida"].queryset = Itemizado.objects.filter(proyecto_id=int(proyecto_id))
+        else:
+            self.fields["partida"].queryset = Itemizado.objects.none()
+        self.fields["partida"].empty_label = "— Elige la partida —"
 
     def clean(self):
         cleaned = super().clean()
@@ -171,6 +186,9 @@ class SalidaForm(forms.Form):
         if proyecto and jefe and not proyecto.dirigida_por(jefe):
             self.add_error("jefe_proyecto",
                            f"{jefe.get_full_name() or jefe.username} no está asignado a {proyecto.nombre}.")
+        partida = cleaned.get("partida")
+        if partida and proyecto and partida.proyecto_id != proyecto.pk:
+            self.add_error("partida", "Esa partida no pertenece a la obra elegida.")
         return cleaned
 
 

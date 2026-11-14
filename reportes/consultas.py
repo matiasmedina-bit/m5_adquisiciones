@@ -143,8 +143,11 @@ def desviacion_presupuestaria(proyecto):
     """
     El itemizado original contra lo que de verdad se compró y se consumió.
 
-    Se compara contra `cant_ejecutada` del itemizado, que es la cifra que la
-    obra mantiene al día, y contra lo comprado en órdenes aprobadas. Un proyecto
+    «Consumido» es lo despachado desde bodega a la obra con salidas imputadas a
+    cada partida (RF-28). Las salidas antiguas que no tienen partida no se
+    reparten a ojo: se muestran en una fila aparte «(sin partida)» para que el
+    total consumido de la obra no pierda nada. «Comprado» sale de las OC
+    aprobadas o posteriores. Un proyecto
     sin itemizado cargado no da un reporte vacío: da el aviso de que faltan los
     datos de entrada (Excepción 1 del caso de uso).
     """
@@ -184,10 +187,21 @@ def desviacion_presupuestaria(proyecto):
         if partida_id:
             comprado_por_partida[partida_id] = comprado_por_partida.get(partida_id, CERO) + cantidad
 
+    consumido_por_partida = dict(
+        MovimientoInventario.objects
+        .filter(proyecto=proyecto, tipo=MovimientoInventario.Tipo.SALIDA, partida__isnull=False)
+        .values_list("partida_id")
+        .annotate(total=Coalesce(Sum("cantidad"), CERO, output_field=DecimalField()))
+    )
+    sin_partida = (MovimientoInventario.objects
+                   .filter(proyecto=proyecto, tipo=MovimientoInventario.Tipo.SALIDA,
+                           partida__isnull=True)
+                   .aggregate(t=Coalesce(Sum("cantidad"), CERO, output_field=DecimalField()))["t"])
+
     filas = []
     for partida in partidas:
         presupuestado = _decimal(partida.cant_presupuestada)
-        ejecutado = _decimal(partida.cant_ejecutada)
+        ejecutado = _decimal(consumido_por_partida.get(partida.pk))
         adquirido = comprado_por_partida.get(partida.pk, CERO)
         desviacion = ejecutado - presupuestado
         pct = (desviacion / presupuestado * 100) if presupuestado else CERO
@@ -203,10 +217,21 @@ def desviacion_presupuestaria(proyecto):
             "sobregirada": desviacion > 0,
         })
 
+    # Gráfico (sólo partidas reales; la fila «sin partida» no tiene presupuesto)
+    filas_grafico = list(filas)
+    if sin_partida:
+        filas.append({
+            "codigo": "(sin partida)",
+            "descripcion": "Salidas a obra registradas antes de exigir la partida (RF-28)",
+            "unidad": "", "presupuestado": CERO, "comprado": CERO,
+            "consumido": sin_partida, "desviacion": CERO, "desviacion_pct": CERO,
+            "sobregirada": False,
+        })
+
     # Gráfico: presupuestado vs consumido por partida, dibujado como barras en
     # el propio HTML. Sin librería externa a propósito — el appliance corre en
     # la red interna de la constructora y puede no tener salida a internet.
-    tope = max([max(f["presupuestado"], f["consumido"]) for f in filas] + [CERO]) or Decimal("1")
+    tope = max([max(f["presupuestado"], f["consumido"]) for f in filas_grafico] + [CERO]) or Decimal("1")
     grafico = {
         "titulo": "Presupuestado vs. consumido por partida",
         "tope": tope,
@@ -218,15 +243,16 @@ def desviacion_presupuestaria(proyecto):
             "pct_presupuestado": float(f["presupuestado"] / tope * 100),
             "pct_consumido": float(f["consumido"] / tope * 100),
             "sobregirada": f["sobregirada"],
-        } for f in filas],
+        } for f in filas_grafico],
     }
 
     return {
         "titulo": "Desviación presupuestaria",
         "subtitulo": proyecto.nombre,
         "filtros": [("Proyecto", proyecto.nombre),
-                    ("Partidas", str(len(filas))),
-                    ("Sobregiradas", str(sum(1 for f in filas if f["sobregirada"])))],
+                    ("Partidas", str(len(filas_grafico))),
+                    ("Sobregiradas", str(sum(1 for f in filas if f["sobregirada"])))]
+                   + ([("Consumo sin partida", f"{sin_partida:g}")] if sin_partida else []),
         "columnas": [
             {"clave": "codigo", "titulo": "Partida", "tipo": "texto"},
             {"clave": "descripcion", "titulo": "Descripción", "tipo": "texto"},

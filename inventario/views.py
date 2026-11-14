@@ -14,7 +14,7 @@ from django.core.mail import EmailMessage
 from django.db.models import Sum, F, Q, DecimalField, ExpressionWrapper
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.views.generic import ListView, CreateView, UpdateView
 
 from usuarios.permisos import RolRequeridoMixin, rol_requerido
@@ -234,6 +234,7 @@ def salida_crear(request):
                 tipo=MovimientoInventario.Tipo.SALIDA,
                 material=d["material"], cantidad=d["cantidad"],
                 proyecto=d["proyecto"], jefe_proyecto=d["jefe_proyecto"],
+                partida=d["partida"],
                 guia_despacho=d["guia_despacho"], registrado_por=request.user,
             )
             messages.success(request, "Salida registrada y stock actualizado.")
@@ -241,7 +242,8 @@ def salida_crear(request):
     else:
         form = SalidaForm()
     return render(request, "inventario/movimiento_form.html",
-                  {"form": form, "titulo": "Registrar salida a obra", "tipo": "SALIDA"})
+                  {"form": form, "titulo": "Registrar salida a obra", "tipo": "SALIDA",
+                   "url_partidas": reverse("solicitudes:api_partidas")})
 
 
 @rol_requerido(*ROLES_BODEGA)

@@ -859,3 +859,35 @@ class GestionProyectoPermisosTest(TestCase):
         self._como(self.admin)
         resp = self.client.get(reverse("proyectos:crear"))
         self.assertContains(resp, reverse("usuarios:crear"))
+
+
+class PartidaConConsumoTest(TestCase):
+    """RF-42: una partida con salidas imputadas no se borra del itemizado."""
+
+    def test_no_se_elimina_una_partida_con_salidas(self):
+        from inventario.models import Material, MovimientoInventario
+        admin = Usuario.objects.create_user("adm42", password="x", email="adm42@m5.cl", rol="ADMIN")
+        jp = Usuario.objects.create_user("jp42", password="x", email="jp42@m5.cl", rol="JEFE_PROYECTO")
+        bod = Usuario.objects.create_user("bod42", password="x", email="bod42@m5.cl", rol="BODEGUERO")
+        obra = Proyecto.objects.create(nombre="O42", mandante="M", centro_costo="CC42",
+                                       fecha_inicio=date(2026, 1, 1), fecha_termino=date(2027, 1, 1))
+        obra.jefes.add(jp)
+        partida = Itemizado.objects.create(proyecto=obra, codigo_partida="1", descripcion="x",
+                                           unidad_medida="u", cant_presupuestada=10)
+        mat = Material.objects.create(nombre="M42", unidad_medida="u", stock_actual=5)
+        MovimientoInventario.objects.create(tipo="SALIDA", material=mat, cantidad=1, proyecto=obra,
+                                            partida=partida, jefe_proyecto=jp, guia_despacho="G",
+                                            registrado_por=bod)
+        self.client.force_login(admin)
+        resp = self.client.post(reverse("proyectos:editar", args=[obra.pk]), {
+            "nombre": "O42", "mandante": "M", "centro_costo": "CC42", "fecha_inicio": "2026-01-01",
+            "fecha_termino": "2027-01-01", "presupuesto_total": "0", "estado": "PLANIFICACION",
+            "jefes": [jp.pk],
+            "itemizados-TOTAL_FORMS": "1", "itemizados-INITIAL_FORMS": "1",
+            "itemizados-MIN_NUM_FORMS": "0", "itemizados-MAX_NUM_FORMS": "1000",
+            "itemizados-0-id": partida.pk, "itemizados-0-codigo_partida": "1",
+            "itemizados-0-descripcion": "x", "itemizados-0-unidad_medida": "u",
+            "itemizados-0-cant_presupuestada": "10", "itemizados-0-DELETE": "on"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "salidas de bodega")
+        self.assertTrue(Itemizado.objects.filter(pk=partida.pk).exists())

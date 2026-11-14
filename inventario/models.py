@@ -166,6 +166,14 @@ class MovimientoInventario(SinBorradoFisicoMixin):
         "proyectos.Proyecto", on_delete=models.PROTECT, null=True, blank=True,
         related_name="movimientos_inventario", verbose_name="Proyecto",
     )
+    # RF-28 / RF-42: partida del itemizado a la que se imputa una salida a obra.
+    # Es lo que permite calcular lo consumido por partida. PROTECT: una partida
+    # con consumo registrado no se puede borrar del itemizado. Las salidas
+    # anteriores a este campo pueden quedar sin partida (ver migración 0009).
+    partida = models.ForeignKey(
+        "proyectos.Itemizado", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="salidas", verbose_name="Partida del itemizado",
+    )
     jefe_proyecto = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
         related_name="movimientos_como_jefe", verbose_name="Jefe de proyecto",

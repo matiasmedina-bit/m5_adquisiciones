@@ -161,7 +161,7 @@ def proveedores_de(request):
     return JsonResponse({"proveedores": lista, "total": len(lista)})
 
 
-@rol_requerido(*ROLES)
+@rol_requerido(*ROLES, "BODEGUERO")
 def partidas_de_proyecto(request):
     """
     GET ?proyecto=<id>

@@ -52,4 +52,36 @@
   })();
 </script>
 {% endif %}
+
+{% if tipo == 'SALIDA' %}
+<script>
+  /* RF-28: el selector de partida muestra sólo las de la obra elegida */
+  (function () {
+    var obra = document.getElementById('id_proyecto');
+    var partida = document.getElementById('id_partida');
+    if (!obra || !partida) return;
+    var elegida = partida.value;
+    function cargar() {
+      partida.innerHTML = '<option value="">— Elige la partida —</option>';
+      if (!obra.value) return;
+      fetch('{{ url_partidas }}?proyecto=' + encodeURIComponent(obra.value), {credentials: 'same-origin'})
+        .then(function (r) { return r.json(); })
+        .then(function (datos) {
+          datos.partidas.forEach(function (p) {
+            var op = document.createElement('option');
+            op.value = p.id;
+            op.textContent = p.codigo + ' · ' + p.descripcion + ' (' + p.unidad + ')';
+            if (String(p.id) === elegida) op.selected = true;
+            partida.appendChild(op);
+          });
+          if (!datos.partidas.length) {
+            partida.innerHTML = '<option value="">Esta obra no tiene itemizado cargado</option>';
+          }
+        });
+    }
+    obra.addEventListener('change', function () { elegida = ''; cargar(); });
+    if (obra.value) cargar();
+  })();
+</script>
+{% endif %}
 {% endblock %}

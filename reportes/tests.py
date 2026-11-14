@@ -163,6 +163,37 @@ class ConsumoCU42Test(BaseReportes):
 
 class DesviacionCU43Test(BaseReportes):
 
+    def setUp(self):
+        super().setUp()
+        # RF-42: lo consumido sale de las salidas a obra imputadas a la partida
+        # (120 sobre 100 presupuestados → sobregirada). La cantidad ejecutada
+        # escrita a mano en el itemizado ya no cuenta para el reporte.
+        MovimientoInventario.objects.create(
+            tipo=MovimientoInventario.Tipo.ENTRADA, material=self.cemento, cantidad=200,
+            registrado_por=self.bodeguero)
+        MovimientoInventario.objects.create(
+            tipo=MovimientoInventario.Tipo.SALIDA, material=self.cemento, cantidad=120,
+            proyecto=self.proyecto, partida=self.partida, jefe_proyecto=self.jefe,
+            guia_despacho="GD-DESV", registrado_por=self.bodeguero)
+
+    def test_rf42_el_consumido_no_usa_la_cantidad_ejecutada_manual(self):
+        self.partida.cant_ejecutada = 5
+        self.partida.save()
+        self.assertEqual(desviacion_presupuestaria(self.proyecto)["filas"][0]["consumido"], Decimal("120"))
+
+    def test_rf42_salidas_sin_partida_van_en_una_fila_aparte(self):
+        MovimientoInventario.objects.create(
+            tipo=MovimientoInventario.Tipo.SALIDA, material=self.cemento, cantidad=7,
+            proyecto=self.proyecto, jefe_proyecto=self.jefe, guia_despacho="GD-OLD",
+            registrado_por=self.bodeguero)
+        r = desviacion_presupuestaria(self.proyecto)
+        sin = [f for f in r["filas"] if f["codigo"] == "(sin partida)"]
+        self.assertEqual(sin[0]["consumido"], Decimal("7") + sum(
+            (m.cantidad for m in MovimientoInventario.objects.filter(
+                proyecto=self.proyecto, tipo="SALIDA", partida__isnull=True).exclude(guia_despacho="GD-OLD")),
+            Decimal("0")))
+        self.assertEqual(len(r["grafico"]["barras"]), 1)   # fuera del gráfico
+
     def test_compara_presupuestado_contra_consumido(self):
         r = desviacion_presupuestaria(self.proyecto)
         fila = r["filas"][0]

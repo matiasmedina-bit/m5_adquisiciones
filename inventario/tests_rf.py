@@ -105,14 +105,44 @@ class EntradaRF26Test(BaseBodega):
 
 
 class SalidaRF28Test(BaseBodega):
+    def setUp(self):
+        super().setUp()
+        from proyectos.models import Itemizado
+        self.partida = Itemizado.objects.create(proyecto=self.obra, codigo_partida="P-6",
+                                                descripcion="Rellenos", unidad_medida="m3",
+                                                cant_presupuestada=50)
+        otra = Proyecto.objects.create(nombre="Otra 6", mandante="M", fecha_inicio=date(2026, 1, 1))
+        self.partida_ajena = Itemizado.objects.create(proyecto=otra, codigo_partida="X",
+                                                      descripcion="x", unidad_medida="m3",
+                                                      cant_presupuestada=1)
+
     def _datos(self, **d):
         datos = {"material": self.mat.pk, "cantidad": 2, "proyecto": self.obra.pk,
-                 "jefe_proyecto": self.jp.pk, "guia_despacho": "GD-1"}
+                 "jefe_proyecto": self.jp.pk, "guia_despacho": "GD-1",
+                 "partida": self.partida.pk}
         datos.update(d)
         return datos
 
+    def test_rf28_partida_obligatoria_y_de_la_obra_elegida(self):
+        self.assertTrue(SalidaForm(data=self._datos()).is_valid())
+        opciones = list(SalidaForm(data=self._datos()).fields["partida"].queryset)
+        self.assertEqual(opciones, [self.partida])
+        self.assertIn("partida", SalidaForm(data=self._datos(partida=self.partida_ajena.pk)).errors)
+
+    def test_rf28_la_salida_guarda_la_partida_y_alimenta_el_consumo(self):
+        self.client.force_login(self.bod)
+        self.client.post(reverse("inventario:salida_crear"), self._datos(cantidad=3))
+        mov = MovimientoInventario.objects.get(tipo=T.SALIDA)
+        self.assertEqual(mov.partida, self.partida)
+        self.assertEqual(self.partida.cantidad_consumida, 3)
+
+    def test_bodega_consulta_las_partidas_de_la_obra(self):
+        self.client.force_login(self.bod)
+        datos = self.client.get(reverse("solicitudes:api_partidas"), {"proyecto": self.obra.pk}).json()
+        self.assertEqual([p["codigo"] for p in datos["partidas"]], ["P-6"])
+
     def test_rf28_jefe_de_proyecto_y_guia_obligatorios(self):
-        for falta in ("jefe_proyecto", "guia_despacho"):
+        for falta in ("jefe_proyecto", "guia_despacho", "partida"):
             datos = self._datos()
             datos.pop(falta)
             self.assertIn(falta, SalidaForm(data=datos).errors)

@@ -94,6 +94,10 @@ class ItemizadoForm(forms.ModelForm):
             "cant_presupuestada": forms.NumberInput(attrs={"class": "form-control"}),
             "cant_ejecutada": forms.NumberInput(attrs={"class": "form-control"}),
         }
+        help_texts = {
+            "cant_ejecutada": "Avance informado por la obra. El reporte de desviación "
+                              "usa lo despachado desde bodega a esta partida (RF-42).",
+        }
 
 
 class ItemizadoEnLineaForm(ItemizadoForm):

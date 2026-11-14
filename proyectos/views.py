@@ -13,6 +13,7 @@ import os
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models import ProtectedError
 from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
@@ -115,7 +116,15 @@ class _ProyectoConItemizadoMixin:
             formset.instance = self.object
             valido = formset.is_valid()
             if valido:
-                formset.save()
+                try:
+                    formset.save()
+                except ProtectedError:
+                    # RF-42: una partida con salidas de bodega imputadas no se borra
+                    valido = False
+                    formset._non_form_errors = formset.error_class([
+                        "No se puede eliminar una partida que ya tiene salidas de bodega "
+                        "imputadas: su consumo quedaría sin registro."])
+            if valido:
                 auditar_itemizado(
                     self.request.user, self.object,
                     creadas=formset.new_objects,
