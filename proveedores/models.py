@@ -30,6 +30,8 @@ class Proveedor(SinBorradoFisicoMixin):
     )
     estado = models.BooleanField("Activo", default=True)
     creado = models.DateTimeField(auto_now_add=True)
+    # RF-02: fecha de la última modificación de los datos del proveedor
+    modificado = models.DateTimeField("Última modificación", auto_now=True)
 
     class Meta:
         verbose_name = "Proveedor"

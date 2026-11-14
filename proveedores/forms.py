@@ -49,17 +49,36 @@ class ProveedorForm(forms.ModelForm):
             "estado": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }
 
-    def clean_rut(self):
-        """CU-02 Validando RUT + CU-03 verificación anti-duplicado."""
-        rut = self.cleaned_data["rut"]
-        validar_rut(rut)  # CU-02
-        rut_limpio = limpiar_rut(rut)
-        # CU-03: no permitir RUT repetido (excluyendo el propio registro al editar)
-        qs = Proveedor.objects.filter(rut=rut_limpio)
+    # RF-01: obligatorios además del RUT y la razón social
+    OBLIGATORIOS = ("giro", "direccion", "correo", "telefono", "condicion_pago")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.proveedor_existente = None
+        for campo in self.OBLIGATORIOS:
+            self.fields[campo].required = True
+        self.fields["nombre"].label = "Razón social"
+        self.fields["direccion"].label = "Dirección comercial"
+        self.fields["correo"].label = "Correo electrónico de contacto"
         if self.instance.pk:
-            qs = qs.exclude(pk=self.instance.pk)
-        if qs.exists():
-            raise forms.ValidationError("Ya existe un proveedor registrado con este RUT.")
+            # CU-02: el RUT identifica al proveedor; no se cambia al editar.
+            self.fields["rut"].disabled = True
+            self.fields["rut"].help_text = "El RUT no se modifica: identifica al proveedor."
+
+    def clean_rut(self):
+        """RF-01 / CU-01: formato chileno, dígito verificador y anti-duplicado."""
+        if self.instance.pk:
+            return self.instance.rut
+        rut = self.cleaned_data["rut"]
+        validar_rut(rut)  # CU-01 Excepción 1
+        rut_limpio = limpiar_rut(rut)
+        existente = Proveedor.objects.filter(rut=rut_limpio).first()
+        if existente:
+            # CU-01 Excepción 2: se sugiere ir al registro existente
+            self.proveedor_existente = existente
+            raise forms.ValidationError(
+                f"Ya existe un proveedor registrado con este RUT: «{existente.nombre}». "
+                f"Búscalo en el listado y actualiza su ficha en vez de crear otro.")
         return rut_limpio
 
     def clean_catalogo(self):

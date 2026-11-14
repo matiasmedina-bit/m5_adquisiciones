@@ -36,8 +36,36 @@ class ProveedorFormTest(TestCase):
         self.assertIn("rut", form.errors)
 
     def test_form_acepta_rut_valido_nuevo(self):
+        form = ProveedorForm(data={"nombre": "Valido", "rut": "11.111.111-1", "condicion_pago": "CONTADO",
+                                   "giro": "Ferretería", "direccion": "Av. Uno 100",
+                                   "correo": "v@prov.cl", "telefono": "222"})
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_rf01_giro_direccion_correo_y_telefono_son_obligatorios(self):
         form = ProveedorForm(data={"nombre": "Valido", "rut": "11.111.111-1", "condicion_pago": "CONTADO"})
-        self.assertTrue(form.is_valid())
+        self.assertFalse(form.is_valid())
+        for campo in ("giro", "direccion", "correo", "telefono"):
+            self.assertIn(campo, form.errors)
+
+    def test_cu01_exc2_rut_duplicado_enlaza_al_existente(self):
+        existente = Proveedor.objects.create(nombre="Ya Existe", rut="11.111.111-1")
+        form = ProveedorForm(data={"nombre": "Otro", "rut": "11111111-1", "condicion_pago": "CONTADO",
+                                   "giro": "g", "direccion": "d", "correo": "o@p.cl", "telefono": "1"})
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.proveedor_existente, existente)
+
+    def test_rf02_editar_guarda_la_fecha_de_modificacion_y_no_cambia_el_rut(self):
+        p = Proveedor.objects.create(nombre="Fecha", rut="11.111.111-1", giro="g", direccion="d",
+                                     correo="f@p.cl", telefono="1")
+        antes = p.modificado
+        form = ProveedorForm(data={"nombre": "Fecha", "rut": "12.345.678-5", "condicion_pago": "60_DIAS",
+                                   "giro": "g", "direccion": "Nueva 2", "correo": "f@p.cl", "telefono": "1",
+                                   "estado": "on"}, instance=p)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        p.refresh_from_db()
+        self.assertEqual((p.rut, p.direccion), ("111111111", "Nueva 2"))
+        self.assertGreater(p.modificado, antes)
 
 
 class ProveedorVistaTest(TestCase):
@@ -304,7 +332,7 @@ class CatalogoExcelVistasTest(TestCase):
         resp = self.client.post(reverse("proveedores:crear"), {
             "nombre": "Comercial Andes", "rut": "11.111.111-1",
             "correo": "ventas@andes.cl", "telefono": "+56 9 1111 1111",
-            "condicion_pago": "30_DIAS", "estado": "on",
+            "condicion_pago": "30_DIAS", "estado": "on", "giro": "Ferretería", "direccion": "Av. Uno 100", 
             "catalogo": self._archivo([
                 ["AND-1", "Perfil metálico 100x50", "un", "12.900", "30 días"],
                 ["AND-2", "Plancha zinc 0.35", "un", "8.490", "contado"],
@@ -320,7 +348,8 @@ class CatalogoExcelVistasTest(TestCase):
     def test_registrar_proveedor_sin_catalogo_sigue_funcionando(self):
         resp = self.client.post(reverse("proveedores:crear"), {
             "nombre": "Sin Catálogo", "rut": "11.111.111-1",
-            "condicion_pago": "CONTADO", "estado": "on",
+            "condicion_pago": "CONTADO", "estado": "on", "giro": "Ferretería", "direccion": "Av. Uno 100", 
+            "correo": "sc@prov.cl", "telefono": "222",
         })
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(Proveedor.objects.filter(rut="111111111").exists())

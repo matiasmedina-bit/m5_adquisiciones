@@ -21,6 +21,7 @@
       <dt class="col-sm-3 text-muted">Dirección</dt>
       <dd class="col-sm-9">{{ proveedor.direccion|default:"—" }}{% if proveedor.comuna %}, {{ proveedor.comuna }}{% endif %}</dd>
       <dt class="col-sm-3 text-muted">Giro</dt><dd class="col-sm-9">{{ proveedor.giro|default:"—" }}</dd>
+      <dt class="col-sm-3 text-muted">Última modificación</dt><dd class="col-sm-9">{{ proveedor.modificado|date:"d-m-Y H:i" }}</dd>
       <dt class="col-sm-3 text-muted">Condición por defecto</dt>
       <dd class="col-sm-9">
         {{ proveedor.get_condicion_pago_display }}

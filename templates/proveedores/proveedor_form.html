@@ -16,6 +16,9 @@
             {{ field }}
             {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
             {% if field.errors %}<div class="text-danger small">{{ field.errors|striptags }}</div>{% endif %}
+            {% if field.name == 'rut' and form.proveedor_existente %}
+              <a href="{% url 'proveedores:detalle' form.proveedor_existente.pk %}" class="small">Ir a la ficha de {{ form.proveedor_existente.nombre }} →</a>
+            {% endif %}
           </div>
         {% endif %}
       {% endfor %}

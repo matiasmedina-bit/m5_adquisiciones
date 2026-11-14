@@ -95,7 +95,10 @@ class Command(BaseCommand):
                 rut=rut.replace(".", "").replace("-", ""),
                 defaults={"nombre": nombre, "condicion_pago": cond, "estado": estado,
                           "correo": f"contacto@{nombre.split()[0].lower()}.cl",
-                          "telefono": "+56 2 2345 6789"})
+                          "telefono": "+56 2 2345 6789",
+                          # RF-01: datos obligatorios; RF-21 los imprime en la OC
+                          "giro": "Venta de materiales de construcción",
+                          "direccion": "Av. Vicuña Mackenna 1500", "comuna": "Santiago"})
             prov_objs[nombre] = p
 
         # --- RF-05: catálogo de materiales de algunos proveedores ---

@@ -902,7 +902,7 @@ class EncargadoAdquisicionesTest(TestCase):
         resp = self.c.post(reverse("proveedores:crear"), {
             "nombre": "Aceros del Sur", "rut": "22.222.222-2",
             "correo": "ventas@aceros.cl", "telefono": "+56 9 1111 1111",
-            "condicion_pago": "30_DIAS", "estado": "on",
+            "condicion_pago": "30_DIAS", "estado": "on", "giro": "Ferretería", "direccion": "Av. Uno 100", 
         })
         self.assertIn(resp.status_code, (200, 302))
         self.assertTrue(Proveedor.objects.filter(nombre="Aceros del Sur").exists())
@@ -910,8 +910,8 @@ class EncargadoAdquisicionesTest(TestCase):
     def test_edita_un_proveedor(self):
         resp = self.c.post(reverse("proveedores:editar", args=[self.prov.pk]), {
             "nombre": "Ferretería Central SpA", "rut": self.prov.rut,
-            "correo": "nuevo@prov.cl", "telefono": "",
-            "condicion_pago": "60_DIAS", "estado": "on",
+            "correo": "nuevo@prov.cl", "telefono": "+56 2 2222 2222",
+            "condicion_pago": "60_DIAS", "estado": "on", "giro": "Ferretería", "direccion": "Av. Uno 100", 
         })
         self.assertIn(resp.status_code, (200, 302))
         self.prov.refresh_from_db()
