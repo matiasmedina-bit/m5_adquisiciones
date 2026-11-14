@@ -230,3 +230,49 @@ EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO", EMPRESA_EMAIL)
 # vive en ParametrosSistema y se cambia desde la pantalla de Parámetros, sin
 # tocar archivos ni reiniciar el servidor. Si esta constante siguiera existiendo,
 # alguien la cambiaría en el .env y se preguntaría por qué no pasa nada.
+
+# --- Demo: mostrar en la consola el SQL que genera el ORM ---
+# Solo se activa con MOSTRAR_SQL=True (y DEBUG=True). Deja a la vista solo las
+# consultas del caso de uso: oculta transacciones (BEGIN/COMMIT), la sesión,
+# el usuario logueado, la campana y el control de intentos de login, y acorta
+# las listas de columnas de los SELECT.
+if DEBUG and os.getenv("MOSTRAR_SQL", "False").lower() == "true":
+    import re as _re
+
+    _RUIDO = {"django_session", "django_migrations", "django_content_type",
+              "auth_permission", "usuarios_usuario", "usuarios_notificacion",
+              "usuarios_intentoacceso"}
+    _CONTROL = ("BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "RELEASE SAVEPOINT")
+    _CURSOR = _re.compile(r'^DECLARE\s+"\w+"\s+NO SCROLL CURSOR WITH HOLD FOR\s+', _re.I)
+    _TABLA = _re.compile(r'^\s*(?:SELECT\b.*?\bFROM|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"(\w+)"',
+                         _re.I | _re.S)
+    _COLUMNAS = _re.compile(r'SELECT\s+(DISTINCT\s+)?((?:(?!\bFROM\b).)+?)\s+FROM\b', _re.S)
+
+    def _acortar(m):
+        columnas = m.group(2)
+        if len(columnas) > 40:
+            columnas = "…"
+        return f"SELECT {m.group(1) or ''}{columnas} FROM"
+
+    def _sql_relevante(record):
+        sql = (getattr(record, "sql", "") or "").strip()
+        if not sql or sql.upper().startswith(_CONTROL) or "pg_catalog" in sql:
+            return False
+        sql = _CURSOR.sub("", sql)
+        tabla = _TABLA.match(sql)
+        if tabla and tabla.group(1) in _RUIDO:
+            return False
+        record.msg, record.args = "%s", (_COLUMNAS.sub(_acortar, sql),)
+        return True
+
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "filters": {"relevante": {"()": "django.utils.log.CallbackFilter",
+                                   "callback": _sql_relevante}},
+        "formatters": {"sql": {"format": "    SQL> %(message)s"}},
+        "handlers": {"sql": {"class": "logging.StreamHandler",
+                             "filters": ["relevante"], "formatter": "sql"}},
+        "loggers": {"django.db.backends": {"handlers": ["sql"], "level": "DEBUG",
+                                           "propagate": False}},
+    }
