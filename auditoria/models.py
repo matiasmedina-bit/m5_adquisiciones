@@ -50,6 +50,12 @@ class RegistroAuditoria(models.Model):
         # --- Configuración (RF-57) ---
         PARAMETROS_MODIFICADOS = "PARAMETROS_MODIFICADOS", "Parámetros del sistema modificados"
 
+    class Operacion(models.TextChoices):
+        """RF-50: la acción realizada se clasifica en Crear, Editar o Eliminar."""
+        CREAR = "CREAR", "Crear"
+        EDITAR = "EDITAR", "Editar"
+        ELIMINAR = "ELIMINAR", "Eliminar"
+
     class Modulo(models.TextChoices):
         INVENTARIO = "INVENTARIO", "Inventario"
         SOLICITUDES = "SOLICITUDES", "Solicitudes"
@@ -82,6 +88,30 @@ class RegistroAuditoria(models.Model):
         Accion.PARAMETROS_MODIFICADOS: Modulo.CONFIGURACION,
     }
 
+    # Tipo de operación por defecto de cada acción (RF-50). registrar() permite
+    # indicar otra cuando la misma acción puede ser alta o modificación.
+    OPERACION_DE = {
+        Accion.MOV_INVENTARIO: Operacion.CREAR,
+        Accion.PRESTAMO_HERRAMIENTA: Operacion.CREAR,
+        Accion.SM_EMITIDA: Operacion.CREAR,
+        Accion.SM_APROBADA: Operacion.EDITAR,
+        Accion.SM_RECHAZADA: Operacion.EDITAR,
+        Accion.OC_EMITIDA: Operacion.CREAR,
+        Accion.OC_APROBADA: Operacion.EDITAR,
+        Accion.OC_ENVIADA: Operacion.EDITAR,
+        Accion.FACTURA_RECIBIDA: Operacion.CREAR,
+        Accion.FACTURA_BLOQUEADA: Operacion.EDITAR,
+        Accion.FACTURA_DESBLOQUEADA: Operacion.EDITAR,
+        Accion.USUARIO_CREADO: Operacion.CREAR,
+        Accion.USUARIO_APROBADO: Operacion.EDITAR,
+        Accion.USUARIO_RECHAZADO: Operacion.ELIMINAR,
+        Accion.USUARIO_MODIFICADO: Operacion.EDITAR,
+        Accion.USUARIO_ELIMINADO: Operacion.ELIMINAR,
+        Accion.CAMBIO_PERFIL_PEDIDO: Operacion.CREAR,
+        Accion.CAMBIO_PERFIL_RESUELTO: Operacion.EDITAR,
+        Accion.PARAMETROS_MODIFICADOS: Operacion.EDITAR,
+    }
+
     # El usuario puede quedar en null: si se da de baja la cuenta, la bitácora
     # no se borra con ella. Por eso además se guarda su nombre en texto.
     usuario = models.ForeignKey(
@@ -89,6 +119,8 @@ class RegistroAuditoria(models.Model):
         related_name="registros_auditoria", verbose_name="Usuario")
     usuario_nombre = models.CharField("Usuario (texto)", max_length=150, blank=True)
     accion = models.CharField("Acción", max_length=30, choices=Accion.choices)
+    operacion = models.CharField("Operación", max_length=10, choices=Operacion.choices,
+                                 default=Operacion.CREAR)
     modulo = models.CharField("Módulo", max_length=20, choices=Modulo.choices)
     descripcion = models.CharField("Descripción", max_length=250)
     # Referencia legible al objeto afectado: "SM-000012", "OC-000004", …
@@ -115,7 +147,7 @@ class RegistroAuditoria(models.Model):
         return self.usuario_nombre or "—"
 
 
-def registrar(usuario, accion, descripcion, referencia=""):
+def registrar(usuario, accion, descripcion, referencia="", operacion=None):
     """
     Escribe una línea en la bitácora. Es el único punto de entrada.
 
@@ -136,6 +168,8 @@ def registrar(usuario, accion, descripcion, referencia=""):
         usuario=usuario,
         usuario_nombre=nombre,
         accion=accion,
+        operacion=operacion or RegistroAuditoria.OPERACION_DE.get(
+            accion, RegistroAuditoria.Operacion.EDITAR),
         modulo=RegistroAuditoria.MODULO_DE.get(accion, RegistroAuditoria.Modulo.USUARIOS),
         descripcion=descripcion[:250],
         referencia=referencia[:60],

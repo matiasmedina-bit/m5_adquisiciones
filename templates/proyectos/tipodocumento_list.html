@@ -17,6 +17,7 @@
 </div>
 {% endif %}
 
+{% if user.rol == 'ADMIN' %}
 <div class="card shadow-sm mb-3">
   <div class="card-header py-2 fw-semibold">Agregar un tipo</div>
   <div class="card-body">
@@ -44,11 +45,15 @@
     </form>
   </div>
 </div>
+{% else %}
+<div class="alert alert-info small">El catálogo lo administra Administración (RF-57).</div>
+{% endif %}
 
 <div class="card shadow-sm"><div class="table-responsive">
 <table class="table mb-0 align-middle">
   <thead class="table-light"><tr>
     <th>Tipo</th><th>Descripción</th><th class="text-center">Estado</th><th class="text-end">Archivos</th>
+    {% if user.rol == 'ADMIN' %}<th class="text-end">Acciones</th>{% endif %}
   </tr></thead>
   <tbody>
   {% for t in tipos %}
@@ -60,9 +65,28 @@
         {% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}
       </td>
       <td class="text-end">{{ t.archivos.count }}</td>
+      {% if user.rol == 'ADMIN' %}
+      <td class="text-end">
+        <form method="post" action="{% url 'proyectos:tipo_documento_editar' t.pk %}" class="d-inline-flex gap-1">
+          {% csrf_token %}
+          <input type="text" name="nombre" value="{{ t.nombre }}" class="form-control form-control-sm" style="max-width:11rem" aria-label="Nombre" required>
+          <input type="text" name="descripcion" value="{{ t.descripcion }}" class="form-control form-control-sm" style="max-width:14rem" aria-label="Descripción">
+          {% if t.activo %}<input type="hidden" name="activo" value="on">{% endif %}
+          <button type="submit" class="btn btn-sm btn-outline-primary">Guardar</button>
+        </form>
+        <form method="post" action="{% url 'proyectos:tipo_documento_editar' t.pk %}" class="d-inline"
+              onsubmit="return confirm('{% if t.activo %}¿Deshabilitar «{{ t.nombre|escapejs }}»? Los archivos ya clasificados con este tipo no se modifican.{% else %}¿Habilitar «{{ t.nombre|escapejs }}»?{% endif %}')">
+          {% csrf_token %}
+          <input type="hidden" name="accion" value="alternar">
+          <button type="submit" class="btn btn-sm {% if t.activo %}btn-outline-danger{% else %}btn-outline-success{% endif %}">
+            {% if t.activo %}Deshabilitar{% else %}Habilitar{% endif %}
+          </button>
+        </form>
+      </td>
+      {% endif %}
     </tr>
   {% empty %}
-    <tr><td colspan="4" class="text-center text-muted py-3">Catálogo vacío.</td></tr>
+    <tr><td colspan="5" class="text-center text-muted py-3">Catálogo vacío.</td></tr>
   {% endfor %}
   </tbody>
 </table>

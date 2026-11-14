@@ -19,6 +19,7 @@ from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
 from django.views.generic import ListView, CreateView, UpdateView, DetailView
 
+from usuarios.descargas import descargar_archivo
 from usuarios.models import ParametrosSistema
 from usuarios.permisos import RolRequeridoMixin, rol_requerido
 from .models import Proyecto, Itemizado, TipoDocumento, ArchivoProyecto
@@ -292,6 +293,14 @@ def archivo_subir(request, proyecto_pk):
         # la carga" — o sea, una decisión del usuario, no una prohibición: un
         # plano pesado a veces tiene que subir pesado.
         subido = form.cleaned_data["archivo"]
+        cuota = ArchivoProyecto.CUOTA_PROYECTO_GB * 1024 ** 3
+        usado = ArchivoProyecto.espacio_usado(proyecto)
+        if usado + subido.size > cuota:
+            messages.error(
+                request,
+                f"El proyecto alcanzaría {(usado + subido.size) / 1024 ** 3:.1f} GB y el máximo "
+                f"es {ArchivoProyecto.CUOTA_PROYECTO_GB} GB (RNF-05). Libera espacio antes de subir.")
+            return redirect("proyectos:detalle", pk=proyecto.pk)
         parametros = ParametrosSistema.actuales()
         if subido.size > parametros.umbral_archivo_bytes and not request.POST.get("confirmar_tamano"):
             messages.warning(
@@ -344,7 +353,10 @@ def archivo_eliminar(request, pk):
 
 
 class TipoDocumentoListView(RolRequeridoMixin, ListView):
-    """Catálogo de tipos de documento (lo que destraba la Excepción 1)."""
+    """
+    RF-57 / CU-60: Administración agrega, edita o deshabilita los tipos de
+    documento. Los demás roles que suben archivos sólo consultan el catálogo.
+    """
     roles_permitidos = ROLES_ARCHIVO
     model = TipoDocumento
     template_name = "proyectos/tipodocumento_list.html"
@@ -356,9 +368,33 @@ class TipoDocumentoListView(RolRequeridoMixin, ListView):
         return ctx
 
 
-@rol_requerido("JEFE_PROYECTO")
+@rol_requerido(*ROLES_GESTION)
+@require_POST
+def tipo_documento_editar(request, pk):
+    """RF-57: editar nombre/descripción o (des)habilitar un tipo."""
+    tipo = get_object_or_404(TipoDocumento, pk=pk)
+    if request.POST.get("accion") == "alternar":
+        # CU-60 Excepción 2: deshabilitar no toca los archivos ya clasificados
+        tipo.activo = not tipo.activo
+        tipo.save(update_fields=["activo"])
+        estado = "habilitado" if tipo.activo else "deshabilitado"
+        extra = (f" Sus {tipo.archivos.count()} archivo(s) conservan la clasificación."
+                 if not tipo.activo and tipo.archivos.exists() else "")
+        messages.success(request, f"Tipo «{tipo.nombre}» {estado}.{extra}")
+    else:
+        form = TipoDocumentoForm(request.POST, instance=tipo)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"Tipo «{tipo.nombre}» actualizado.")
+        else:
+            messages.error(request, "No se pudo guardar: " +
+                           "; ".join(f"{c}: {e[0]}" for c, e in form.errors.items()))
+    return redirect("proyectos:tipos_documento")
+
+
+@rol_requerido(*ROLES_GESTION)
 def tipo_documento_crear(request):
-    """Alta de un tipo en el catálogo."""
+    """RF-57: alta de un tipo en el catálogo (Administración)."""
     if request.method == "POST":
         form = TipoDocumentoForm(request.POST)
         if form.is_valid():
@@ -398,11 +434,20 @@ def archivo_bloquear(request, pk):
     archivo.bloqueado_por = request.user
     archivo.bloqueado_desde = timezone.now()
     archivo.save(update_fields=["bloqueado_por", "bloqueado_desde"])
-    messages.success(
-        request,
-        f"«{archivo.nombre}» quedó bloqueado a tu nombre. Descárgalo, edítalo y "
-        f"sube la versión nueva para liberarlo.")
-    return redirect("proyectos:detalle", pk=archivo.proyecto_id)
+    # RF-55: se descarga al equipo local y queda bloqueado para los demás
+    return descargar_archivo(archivo.archivo, nombre=_nombre_descarga(archivo))
+
+
+def _nombre_descarga(archivo):
+    return f"{archivo.nombre}.{archivo.extension}" if archivo.extension else archivo.nombre
+
+
+@rol_requerido(*ROLES_ARCHIVO)
+def archivo_descargar(request, pk):
+    """Descarga protegida: sólo quien puede ver el proyecto baja sus archivos."""
+    archivo = get_object_or_404(ArchivoProyecto, pk=pk)
+    exigir_acceso_proyecto(request.user, archivo.proyecto)
+    return descargar_archivo(archivo.archivo, nombre=_nombre_descarga(archivo), en_linea=True)
 
 
 @rol_requerido(*ROLES_ARCHIVO)

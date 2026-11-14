@@ -3,8 +3,9 @@ Control de acceso basado en roles (RBAC) - CU-52 'Gestionando roles'.
 Provee un mixin y un decorador para restringir vistas según el rol del usuario.
 """
 from functools import wraps
-from django.core.exceptions import PermissionDenied
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.views import redirect_to_login
+from django.core.exceptions import PermissionDenied
 
 
 class RolRequeridoMixin(LoginRequiredMixin):
@@ -28,7 +29,9 @@ def rol_requerido(*roles):
         @wraps(view_func)
         def _wrapped(request, *args, **kwargs):
             if not request.user.is_authenticated:
-                raise PermissionDenied("Debes iniciar sesión.")
+                # CU-55: una sesión vencida por inactividad vuelve al login
+                # (y después a donde iba), no a una página de error.
+                return redirect_to_login(request.get_full_path())
             if request.user.rol == "ADMIN" or request.user.rol in roles:
                 return view_func(request, *args, **kwargs)
             raise PermissionDenied("No tienes permisos para acceder a esta sección.")

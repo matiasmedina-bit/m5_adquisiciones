@@ -39,8 +39,10 @@ def auditar_prestamo(sender, instance, created, **kwargs):
     if created:
         descripcion = (f"Prestó {instance.herramienta.nombre} a "
                        f"{instance.jefe_proyecto.get_full_name() or instance.jefe_proyecto.username}.")
+        operacion = RegistroAuditoria.Operacion.CREAR
     elif instance.estado == PrestamoHerramienta.Estado.DEVUELTA:
         descripcion = f"Recibió la devolución de {instance.herramienta.nombre}."
+        operacion = RegistroAuditoria.Operacion.EDITAR
     else:
         return
     registrar(
@@ -48,4 +50,5 @@ def auditar_prestamo(sender, instance, created, **kwargs):
         RegistroAuditoria.Accion.PRESTAMO_HERRAMIENTA,
         descripcion,
         instance.herramienta.codigo_activo or instance.herramienta.nombre,
+        operacion=operacion,
     )

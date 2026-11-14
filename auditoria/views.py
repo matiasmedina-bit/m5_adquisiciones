@@ -39,6 +39,10 @@ class BitacoraListView(RolRequeridoMixin, ListView):
         if accion:
             qs = qs.filter(accion=accion)
 
+        operacion = (g.get("operacion") or "").strip()
+        if operacion:
+            qs = qs.filter(operacion=operacion)
+
         usuario = (g.get("usuario") or "").strip()
         if usuario.isdigit():
             qs = qs.filter(usuario_id=int(usuario))
@@ -79,11 +83,13 @@ class BitacoraListView(RolRequeridoMixin, ListView):
         ctx = super().get_context_data(**kwargs)
         ctx["modulos"] = RegistroAuditoria.Modulo.choices
         ctx["acciones"] = RegistroAuditoria.Accion.choices
+        ctx["operaciones"] = RegistroAuditoria.Operacion.choices
         ctx["usuarios"] = Usuario.objects.filter(
             registros_auditoria__isnull=False).distinct().order_by("username")
         ctx["filtros"] = {
             "modulo": self.request.GET.get("modulo", ""),
             "accion": self.request.GET.get("accion", ""),
+            "operacion": self.request.GET.get("operacion", ""),
             "usuario": self.request.GET.get("usuario", ""),
             "desde": self.request.GET.get("desde", ""),
             "hasta": self.request.GET.get("hasta", ""),

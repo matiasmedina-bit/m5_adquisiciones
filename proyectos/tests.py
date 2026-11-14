@@ -252,9 +252,19 @@ class ArchivoProyectoCU54Test(TestCase):
 
     def test_el_catalogo_responde_si_hay_tipos_activos(self):
         self.assertTrue(TipoDocumento.hay_catalogo())
-        self.tipo.activo = False
-        self.tipo.save()
+        TipoDocumento.objects.update(activo=False)   # incluye los seis del RF-51
         self.assertFalse(TipoDocumento.hay_catalogo())
+
+    def test_rf51_el_catalogo_trae_los_tipos_del_requerimiento(self):
+        nombres = set(TipoDocumento.objects.values_list("nombre", flat=True))
+        self.assertTrue({"Contrato", "Especificación Técnica", "Plano 2D", "Plano 3D",
+                         "Fotografía", "Videos"} <= nombres)
+
+    def test_rf51_acepta_planos_3d_y_videos(self):
+        for nombre in ("modelo.ifc", "recorrido.mp4"):
+            form = ArchivoProyectoForm(data={"tipo": self.tipo.pk, "nombre": "x"},
+                                       files={"archivo": SimpleUploadedFile(nombre, b"x")})
+            self.assertTrue(form.is_valid(), (nombre, form.errors))
 
     def test_el_formulario_solo_ofrece_tipos_activos(self):
         TipoDocumento.objects.create(nombre="Obsoleto", activo=False)
@@ -338,11 +348,27 @@ class ArchivoProyectoCU54Test(TestCase):
 
     # --- catálogo administrable ---
 
-    def test_agregar_un_tipo_destraba_el_catalogo(self):
+    def test_rf57_administracion_agrega_un_tipo_y_destraba_el_catalogo(self):
         TipoDocumento.objects.all().delete()
         self.client.post(reverse("proyectos:tipo_documento_crear"),
                          {"nombre": "Permiso municipal", "activo": "on"})
+        self.assertFalse(TipoDocumento.hay_catalogo())        # el JP no administra el catálogo
+        self.client.force_login(Usuario.objects.create_user(
+            "adm54", password="x", email="adm54@m5.cl", rol="ADMIN"))
+        self.client.post(reverse("proyectos:tipo_documento_crear"),
+                         {"nombre": "Permiso municipal", "activo": "on"})
         self.assertTrue(TipoDocumento.hay_catalogo())
+
+    def test_cu60_exc2_deshabilitar_no_toca_los_archivos_ya_clasificados(self):
+        self.client.post(self._url(), {"tipo": self.tipo.pk, "nombre": "Plano A", "archivo": self._pdf()})
+        self.client.force_login(Usuario.objects.create_user(
+            "adm60", password="x", email="adm60@m5.cl", rol="ADMIN"))
+        self.client.post(reverse("proyectos:tipo_documento_editar", args=[self.tipo.pk]),
+                         {"accion": "alternar"})
+        self.tipo.refresh_from_db()
+        self.assertFalse(self.tipo.activo)
+        self.assertEqual(ArchivoProyecto.objects.get().tipo, self.tipo)
+        self.assertNotIn(self.tipo, list(ArchivoProyectoForm().fields["tipo"].queryset))
 
     def test_el_listado_del_catalogo_se_muestra(self):
         resp = self.client.get(reverse("proyectos:tipos_documento"))
@@ -388,15 +414,31 @@ class EdicionOfflineTest(TestCase):
 
     # --- CU-58 ---
 
+    def _bloquear(self):
+        # RF-55: bloquear descarga el archivo; se cierra la respuesta para
+        # soltar el archivo (en Windows no se puede reemplazar mientras esté abierto).
+        resp = self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        contenido = b"".join(resp.streaming_content) if resp.streaming else resp.content
+        # Sólo el archivo: resp.close() dispararía request_finished y cerraría
+        # la conexión de la base de datos del test.
+        if getattr(resp, "file_to_stream", None):
+            resp.file_to_stream.close()
+        return resp, contenido
+
+    def test_rf55_bloquear_descarga_el_archivo(self):
+        resp, contenido = self._bloquear()
+        self.assertEqual(contenido, b"contenido dwg")
+        self.assertIn("attachment", resp["Content-Disposition"])
+
     def test_bloquear_deja_el_archivo_a_nombre_del_actor(self):
-        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        self._bloquear()
         self.archivo.refresh_from_db()
         self.assertEqual(self.archivo.bloqueado_por, self.jefe)
         self.assertIsNotNone(self.archivo.bloqueado_desde)
         self.assertTrue(self.archivo.bloqueado)
 
     def test_la_ficha_muestra_quien_lo_tiene(self):
-        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        self._bloquear()
         self.client.login(username="cont_off", password="clave12345")
         resp = self.client.get(reverse("proyectos:detalle", args=[self.proyecto.pk]))
         self.assertContains(resp, "jp_off")
@@ -404,7 +446,7 @@ class EdicionOfflineTest(TestCase):
     # --- Excepción 1 del CU-58: ya bloqueado por otro ---
 
     def test_otro_usuario_no_lo_puede_tomar_y_se_le_dice_quien_lo_tiene(self):
-        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        self._bloquear()
         self.client.login(username="cont_off", password="clave12345")
         resp = self.client.post(
             reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]), follow=True)
@@ -415,7 +457,7 @@ class EdicionOfflineTest(TestCase):
     # --- CU-59 ---
 
     def test_subir_la_version_editada_reemplaza_y_libera(self):
-        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        self._bloquear()
         resp = self.client.post(
             reverse("proyectos:archivo_version", args=[self.archivo.pk]),
             {"archivo": SimpleUploadedFile("plano.dwg", b"version corregida")},
@@ -434,7 +476,7 @@ class EdicionOfflineTest(TestCase):
         self.assertEqual(self.archivo.version, 1)
 
     def test_no_se_puede_subir_sobre_el_bloqueo_de_otro(self):
-        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        self._bloquear()
         self.client.login(username="cont_off", password="clave12345")
         self.client.post(reverse("proyectos:archivo_version", args=[self.archivo.pk]),
                          {"archivo": SimpleUploadedFile("plano.dwg", b"x")})
@@ -444,7 +486,7 @@ class EdicionOfflineTest(TestCase):
     # --- Excepción 1 del CU-59: formato distinto ---
 
     def test_una_version_en_otro_formato_se_rechaza(self):
-        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        self._bloquear()
         resp = self.client.post(
             reverse("proyectos:archivo_version", args=[self.archivo.pk]),
             {"archivo": SimpleUploadedFile("plano.pdf", b"%PDF-1.4")}, follow=True)
@@ -456,21 +498,21 @@ class EdicionOfflineTest(TestCase):
     # --- liberar sin subir ---
 
     def test_se_puede_liberar_sin_subir_nada(self):
-        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        self._bloquear()
         self.client.post(reverse("proyectos:archivo_liberar", args=[self.archivo.pk]))
         self.archivo.refresh_from_db()
         self.assertFalse(self.archivo.bloqueado)
 
     def test_el_administrador_destraba_un_archivo_ajeno(self):
         """Alguien se fue de la empresa con un archivo tomado: hay que poder soltarlo."""
-        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        self._bloquear()
         self.client.login(username="adm_off", password="clave12345")
         self.client.post(reverse("proyectos:archivo_liberar", args=[self.archivo.pk]))
         self.archivo.refresh_from_db()
         self.assertFalse(self.archivo.bloqueado)
 
     def test_un_usuario_cualquiera_no_destraba_lo_ajeno(self):
-        self.client.post(reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]))
+        self._bloquear()
         self.client.login(username="cont_off", password="clave12345")
         self.client.post(reverse("proyectos:archivo_liberar", args=[self.archivo.pk]))
         self.archivo.refresh_from_db()

@@ -7,6 +7,11 @@
   <small class="text-muted">Ajustes que el sistema aplica de inmediato</small>
 </div>
 
+<div class="alert alert-light border small d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <span>El catálogo de tipos de documento para los archivos de proyecto también se configura aquí (RF-57).</span>
+  <a href="{% url 'proyectos:tipos_documento' %}" class="btn btn-sm btn-outline-primary">Tipos de documento</a>
+</div>
+
 <form method="post">
   {% csrf_token %}
   <div class="row g-3">

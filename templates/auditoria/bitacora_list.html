@@ -24,6 +24,12 @@
       </div>
       <div class="col-md-3">
         <label class="form-label small mb-1">Acción</label>
+        <select name="operacion" class="form-select form-select-sm mb-2" aria-label="Operación">
+          <option value="">Todas las operaciones</option>
+          {% for valor, etiqueta in operaciones %}
+          <option value="{{ valor }}" {% if filtros.operacion == valor %}selected{% endif %}>{{ etiqueta }}</option>
+          {% endfor %}
+        </select>
         <select name="accion" class="form-select form-select-sm">
           <option value="">Todas</option>
           {% for valor, etiqueta in acciones %}
@@ -70,6 +76,7 @@
     <th style="white-space:nowrap;">Fecha y hora</th>
     <th>Usuario</th>
     <th>Módulo</th>
+    <th>Operación</th>
     <th>Acción</th>
     <th>Referencia</th>
     <th>Detalle</th>
@@ -80,12 +87,13 @@
       <td class="small text-nowrap">{{ r.fecha|date:"d/m/Y H:i:s" }}</td>
       <td class="small">{{ r.actor }}</td>
       <td><span class="badge bg-light text-dark border">{{ r.get_modulo_display }}</span></td>
+      <td><span class="badge {% if r.operacion == 'CREAR' %}bg-success{% elif r.operacion == 'ELIMINAR' %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ r.get_operacion_display }}</span></td>
       <td class="small">{{ r.get_accion_display }}</td>
       <td class="small fw-semibold">{{ r.referencia|default:"—" }}</td>
       <td class="small text-muted">{{ r.descripcion }}</td>
     </tr>
   {% empty %}
-    <tr><td colspan="6" class="text-center text-muted py-4">
+    <tr><td colspan="7" class="text-center text-muted py-4">
       {% if hay_filtros %}Ningún registro calza con el filtro.{% else %}La bitácora está vacía.{% endif %}
     </td></tr>
   {% endfor %}

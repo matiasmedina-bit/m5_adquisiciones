@@ -99,6 +99,17 @@ def factura_detalle(request, pk):
     })
 
 
+@rol_requerido(CONT)
+def factura_archivo(request, pk):
+    """RNF-11: el PDF/XML de la factura, sólo para Contabilidad y Administración."""
+    from usuarios.descargas import descargar_archivo
+    factura = get_object_or_404(Factura, pk=pk)
+    if not factura.archivo:
+        messages.info(request, "Esta factura no tiene archivo adjunto.")
+        return redirect("facturacion:detalle", pk=factura.pk)
+    return descargar_archivo(factura.archivo, en_linea=True)
+
+
 @rol_requerido("ADMIN")
 def factura_desbloquear(request, pk):
     """RF-42: Administración desbloquea una factura bloqueada por diferencia de monto."""

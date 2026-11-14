@@ -23,7 +23,7 @@
           <dt class="col-sm-4 text-muted">Diferencia</dt>
           <dd class="col-sm-8 {% if factura.esta_bloqueada %}text-danger fw-semibold{% endif %}">{{ factura.diferencia_pct }}% (tolerancia {{ tolerancia }}%)</dd>
           <dt class="col-sm-4 text-muted">Registró</dt><dd class="col-sm-8">{{ factura.registrado_por.get_full_name|default:factura.registrado_por.username }} · {{ factura.creada|date:"d-m-Y H:i" }}</dd>
-          {% if factura.archivo %}<dt class="col-sm-4 text-muted">Archivo</dt><dd class="col-sm-8"><a href="{{ factura.archivo.url }}" target="_blank">Ver documento</a></dd>{% endif %}
+          {% if factura.archivo %}<dt class="col-sm-4 text-muted">Archivo</dt><dd class="col-sm-8"><a href="{% url 'facturacion:archivo' factura.pk %}" target="_blank">Ver documento</a></dd>{% endif %}
           {% if factura.desbloqueada_por %}<dt class="col-sm-4 text-muted">Desbloqueó</dt><dd class="col-sm-8">{{ factura.desbloqueada_por.get_full_name|default:factura.desbloqueada_por.username }} · {{ factura.fecha_desbloqueo|date:"d-m-Y H:i" }}</dd>{% endif %}
           {% if factura.observacion %}<dt class="col-sm-4 text-muted">Observación</dt><dd class="col-sm-8" style="white-space:pre-line">{{ factura.observacion }}</dd>{% endif %}
         </dl>

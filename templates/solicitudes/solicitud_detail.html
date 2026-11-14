@@ -199,7 +199,7 @@
           <li class="list-group-item d-flex justify-content-between align-items-center px-0">
             <span>
               <i class="bi bi-paperclip me-1"></i>
-              <a href="{{ a.archivo.url }}" target="_blank">{{ a.nombre|default:a }}</a>
+              <a href="{% url 'solicitudes:adjunto_descargar' a.pk %}" target="_blank">{{ a.nombre|default:a }}</a>
               <span class="text-muted small ms-2">{{ a.subido_por.get_full_name|default:a.subido_por.username }} · {{ a.fecha|date:"d-m-Y H:i" }}</span>
             </span>
             {% if puede_gestionar %}

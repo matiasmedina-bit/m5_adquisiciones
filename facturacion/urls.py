@@ -10,4 +10,5 @@ urlpatterns = [
     path("exportar.csv", views.factura_export_csv, name="export_csv"),
     path("<int:pk>/", views.factura_detalle, name="detalle"),
     path("<int:pk>/desbloquear/", views.factura_desbloquear, name="desbloquear"),
+    path("<int:pk>/archivo/", views.factura_archivo, name="archivo"),
 ]

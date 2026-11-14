@@ -131,6 +131,10 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # físico de M5; en desarrollo Django los sirve cuando DEBUG=True (ver config/urls.py).
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+# Los archivos subidos se entregan por vistas que revisan permisos
+# (usuarios/descargas.py). En producción, con nginx delante, ARCHIVOS_X_ACCEL=True
+# hace que nginx los sirva desde su ubicación interna /protegido/.
+ARCHIVOS_X_ACCEL = os.getenv("ARCHIVOS_X_ACCEL", "False").lower() == "true"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

@@ -206,9 +206,16 @@ class ArchivoProyecto(models.Model):
     Jefe de Proyecto; queda registrado quién y cuándo, para que la carpeta del
     proyecto sea rastreable y no un montón de archivos sueltos.
     """
-    EXT_PERMITIDAS = (".pdf", ".jpg", ".jpeg", ".png", ".dwg",
-                      ".xlsx", ".xls", ".docx", ".doc")
-    TAM_MAX_MB = 10
+    # RF-51: contratos, especificaciones, planos 2D y 3D, fotografías y videos
+    EXT_PERMITIDAS = (".pdf", ".jpg", ".jpeg", ".png", ".dwg", ".dxf",
+                      ".xlsx", ".xls", ".docx", ".doc",
+                      ".ifc", ".skp", ".rvt", ".obj", ".stl",      # planos 3D
+                      ".mp4", ".mov", ".avi", ".mkv", ".webm")     # videos
+    # Tope duro por archivo. El umbral configurable (RF-54) sólo advierte; este
+    # tope evita que un archivo absurdo tumbe el servidor.
+    TAM_MAX_MB = 2048
+    # RNF-05: hasta 10 GB por proyecto
+    CUOTA_PROYECTO_GB = 10
 
     proyecto = models.ForeignKey(
         Proyecto, on_delete=models.CASCADE, related_name="archivos")
@@ -251,6 +258,17 @@ class ArchivoProyecto(models.Model):
             return round(self.archivo.size / 1024)
         except (OSError, ValueError):
             return 0
+
+    @classmethod
+    def espacio_usado(cls, proyecto, excluir=None):
+        """Bytes que ocupan los archivos del proyecto (RNF-05)."""
+        total = 0
+        for a in cls.objects.filter(proyecto=proyecto).exclude(pk=getattr(excluir, "pk", None)):
+            try:
+                total += a.archivo.size
+            except (OSError, ValueError):
+                pass
+        return total
 
     @property
     def bloqueado(self):

@@ -342,6 +342,14 @@ def detalle_eliminar(request, pk):
     return redirect("solicitudes:detalle", pk=solicitud.pk)
 
 
+@rol_requerido(*ROLES_CONSULTA)
+def adjunto_descargar(request, pk):
+    from usuarios.descargas import descargar_archivo
+    adjunto = get_object_or_404(SolicitudAdjunto, pk=pk)
+    exigir_lectura(request.user, adjunto.solicitud)
+    return descargar_archivo(adjunto.archivo, en_linea=True)
+
+
 @rol_requerido("JEFE_PROYECTO")
 @require_POST
 def adjunto_eliminar(request, pk):
