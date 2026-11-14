@@ -1,5 +1,16 @@
 # Entrega 1 — Proveedores, usuarios y ficha de proyecto
 
+> **Nota (revisión de requerimientos, noviembre 2026).** Este archivo es el registro
+> histórico de la entrega y describe el sistema **tal como quedó en ese momento**. El
+> funcionamiento actual —roles, estados, flujo SM → cotización → OC → recepción →
+> factura y despliegue— está en [`README.md`](README.md). Cambios posteriores que
+> contradicen lo que se dice abajo:
+>
+> - La condición de pago **por material** ya no existe: la condición se acuerda con el proveedor y es la que va a la OC; el registro del proveedor vuelve a pedirla.
+> - Giro, dirección, correo y teléfono del proveedor son **obligatorios** (RF-01) y el proveedor guarda su fecha de última modificación (RF-02).
+> - La ficha del proyecto la exportan el Administrador, Adquisiciones y el Jefe de Proyecto **de esa obra**; un JP no ve obras ajenas.
+> - Se entra al sistema con el **correo institucional**, no con el nombre de usuario (RF-47).
+
 Cambios sobre `m5_adquisiciones` verificados con **100 tests** (antes 66), todos en verde
 contra PostgreSQL 16 y Django 5.2.17.
 

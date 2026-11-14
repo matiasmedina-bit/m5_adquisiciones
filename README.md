@@ -1,435 +1,339 @@
 # Sistema de Gestión de Adquisiciones e Inventario — Constructora M5 SpA
 
-**Grupo 23 — Ingeniería de Software**
-**Incremento 2 (Scrum++) — Bloque B: Sistema funcionando**
+**Grupo 23 — Ingeniería de Software.**
+Estado del sistema a noviembre de 2026, después de la revisión contra el Documento 0
+(`requerimientos_funcionales.md`, `casos_de_uso.md`, `requerimientos_no_funcionales.md`).
 
-**Stack:** Django 5 · PostgreSQL · Bootstrap 5 · reportlab + pillow (PDF de la OC)
+**Stack:** Python 3.11 · Django 5.2 · PostgreSQL 14+ · Bootstrap 5 + JavaScript sin
+frameworks · reportlab (PDF) · openpyxl (Excel) · gunicorn + nginx en producción.
+
+- Cumplimiento de cada RF/RNF: [`cumplimiento.md`](cumplimiento.md)
+- Diferencias con el Documento 0 y redacción propuesta: [`cambios_para_documento.md`](cambios_para_documento.md)
+- Historial de entregas: `LEEME.md` (entrega 1) y `LEEME_ENTREGA2/3/4.md`
 
 ---
 
 ## Índice
 
-1. [Alcance del proyecto](#1-alcance-del-proyecto)
-2. [Novedades del Incremento 2](#2-novedades-del-incremento-2)
-3. [Roles del sistema (RBAC)](#3-roles-del-sistema-rbac)
-4. [Arquitectura](#4-arquitectura)
-5. [Requisitos previos](#5-requisitos-previos)
-6. [Instalación paso a paso](#6-instalación-paso-a-paso)
-7. [Variables de entorno (`.env`)](#7-variables-de-entorno-env)
-8. [Usuarios de prueba](#8-usuarios-de-prueba)
-9. [Flujo de demostración sugerido](#9-flujo-de-demostración-sugerido)
-10. [Pruebas unitarias](#10-pruebas-unitarias)
-11. [Estructura del proyecto](#11-estructura-del-proyecto)
-12. [Problemas frecuentes](#12-problemas-frecuentes)
+1. [Roles y lo que puede hacer cada uno](#1-roles-y-lo-que-puede-hacer-cada-uno)
+2. [Flujo del sistema](#2-flujo-del-sistema)
+3. [Estados](#3-estados)
+4. [Instalación en desarrollo](#4-instalación-en-desarrollo)
+5. [Variables del `.env`](#5-variables-del-env)
+6. [Despliegue en el servidor de M5](#6-despliegue-en-el-servidor-de-m5)
+7. [Usuarios de demostración](#7-usuarios-de-demostración)
+8. [Pruebas](#8-pruebas)
+9. [Estructura del proyecto](#9-estructura-del-proyecto)
+10. [Problemas frecuentes](#10-problemas-frecuentes)
 
 ---
 
-## 1. Alcance del proyecto
+## 1. Roles y lo que puede hacer cada uno
 
-El proyecto completo son **64 requerimientos funcionales (RF)**. Este entregable
-acumula **48 de 64 RF → 75 %**.
+Cinco roles. Cada permiso se revisa en el servidor (`usuarios/permisos.py`): entrar a
+una pantalla no permitida por la URL directa devuelve **403**, y sin sesión lleva al
+login. `usuarios/tests_permisos.py` lo verifica para cada rol.
 
-| Incremento | RF | Total | % del proyecto |
-|---|---|---|---|
-| **Incremento 1** | RF-01–13, RF-15, RF-18, RF-50–52 | 16 | 25 % |
-| **Incremento 2** | RF-05–07, RF-14, RF-16–17, RF-19–44 | 32 | 50 % |
-| **Acumulado** | — | **48** | **75 %** |
-
-> Toda la parte transaccional se almacena en una **base de datos relacional
-> (PostgreSQL)**, según exige la rúbrica. Los archivos que suben los usuarios
-> (adjuntos de solicitudes, PDF de órdenes de compra, archivo digital de facturas)
-> se guardan en la carpeta `media/` y Django los sirve mientras `DEBUG=True`.
-
-### Trazabilidad RF → módulo (Incremento 2)
-
-| Módulo | RF | Qué implementa |
+| Rol (en el documento) | En el sistema | Qué hace |
 |---|---|---|
-| **Proveedores** | RF-05, RF-06, RF-07 | Listado de materiales que suministra el proveedor: agregar material, marcarlo *no disponible* sin borrarlo, y editar código / unidad / descripción (guarda fecha de última modificación). |
-| **Proyectos** | RF-14 | El **centro de costo** no puede repetirse en otro proyecto. |
-| **Solicitudes de Materiales** | RF-16 | Alerta visual + campo **Justificación** obligatorio si la cantidad pedida supera el saldo de la partida del itemizado. |
-| | RF-17 | Adjuntar hasta **3 archivos** PDF/JPG (máx. 5 MB c/u) a una solicitud. |
-| **Adquisiciones — Cotizaciones** | RF-19 | Bandeja de entrada de Adquisiciones con las SM listas para cotizar, ordenadas por fecha. |
-| | RF-20 | Registrar varias cotizaciones por SM (proveedor, valor unitario por material, costo de despacho, tiempo de entrega). Nacen en estado *Pendiente*. |
-| | RF-21 | El **valor total** de cada cotización se calcula y muestra automáticamente: Σ(cantidad × valor unitario) + despacho. |
-| | RF-22 | Aprobar, por cada material, la línea más conveniente; las demás quedan *Descartadas*. Cuando todas están resueltas, la SM pasa a *En cotización* y se habilita **Generar OC**. |
-| **Adquisiciones — Órdenes de Compra** | RF-23 | Genera un **borrador de OC por cada proveedor** con las líneas aprobadas; autocompleta datos del proveedor y de M5; **correlativo automático e irrepetible** (`OC-000001`). |
-| | RF-24 | El **Jefe de Proyecto** aprueba o rechaza el borrador (rechazo con motivo, notifica a Adquisiciones). |
-| | RF-25 | Una OC **rechazada** se puede editar y vuelve a *Borrador* para nueva aprobación. |
-| | RF-26 | Exportar la OC aprobada a **PDF** con el logotipo corporativo. |
-| | RF-27 | Al aprobar, se **envía el PDF por correo** al proveedor y la OC pasa a *Enviada*. |
-| **Inventario y Bodega** | RF-28 | Registrar entrada física de materiales, asociada a una **OC enviada** (recepción) o a un **proyecto** (retorno de sobrantes). Al rol Bodega se le ocultan los precios. |
-| | RF-29 | La cantidad recibida no puede superar la cantidad de la OC. |
-| | RF-30 | Registrar la **ubicación física** de cada material. |
-| | RF-31 | Registrar **salida** de materiales/herramientas (material, cantidad, proyecto destino, jefe de proyecto, guía de despacho). |
-| | RF-32 | El **stock disponible se actualiza en tiempo real** en cada entrada y salida. |
-| | RF-33 | Gestión de **préstamos de herramientas** (activo fijo); notifica al rol Administración. |
-| | RF-34 | Registrar la **devolución** de una herramienta prestada → vuelve a *Disponible en bodega*. |
-| | RF-35 | Registrar **mermas / pérdidas** clasificadas por motivo (Daño / Robo); descuenta del stock. |
-| | RF-36 | Registrar **devoluciones a proveedores** asociadas a una OC, con motivo. Se ocultan precios al rol Bodega. |
-| | RF-37 | **Alerta visual de stock mínimo** cuando un material crítico llega a su umbral. |
-| **Recepción** | RF-38 | Adquisiciones actualiza el estado de una OC enviada a *Recibida / Recepción parcial / No recibida*; notifica al Jefe de Proyecto con las cantidades recibidas. |
-| | RF-39 | En el detalle de la SM se muestra el estado de recepción de **cada OC asociada por separado**. |
-| **Facturación y Contabilidad** | RF-40 | Contabilidad recepciona una factura vinculándola a **una o más OC enviadas** (número, fecha de emisión y de vencimiento) y marca esas OC como *Facturada* (campo independiente de la recepción). |
-| | RF-41 | Valida el monto total de la factura contra el de las OC; si supera la **tolerancia parametrizable**, la factura queda **Bloqueada**. |
-| | RF-42 | El rol **Administración** desbloquea una factura bloqueada (con justificación). |
-| | RF-43 | Vista **"Cuentas por Pagar"** ordenada por fecha de vencimiento, con alerta de vencidas / por vencer. |
-| | RF-44 | Contabilidad **exporta el listado de facturas a CSV**. |
+| **Administrador / Administración** | `ADMIN` | Todo. En exclusiva: cuentas de usuario, parámetros del sistema y tipos de documento, **asignar o quitar jefes de una obra (RF-09), cambiar su estado (RF-10)** y eliminarla, catálogo maestro de materiales, desbloquear facturas (RF-38). |
+| **Jefe de Proyecto** | `JEFE_PROYECTO` | **Registra obras** (queda asignado a la que crea) y **edita los datos y el itemizado sólo de sus obras** (RF-07, RF-08). Crea, emite y corrige las solicitudes de material de sus obras (RF-12 a RF-14). Aprueba o rechaza las OC de sus obras (RF-22). Reportes y trazabilidad de sus obras. **Nunca ve ni modifica obras a las que no está asignado.** |
+| **Adquisiciones** | `ENCARGADO_ADQUISICIONES` | Proveedores y su catálogo (RF-01 a RF-06). Bandeja de SM emitidas, cotizaciones, aprobación de líneas y generación de OC (RF-16 a RF-21). Rechaza una SM que no puede atender. Corrige OC rechazadas (RF-23), gestiona el envío si el correo falló (RF-25) y el estado de recepción (RF-35). Compras anticipadas. Reportes y trazabilidad. |
+| **Bodega** | `BODEGUERO` | Entradas (por OC o devolución de obra), salidas a obra, mermas, devoluciones a proveedor y préstamos de herramientas (RF-26 a RF-33). **Nunca ve precios.** |
+| **Contabilidad** | `CONTABILIDAD` | Recepción de facturas con validación de monto, cuentas por pagar y exportación CSV (RF-37, RF-39, RF-40). Bitácora de auditoría. |
+
+Bodega y Contabilidad pueden **leer** las SM emitidas y las OC (Bodega sin precios). El
+inicio de sesión es con **correo institucional y contraseña** (RF-47); tras 5 intentos
+fallidos la cuenta queda bloqueada 15 minutos (RNF-08) y la sesión se cierra sola tras
+30 minutos sin actividad (RF-52).
 
 ---
 
-## 2. Novedades del Incremento 2
-
-### Módulos nuevos
-
-- **`adquisiciones/`** — cotizaciones y órdenes de compra (RF-19 a RF-27, RF-38, RF-39).
-  Incluye `adquisiciones/pdf.py`, que arma el PDF de la OC con `reportlab`.
-- **`facturacion/`** — recepción de facturas, control de monto, Cuentas por Pagar y
-  exportación CSV (RF-40 a RF-44).
-
-### Módulos existentes ampliados
-
-- **`proveedores/`** — nuevo modelo `ProveedorMaterial` (listado de materiales del proveedor).
-- **`proyectos/`** — campo `centro_costo` con validación de unicidad.
-- **`solicitudes/`** — `SolicitudDetalle` gana partida del itemizado + justificación;
-  nuevo modelo `SolicitudAdjunto`; el estado de la SM se amplía con
-  *En cotización · OC generada · Recepción parcial · Entregada*.
-- **`inventario/`** — nuevos modelos `MovimientoInventario` y `PrestamoHerramienta`;
-  `Material` gana `stock_minimo` y `ubicacion`.
-- **`usuarios/`** — se agrega el **quinto rol del RBAC: `CONTABILIDAD`** (RF-54).
-
-### Configuración nueva (`config/settings.py`)
-
-- `MEDIA_URL` / `MEDIA_ROOT` — archivos subidos por los usuarios.
-- Bloque de **correo** (`EMAIL_*`); por defecto usa el backend de consola, así que
-  los correos de la OC (RF-27) se imprimen en la terminal del `runserver`.
-- Datos de facturación de M5 (`EMPRESA_*`) que se autocompletan en la OC (RF-23).
-- `FACTURA_TOLERANCIA_PCT` — tolerancia de monto factura ↔ OC (RF-41).
-
-### Interfaz
-
-- El área interna (todo lo posterior al login) pasó del **blanco** a un **gris de
-  marca** con un velo muy tenue de naranja y celeste, para suavizar la transición
-  desde el login oscuro. Se controla con la variable `--m5-light` en
-  `static/css/style.css`.
-- Menú superior con las secciones nuevas: **Bodega**, **Adquisiciones** y
-  **Facturación**, visibles según el rol.
-
-### Dependencias nuevas
-
-`reportlab==4.2.2` y `pillow==10.4.0` (PDF de la Orden de Compra con logo).
-
----
-
-## 3. Roles del sistema (RBAC)
-
-Cinco perfiles. `ADMIN` tiene acceso a todo. El resto ve solo sus secciones.
-
-| Rol | Secciones | Acciones clave |
-|---|---|---|
-| **Administrador** (`admin`) | Todas | Gestión de cuentas y roles · desbloqueo de facturas (RF-42) |
-| **Jefe de Proyecto** (`jefe`) | Proyectos · Solicitudes · Adquisiciones | Crea proyectos e itemizado · aprueba/rechaza solicitudes · aprueba/rechaza Órdenes de Compra (RF-24) |
-| **Encargado de Adquisiciones** (`encargado`) | Proveedores · Proyectos · Solicitudes · Adquisiciones · Bodega | Proveedores y su catálogo · genera solicitudes · cotiza y genera OC · actualiza recepción |
-| **Bodeguero** (`bodega`) | Bodega | Entradas, salidas, mermas, devoluciones y préstamos. **No ve precios** (RF-28, RF-36) |
-| **Contabilidad** (`contador`) | Facturación | Recepciona facturas · Cuentas por Pagar · exporta CSV |
-
-El control de acceso está en `usuarios/permisos.py` (`RolRequeridoMixin` para vistas
-de clase y el decorador `@rol_requerido` para vistas de función).
-
----
-
-## 4. Arquitectura
-
-### Apps Django (una por módulo)
+## 2. Flujo del sistema
 
 ```
-usuarios  →  proveedores  →  proyectos  →  inventario  →  solicitudes  →  adquisiciones  →  facturacion
+Administrador                Jefe de Proyecto            Adquisiciones              Bodega             Contabilidad
+─────────────                ────────────────            ─────────────              ──────             ────────────
+usuarios, proveedores*       obra + itemizado
+asigna jefes, estado         (o el Administrador)
+"En ejecución"
+                             SM en Borrador ──emitir──►  bandeja (Emitida)
+                                                         cotiza a varios proveedores
+                                                         aprueba 1 línea por material
+                             ◄── aviso "En cotización" ─ genera 1 OC por proveedor
+                             aprueba / rechaza la OC ──► (si rechaza: corrige y reenvía)
+                                       │ aprobada → PDF por correo al proveedor → "Enviada"
+                                       ▼
+                                                                                    recibe contra la OC
+                                                                                    (parcial / total)
+                             ◄── aviso con cantidades ── estado de recepción         stock al día
+                                                                                                       factura contra OC
+                                                                                                       (tolerancia, IVA incl.)
+                                                                                                       cuentas por pagar
+                             salida a obra imputada a una partida  ◄─────────────── Bodega
+reportes y trazabilidad (Jefe de Proyecto sólo sus obras · Adquisiciones · Administrador)
 ```
+\* Los proveedores los registra Adquisiciones (o el Administrador).
 
-### Modelo de datos principal
+Paso a paso:
 
-| Entidad | App | Relaciones |
-|---|---|---|
-| `Usuario` (rol) | usuarios | emite Solicitudes; aprueba OC; registra movimientos |
-| `Proveedor` · `ProveedorMaterial` | proveedores | Proveedor 1─N ProveedorMaterial |
-| `Proyecto` · `Itemizado` | proyectos | Proyecto 1─N Itemizado (partidas) |
-| `Material` | inventario | catálogo; `stock_actual`, `stock_minimo`, `ubicacion` |
-| `SolicitudMaterial` · `SolicitudDetalle` · `SolicitudAdjunto` | solicitudes | SM 1─N líneas; línea → Material y (opcional) Itemizado |
-| `Cotizacion` · `CotizacionLinea` | adquisiciones | 1 cotización por (SM, proveedor); línea → SolicitudDetalle |
-| `OrdenCompra` · `OrdenCompraLinea` | adquisiciones | OC → SM + Proveedor + Cotización |
-| `MovimientoInventario` | inventario | tipo ENTRADA/SALIDA/MERMA/DEVOLUCION; ajusta el stock al guardar |
-| `PrestamoHerramienta` | inventario | Herramienta prestada a un Jefe de Proyecto |
-| `Factura` | facturacion | Factura N─M OrdenCompra |
+1. **Obra.** El Administrador o un Jefe de Proyecto registra la obra con su itemizado
+   (partidas con cantidad presupuestada). Nace «En planificación». El Administrador
+   asigna los jefes y la pasa a **«En ejecución»**: sólo así admite solicitudes.
+2. **Solicitud de Materiales (SM).** El Jefe de Proyecto la arma en **Borrador**:
+   materiales del catálogo maestro (o del catálogo de un proveedor), cantidad y
+   **partida obligatoria**. Si una línea supera el saldo restante de la partida
+   (presupuesto − lo ya pedido o ejecutado), el sistema alerta y exige justificación
+   (RF-13). Puede adjuntar hasta 3 PDF/JPG de 5 MB. Al **emitirla** recibe su número
+   `SM-000001` y queda **«Emitida»**.
+3. **Cotización.** Adquisiciones la ve en la bandeja (más antigua primero), registra
+   cotizaciones de distintos proveedores (valor unitario por material, despacho y días
+   de entrega; el total se calcula solo) y aprueba la línea más conveniente de cada
+   material. Con todas aprobadas la SM pasa a **«En cotización»**.
+4. **Orden de Compra.** «Generar OC» crea un borrador por proveedor con folio
+   automático, los datos de facturación de M5 y los del proveedor (no se genera si
+   falta alguno). El Jefe de Proyecto de la obra la aprueba o la rechaza con motivo.
+   Al aprobarla se envía el PDF por correo al proveedor y pasa a **«Enviada»**; si el
+   proveedor no tiene correo o el envío falla, queda «Aprobada» y Adquisiciones
+   reintenta o registra la entrega manual.
+5. **Recepción.** Bodega registra la entrada contra la OC (sin superar lo pedido) y su
+   ubicación; el stock se actualiza al instante y la OC pasa a «Recepción parcial» o
+   «Recibida». La SM refleja el estado de cada OC y el Jefe de Proyecto recibe un aviso
+   con las cantidades.
+6. **Salida a obra.** Bodega despacha a la obra indicando jefe de proyecto, guía de
+   despacho y **partida**: es lo que alimenta el «consumido» del reporte de desviación.
+7. **Factura.** Contabilidad la vincula a una o más OC enviadas. Si el monto (IVA
+   incluido) difiere del de las OC más que la tolerancia configurada, queda
+   «Bloqueada» hasta que el Administrador la desbloquee. Si no, la OC queda marcada
+   como facturada y la factura aparece en Cuentas por Pagar.
+8. **Reportes y trazabilidad.** Consumo por proyecto, desviación presupuestaria
+   (gráfico), mermas, compras por proveedor (Excel/PDF), y un buscador que reconstruye
+   la cadena completa desde un número de SM, un folio de OC o el código de un material.
 
-### Flujo de estados
-
-**Solicitud de Materiales:**
-`Borrador → Enviada → Aprobada → En cotización → OC generada → Recepción parcial → Entregada`
-(el Jefe puede *Rechazar* en "Enviada").
-
-**Orden de Compra:**
-`Borrador → Aprobada → Enviada → (Recepción parcial) → Recibida`
-(*Rechazada* → editar → vuelve a *Borrador*; también puede quedar *No recibida*).
-Campo `facturada` independiente del estado de recepción.
-
-**Factura:** `Registrada` · `Bloqueada` (por diferencia de monto) → Administración desbloquea → `Registrada`.
+Cada cambio de estado de la SM se notifica al Jefe de Proyecto (campana de la barra
+superior + correo). Los movimientos de bodega, emisiones, facturas, cuentas e
+itemizado quedan en la bitácora con usuario, fecha y operación (Crear/Editar/Eliminar).
 
 ---
 
-## 5. Requisitos previos
+## 3. Estados
 
-- **Python 3.11 o 3.12** — verificar con `python --version`
-- **PostgreSQL 14 o superior** — verificar con `psql --version`
-- **Git** (opcional) — `git --version`
-- **pip** y **venv** (vienen con Python)
-
-> Si al escribir `python` en la terminal se abre la Microsoft Store, Python no está
-> en el `PATH`. Instálalo desde [python.org](https://www.python.org/downloads/)
-> marcando *"Add Python to PATH"*, o usa la ruta completa a tu `python.exe`.
+| Entidad | Estados |
+|---|---|
+| Proyecto | En planificación → En ejecución → Finalizado |
+| Solicitud de Materiales | **Borrador** → Emitida → En cotización → OC generada → Entregada parcialmente → Entregada · Rechazada (por Adquisiciones; el JP la devuelve a Borrador y la reemite con el mismo número) |
+| Orden de Compra | Borrador → Aprobada → Enviada → Recepción parcial → Recibida · Rechazada (vuelve a Borrador) · No recibida. Marca `facturada` independiente. |
+| Factura | Registrada · Bloqueada (por diferencia de monto) |
+| Préstamo de herramienta | Prestada → Devuelta / disponible en bodega |
 
 ---
 
-## 6. Instalación paso a paso
+## 4. Instalación en desarrollo
 
-> Para la guía detallada con capturas y solución de errores, ver
-> **`docs/PASO_A_PASO.md`**.
+Requisitos: Python 3.11 o 3.12, PostgreSQL 14 o superior.
 
-### 6.1. Obtener el proyecto
-
-```bash
+```powershell
 git clone <URL_DEL_REPOSITORIO>
 cd m5_adquisiciones
-```
-
-(o descomprimir el ZIP y entrar a la carpeta `m5_adquisiciones`).
-
-### 6.2. Crear y activar el entorno virtual
-
-**Windows (PowerShell):**
-```powershell
 python -m venv venv
-venv\Scripts\activate
-```
-> Si sale *"la ejecución de scripts está deshabilitada"*:
-> `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` y reintenta.
-
-**Linux / macOS:**
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-Al activarse, el prompt muestra `(venv)` al inicio. **Repite este paso cada vez que
-abras una terminal nueva.**
-
-### 6.3. Instalar dependencias
-
-```bash
+venv\Scripts\activate                  # Linux/macOS: source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Instala: `Django 5.0.6`, `psycopg2-binary` (conector PostgreSQL), `python-dotenv`,
-`reportlab` y `pillow` (PDF de la OC — RF-26).
+Crear la base y el `.env`:
 
-### 6.4. Crear la base de datos en PostgreSQL
-
-```bash
-psql -U postgres
-```
 ```sql
+-- psql -U postgres
 CREATE DATABASE m5_adquisiciones;
-\q
 ```
-
-### 6.5. Configurar `.env`
-
 ```powershell
-copy .env.example .env      # Windows
-# cp .env.example .env      # Linux / macOS
+copy .env.example .env                 # Linux/macOS: cp .env.example .env
+# editar DB_PASSWORD y SECRET_KEY
 ```
 
-Edita `.env` y ajusta al menos la contraseña de PostgreSQL (`DB_PASSWORD`).
-Ver la sección [7. Variables de entorno](#7-variables-de-entorno-env).
-
-> El `.env` **no se sube a Git**. Cada integrante crea el suyo desde `.env.example`.
-
-### 6.6. Crear las tablas
+Tablas, datos de prueba y servidor:
 
 ```bash
-python manage.py makemigrations
-python manage.py migrate
+python manage.py migrate               # aplica todas las migraciones (incluidas las de datos)
+python manage.py seed_demo             # opcional: usuarios, obra, proveedores y una cadena completa
+python manage.py runserver             # http://127.0.0.1:8000/
 ```
 
-Las migraciones del Incremento 2 ya vienen escritas en el repo, así que
-`makemigrations` debería decir **`No changes detected`**. Si generara algo,
-`migrate` lo aplica igual.
+> **Sobre las migraciones de esta revisión.** Algunas transforman datos existentes:
+> las SM «Aprobada» y «Enviada» pasan a «Emitida», las obras «Suspendidas» a
+> «En planificación», la bitácora se clasifica por operación, se cargan los seis tipos
+> de documento del RF-51 y a las salidas a obra antiguas se les asigna la partida
+> cuando no hay duda. No borran datos. Respalda la base antes de migrar una
+> instalación con datos reales.
 
-### 6.7. Cargar datos de demostración
-
-```bash
-python manage.py seed_demo
-```
-
-Crea los 5 usuarios de prueba, proveedores con su catálogo, un proyecto con
-itemizado y centro de costo, materiales con stock mínimo, solicitudes, y la
-**cadena completa del Incremento 2**: cotizaciones → OC → recepción parcial →
-factura, más una merma y un préstamo de ejemplo.
-
-### 6.8. Levantar el servidor
-
-```bash
-python manage.py runserver
-```
-
-Abrir **http://127.0.0.1:8000/** e iniciar sesión (ver usuarios abajo).
-Para apagarlo: `Ctrl + C`.
+En desarrollo los correos se imprimen en la consola del `runserver`.
 
 ---
 
-## 7. Variables de entorno (`.env`)
+## 5. Variables del `.env`
 
-| Variable | Para qué | Valor por defecto |
+| Variable | Para qué | Por defecto |
 |---|---|---|
-| `SECRET_KEY` | Clave de Django | *(cambiar)* |
-| `DEBUG` | Modo desarrollo | `True` |
-| `ALLOWED_HOSTS` | Hosts permitidos | `127.0.0.1,localhost` |
-| `DB_NAME` · `DB_USER` · `DB_PASSWORD` · `DB_HOST` · `DB_PORT` | Conexión PostgreSQL | `m5_adquisiciones` / `postgres` / `postgres` / `127.0.0.1` / `5432` |
-| `EMAIL_BACKEND` | Backend de correo | consola (los correos se imprimen en el `runserver`) |
-| `EMAIL_HOST` … `EMAIL_USE_TLS` | SMTP real (opcional) | vacío |
-| `DEFAULT_FROM_EMAIL` | Remitente de las notificaciones | `adquisiciones@m5.cl` |
-| `EMPRESA_RAZON_SOCIAL` · `EMPRESA_RUT` · `EMPRESA_GIRO` · `EMPRESA_DIRECCION` | Datos de M5 que se autocompletan en la OC (RF-23) | Constructora M5 SpA … |
-| `FACTURA_TOLERANCIA_PCT` | % de diferencia permitido entre factura y OC antes de bloquear (RF-41) | `5` |
+| `SECRET_KEY` | Clave de Django. **En producción, una larga y secreta.** | — |
+| `DEBUG` | `True` en desarrollo, **`False` en producción** | `True` |
+| `ALLOWED_HOSTS` | Nombres/IP con que se entra al sistema, separados por coma | `127.0.0.1,localhost` |
+| `CSRF_TRUSTED_ORIGINS` | Opcional; si no se define se deduce de `ALLOWED_HOSTS` (http y https) | — |
+| `DB_NAME` `DB_USER` `DB_PASSWORD` `DB_HOST` `DB_PORT` | Conexión a PostgreSQL | `m5_adquisiciones` / `postgres` / … / `127.0.0.1` / `5432` |
+| `USAR_HTTPS` | **RNF-07.** `True` detrás de nginx con certificado: redirige http→https, cookies `Secure`, HSTS | `False` |
+| `SECURE_HSTS_SECONDS` | Duración de HSTS cuando `USAR_HTTPS=True` | `31536000` |
+| `ARCHIVOS_X_ACCEL` | `True` si nginx sirve los archivos subidos por `/protegido/` (descarga protegida) | `False` |
+| `EMAIL_BACKEND` | `django.core.mail.backends.smtp.EmailBackend` para envío real | consola |
+| `EMAIL_HOST` `EMAIL_PORT` | Servidor SMTP (Google Workspace: `smtp.gmail.com` 587 · Microsoft 365: `smtp.office365.com` 587) | — / `587` |
+| `EMAIL_HOST_USER` `EMAIL_HOST_PASSWORD` | Cuenta con que se autentica el sistema | — |
+| `EMAIL_USE_TLS` / `EMAIL_USE_SSL` | 587 → TLS; 465 → SSL (si se marcan las dos, manda SSL) | `True` / `False` |
+| `EMAIL_TIMEOUT` | Segundos antes de dar por fallido un envío | `20` |
+| `DEFAULT_FROM_EMAIL` | Remitente | `adquisiciones@m-5.cl` |
+| `EMAIL_REPLY_TO` | Casilla donde llegan las respuestas de los proveedores | `EMPRESA_EMAIL` |
+| `EMPRESA_RAZON_SOCIAL` `EMPRESA_RUT` `EMPRESA_GIRO` `EMPRESA_DIRECCION` `EMPRESA_TELEFONO` `EMPRESA_EMAIL` `EMPRESA_WEB` | Datos de facturación de M5 impresos en la OC (sin ellos no se genera la OC) | Constructora M5 SpA … |
+| `EMPRESA_REPRESENTANTE_NOMBRE` `EMPRESA_REPRESENTANTE_RUT` | Quien autoriza la OC impresa | ver `config/settings.py` |
+| `IVA_PORCENTAJE` | IVA de la OC y de la comparación con la factura | `19` |
 
-Para envío real de la OC por correo, descomenta el bloque SMTP de `.env.example`.
+Sin SMTP configurado **no salen** las OC a los proveedores (quedan «Aprobada»), ni los
+enlaces de activación de cuenta y recuperación de contraseña. La tolerancia de
+facturación, el stock mínimo por defecto, el umbral de tamaño de archivo y el folio de
+la próxima OC se configuran en **Parámetros** dentro del sistema, no en el `.env`.
 
 ---
 
-## 8. Usuarios de prueba
+## 6. Despliegue en el servidor de M5
 
-Todos con clave **`demo12345`** (los crea `seed_demo`).
+El servidor es una VM Ubuntu con la aplicación en `/opt/m5/app`, el entorno en
+`/opt/m5/venv`, gunicorn como servicio (`systemctl … gunicorn`) y nginx delante.
 
-| Usuario | Rol |
+**1. Subir el código y actualizar.**
+
+```bash
+cd /opt/m5/app
+/opt/m5/venv/bin/pip install -r requirements.txt
+/opt/m5/venv/bin/python manage.py migrate
+/opt/m5/venv/bin/python manage.py collectstatic --noinput
+/opt/m5/venv/bin/python manage.py check --deploy
+```
+
+**2. Extras del servidor: `despliegue/instalar.sh`** (una vez).
+
+```bash
+cd /tmp/m5_extras && bash instalar.sh
+```
+
+Deja `/opt/m5/set_ip.sh` (cambiar la IP en `ALLOWED_HOSTS` con un comando), el
+**respaldo diario a las 00:00** de la base y de `media/` (`/etc/cron.d/m5-backup`,
+30 días de retención en `/var/backups/m5`, RNF-10) y el bloque `EMAIL_*` comentado en
+el `.env`. Para completar el correo: `despliegue/configurar_correo.sh`.
+
+**3. HTTPS y descarga protegida: `despliegue/nginx-m5.conf`.**
+
+```bash
+sudo mkdir -p /etc/ssl/m5          # copiar aquí m5.crt y m5.key (certificado de TI de M5)
+sudo cp despliegue/nginx-m5.conf /etc/nginx/sites-available/m5
+sudo ln -sf /etc/nginx/sites-available/m5 /etc/nginx/sites-enabled/m5
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+El archivo redirige http→https, sirve `/static/` y deja los archivos subidos en una
+ubicación interna (`/protegido/`) que nginx sólo entrega cuando Django lo autoriza.
+
+**4. `.env` de producción** (como mínimo):
+
+```ini
+DEBUG=False
+SECRET_KEY=<larga y secreta>
+ALLOWED_HOSTS=m5.local,192.168.1.50
+USAR_HTTPS=True
+ARCHIVOS_X_ACCEL=True
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST=smtp.office365.com
+EMAIL_PORT=587
+EMAIL_HOST_USER=sistema@m-5.cl
+EMAIL_HOST_PASSWORD=<clave>
+EMAIL_USE_TLS=True
+DEFAULT_FROM_EMAIL=sistema@m-5.cl
+EMAIL_REPLY_TO=adquisiciones@m-5.cl
+```
+
+**5. Reiniciar y dejar la instalación limpia.**
+
+```bash
+sudo systemctl restart gunicorn
+/opt/m5/venv/bin/python manage.py preparar_produccion   # borra datos demo y crea el primer administrador
+```
+
+`preparar_produccion` es la **única** operación que borra físicamente datos (los de
+demostración); en uso normal OC, proveedores, facturas y movimientos no se pueden borrar.
+
+---
+
+## 7. Usuarios de demostración
+
+`seed_demo` crea una cuenta por rol, todas con la clave **`demo12345`**. Se entra con
+el **correo**:
+
+| Correo | Rol |
 |---|---|
-| `admin` | Administrador |
-| `jefe` | Jefe de Proyecto |
-| `encargado` | Encargado de Adquisiciones |
-| `bodega` | Bodeguero |
-| `contador` | Contabilidad |
-
-Para un superusuario propio: `python manage.py createsuperuser`.
+| `admin@m5.cl` | Administrador |
+| `jefe@m5.cl` | Jefe de Proyecto |
+| `encargado@m5.cl` | Adquisiciones |
+| `bodega@m5.cl` | Bodega |
+| `contador@m5.cl` | Contabilidad |
 
 ---
 
-## 9. Flujo de demostración sugerido
+## 8. Pruebas
 
-### Base (Incremento 1)
+```bash
+python manage.py test          # ≈ 550 pruebas, ≈ 8 minutos
+python manage.py check
+```
 
-1. **`encargado`** → registrar un proveedor con RUT chileno (valida dígito
-   verificador y anti-duplicado). En su ficha, **agregar materiales al listado** y
-   marcar uno *no disponible* → **RF-05 / RF-06 / RF-07**.
-2. **`jefe`** → crear un proyecto con **centro de costo** (probar que no se
-   repita → **RF-14**) y su **itemizado**.
-3. **`encargado`** → crear una **solicitud**, agregar ítems vinculados a una
-   partida. Si la cantidad supera el saldo del itemizado, el sistema exige
-   **justificación** → **RF-16**. **Adjuntar** un PDF → **RF-17**. Enviar.
-4. **`jefe`** → **aprobar** la solicitud.
+Pruebas destacadas:
 
-### Adquisiciones (Incremento 2)
+- `usuarios/tests_permisos.py` — matriz rol × funcionalidad (403 por URL directa).
+- `adquisiciones/tests_e2e.py` — la cadena completa, de proveedor a trazabilidad.
+- `*/tests_rf.py`, `usuarios/tests_seguridad.py` — reglas de cada RF/RNF.
 
-5. **`encargado`** → **Adquisiciones → Bandeja de cotización** (**RF-19**). Abrir la
-   SM y **registrar 2 cotizaciones** de proveedores distintos (**RF-20**); el
-   sistema muestra el **valor total** de cada una (**RF-21**).
-6. **Aprobar** por cada material la línea más conveniente (**RF-22**) y pulsar
-   **Generar Orden(es) de Compra** (**RF-23**): una OC por proveedor, con
-   correlativo automático.
-7. **`jefe`** → abrir la OC y **Aprobar** → se genera el **PDF** (**RF-26**) y se
-   **envía por correo** al proveedor (**RF-27**, visible en la consola del
-   `runserver`). Probar también **Rechazar** con motivo (**RF-24**) y, como
-   `encargado`, **Editar líneas y reenviar** (**RF-25**).
-
-### Bodega (Incremento 2)
-
-8. **`bodega`** → **Bodega**: registrar una **entrada** asociada a la OC (valida que
-   no supere lo pedido → **RF-29**, guarda ubicación → **RF-30**), una **salida a
-   obra** (**RF-31**), una **merma** (**RF-35**) y un **préstamo de herramienta**
-   (**RF-33**). El stock se actualiza al instante (**RF-32**) y se ve la **alerta de
-   stock mínimo** (**RF-37**). Observar que **no aparecen precios**.
-9. **`encargado`** → en la OC, **actualizar el estado de recepción** (**RF-38**); el
-   estado por OC se ve en el detalle de la SM (**RF-39**).
-
-### Facturación (Incremento 2)
-
-10. **`contador`** → **Facturación → Recepcionar factura** vinculada a la OC
-    (**RF-40**). Con monto dentro de la tolerancia queda *Registrada* y marca la OC
-    como *Facturada*; con un monto muy distinto queda **Bloqueada** (**RF-41**).
-11. **`admin`** → **desbloquear** la factura (**RF-42**). Ver **Cuentas por Pagar**
-    (**RF-43**) y **Exportar CSV** (**RF-44**).
-12. Entrar con **`bodega`** a una sección no permitida → el sistema **bloquea por
-    rol** (RBAC).
+En Git Bash en Windows, si el comando no avanza, redirigir la entrada:
+`python manage.py test --noinput < /dev/null`.
 
 ---
 
-## 10. Pruebas unitarias
-
-```bash
-python manage.py test
-```
-
-Con detalle (para la evidencia del informe):
-
-```bash
-python manage.py test --verbosity=2
-```
-
-Actualmente son **66 pruebas** (Incremento 1 + Incremento 2). Cada módulo incluye
-además un test que comprueba que **todas sus plantillas se renderizan sin error**.
-La evidencia (captura de `... OK`) se pega en `docs/INFORME_PRUEBAS.md`, que ya trae
-la trazabilidad prueba ↔ RF.
-
-Para correr solo un módulo:
-
-```bash
-python manage.py test adquisiciones --verbosity=2
-```
-
----
-
-## 11. Estructura del proyecto
+## 9. Estructura del proyecto
 
 ```
 m5_adquisiciones/
-├── config/              # settings, urls raíz, wsgi/asgi
-├── usuarios/            # autenticación, cuentas y roles (RBAC · 5 perfiles)
-│   ├── validators.py    # RUT chileno (módulo 11)
-│   ├── permisos.py      # mixin + decorador de control de acceso por rol
-│   └── management/commands/seed_demo.py     # carga de datos demo
-├── proveedores/         # RF-01–08 · proveedores + listado de materiales (RF-05/06/07)
-├── proyectos/           # RF-09–14 · proyectos, itemizado, centro de costo (RF-14)
-├── inventario/          # catálogo + Bodega: movimientos, préstamos, stock mínimo (RF-28–37)
-├── solicitudes/         # solicitudes de material + justificación (RF-16) y adjuntos (RF-17)
-├── adquisiciones/       # RF-19–27, 38, 39 · cotizaciones y órdenes de compra
-│   └── pdf.py           # PDF de la OC con logo (reportlab)
-├── facturacion/         # RF-40–44 · facturas, cuentas por pagar, export CSV
-├── templates/           # plantillas HTML (Bootstrap 5)
-├── static/css/style.css # tema visual (variables de marca)
-├── media/               # archivos subidos — NO se versiona
-├── docs/                # GUIA_GIT · PASO_A_PASO · INFORME_PRUEBAS
-├── requirements.txt
-├── .env.example
-└── manage.py
+├── config/          settings (HTTPS, correo, datos de M5), urls
+├── usuarios/        cuentas y roles, login por correo y bloqueo (backends.py), permisos.py,
+│                    notificaciones.py, integridad.py (sin borrado físico), descargas.py,
+│                    parámetros del sistema, seed_demo y preparar_produccion
+├── proveedores/     proveedores y su catálogo (carga desde Excel)
+├── proyectos/       obras, itemizado, archivos y tipos de documento, ficha PDF
+├── inventario/      catálogo maestro y bodega (movimientos, préstamos, stock)
+├── solicitudes/     solicitudes de materiales, adjuntos, API del buscador
+├── adquisiciones/   cotizaciones, órdenes de compra, PDF, trazabilidad
+├── facturacion/     facturas, cuentas por pagar, CSV
+├── reportes/        consumo, desviación, mermas, compras; exportación XLSX/PDF
+├── auditoria/       bitácora (sólo lectura)
+├── templates/  static/
+├── despliegue/      instalar.sh, m5-backup, nginx-m5.conf, set_ip.sh, configurar_correo.sh
+└── docs/
 ```
 
 ---
 
-## 12. Problemas frecuentes
+## 10. Problemas frecuentes
 
 | Síntoma | Solución |
 |---|---|
-| Al escribir `python` se abre la Microsoft Store | Python no está en el `PATH`. Instálalo desde python.org con *"Add to PATH"*, o usa la ruta completa a `python.exe` / el `venv\Scripts\python.exe`. |
-| `psycopg2` no instala en Windows | Usa Python 3.11 o 3.12; `psycopg2-binary` ya trae los binarios. |
-| `FATAL: password authentication failed for user "postgres"` | Revisa `DB_USER` / `DB_PASSWORD` en `.env`. |
-| `could not connect to server` / `Connection refused` | PostgreSQL no está corriendo o usa otro puerto; ajusta `DB_PORT` en `.env`. |
-| `database "m5_adquisiciones" does not exist` | Repite el paso 6.4 (crear la base). |
-| `No module named 'dotenv'` / `'django'` / `'reportlab'` | Falta activar el `venv` o `pip install -r requirements.txt`. |
-| El PDF de la OC da error 503 | Falta `reportlab`. Ejecuta `pip install -r requirements.txt`. |
-| El navegador no carga | Confirma que el `runserver` sigue activo y usa `http://127.0.0.1:8000/`. |
-| `makemigrations` pide migraciones nuevas | No debería; si pasa, ejecútalo y luego `migrate` — se aplica igual. |
+| «Correo o contraseña incorrectos» con un usuario que existe | Se entra con el **correo**, no con el nombre de usuario. |
+| «Demasiados intentos fallidos…» | Esperar 15 minutos (RNF-08), o que el Administrador revise la cuenta. |
+| El JP no ve una obra / recibe 403 | No está asignado a esa obra; el Administrador lo asigna (RF-09). |
+| No aparece ninguna obra al crear una SM | La obra no está «En ejecución» o el JP no está asignado. |
+| «No se puede generar la orden de compra: falta …» | Completar la dirección / datos del proveedor o los `EMPRESA_*` del `.env`. |
+| La OC queda «Aprobada» y no «Enviada» | El proveedor no tiene correo o el SMTP falló: reintentar o registrar entrega manual. |
+| Una factura correcta queda «Bloqueada» | El monto se compara con el total de la OC **con IVA**; revisar la tolerancia en Parámetros. |
+| `FATAL: password authentication failed` | Revisar `DB_USER` / `DB_PASSWORD` en el `.env`. |
+| Tras activar `USAR_HTTPS` el sitio entra en bucle de redirección | nginx no está enviando `X-Forwarded-Proto`; usar `despliegue/nginx-m5.conf`. |

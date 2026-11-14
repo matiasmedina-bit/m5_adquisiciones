@@ -1,5 +1,18 @@
 # Entrega 4 — Incrementos 3 y 4, y el flujo corregido
 
+> **Nota (revisión de requerimientos, noviembre 2026).** Este archivo es el registro
+> histórico de la entrega y describe el sistema **tal como quedó en ese momento**. El
+> funcionamiento actual —roles, estados, flujo SM → cotización → OC → recepción →
+> factura y despliegue— está en [`README.md`](README.md). Cambios posteriores que
+> contradicen lo que se dice abajo:
+>
+> - **Se revirtió el punto 1 de la Parte 1:** una OC a un proveedor sin correo, o cuyo envío falla, queda **«Aprobada»** (CU-25 Exc. 1) y se avisa a Adquisiciones, que reintenta el envío o registra la entrega manual. Ya no se da por enviada.
+> - El estado de recepción de la OC debe calzar con lo recibido por Bodega (parcial exige cantidades; recibida exige todo).
+> - La factura se compara con el total de la OC **con IVA**.
+> - El «consumido» del reporte de desviación sale de las **salidas a obra imputadas a cada partida** (RF-42), no de la cantidad ejecutada escrita a mano.
+> - El catálogo maestro lo administra sólo el Administrador y el stock no se edita a mano.
+> - Login sólo con correo, bloqueo tras 5 intentos (RNF-08), HTTPS configurable (`USAR_HTTPS`) y respaldo a las 00:00.
+
 Con esto el sistema queda **completo**: los 60 RF del Documento 0 implementados.
 Verificado con **288 tests** (la entrega 3 dejó 177), todos en verde contra
 PostgreSQL 16 y Django 5.2.17.

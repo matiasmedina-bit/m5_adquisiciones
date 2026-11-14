@@ -1,5 +1,16 @@
 # Entrega 2 — Proveedor primero en la solicitud
 
+> **Nota (revisión de requerimientos, noviembre 2026).** Este archivo es el registro
+> histórico de la entrega y describe el sistema **tal como quedó en ese momento**. El
+> funcionamiento actual —roles, estados, flujo SM → cotización → OC → recepción →
+> factura y despliegue— está en [`README.md`](README.md). Cambios posteriores que
+> contradicen lo que se dice abajo:
+>
+> - Ya no existe **«Enviar para aprobación»** ni la aprobación de la SM por el Jefe de Proyecto: el JP **emite** la SM y queda «Emitida» (RF-12). El borrador no tiene número; el correlativo se asigna al emitir.
+> - Sólo el **Jefe de Proyecto** crea SM, y sólo para obras «En ejecución» que tiene asignadas. Adquisiciones ya no las arma.
+> - La **partida es obligatoria** en cada línea y el material se elige del catálogo (no se crea uno nuevo escribiendo texto libre).
+> - Quien rechaza una SM es **Adquisiciones**, con motivo; el JP la devuelve a borrador y la reemite.
+
 **Se aplica encima de la entrega 1**, no la reemplaza. Verificado con **118 tests**
 (entrega 1 dejó 100), todos en verde contra PostgreSQL 16 y Django 5.2.17.
 

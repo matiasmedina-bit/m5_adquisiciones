@@ -1,5 +1,16 @@
 # Entrega 3 — Los cuatro CU que faltaban
 
+> **Nota (revisión de requerimientos, noviembre 2026).** Este archivo es el registro
+> histórico de la entrega y describe el sistema **tal como quedó en ese momento**. El
+> funcionamiento actual —roles, estados, flujo SM → cotización → OC → recepción →
+> factura y despliegue— está en [`README.md`](README.md). Cambios posteriores que
+> contradicen lo que se dice abajo:
+>
+> - Los archivos de proyecto se descargan por una vista protegida (no por `/media/`). Los tipos de documento los administra sólo el **Administrador**, y el catálogo trae los seis del RF-51.
+> - La bitácora registra además la **operación** (Crear / Editar / Eliminar) y los cambios del itemizado.
+> - La trazabilidad es para Jefe de Proyecto (sólo sus obras), Adquisiciones y Administrador; Bodega y Contabilidad ya no entran. También busca por código de material.
+> - La SM ya no tiene aprobación del JP (ver `LEEME_ENTREGA2.md`).
+
 **Se aplica encima de la entrega 2**, no la reemplaza. Verificado con **177 tests**
 (la entrega 2 dejó 118), todos en verde contra PostgreSQL 16 y Django 5.2.17.
 
