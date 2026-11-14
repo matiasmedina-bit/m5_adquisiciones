@@ -11,7 +11,7 @@
 > - La factura se compara con el total de la OC **con IVA**.
 > - El «consumido» del reporte de desviación sale de las **salidas a obra imputadas a cada partida** (RF-42), no de la cantidad ejecutada escrita a mano.
 > - El catálogo maestro lo administra sólo el Administrador y el stock no se edita a mano.
-> - Login sólo con correo, bloqueo tras 5 intentos (RNF-08), HTTPS configurable (`USAR_HTTPS`) y respaldo a las 00:00.
+> - Login con usuario o correo, bloqueo tras 5 intentos (RNF-08), HTTPS configurable (`USAR_HTTPS`) y respaldo a las 00:00.
 
 Con esto el sistema queda **completo**: los 60 RF del Documento 0 implementados.
 Verificado con **288 tests** (la entrega 3 dejó 177), todos en verde contra

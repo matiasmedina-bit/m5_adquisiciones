@@ -57,7 +57,12 @@ class ProveedorFormTest(TestCase):
     def test_rf02_editar_guarda_la_fecha_de_modificacion_y_no_cambia_el_rut(self):
         p = Proveedor.objects.create(nombre="Fecha", rut="11.111.111-1", giro="g", direccion="d",
                                      correo="f@p.cl", telefono="1")
-        antes = p.modificado
+        # Se retrocede la fecha a mano: en Windows el reloj puede devolver el mismo
+        # instante para la creación y la edición, y el test fallaría por azar.
+        from datetime import timedelta
+        antes = p.modificado - timedelta(minutes=1)
+        Proveedor.objects.filter(pk=p.pk).update(modificado=antes)
+        p.refresh_from_db()
         form = ProveedorForm(data={"nombre": "Fecha", "rut": "12.345.678-5", "condicion_pago": "60_DIAS",
                                    "giro": "g", "direccion": "Nueva 2", "correo": "f@p.cl", "telefono": "1",
                                    "estado": "on"}, instance=p)

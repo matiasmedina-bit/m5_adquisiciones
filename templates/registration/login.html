@@ -35,11 +35,11 @@
       <form method="post">
         {% csrf_token %}
         <div class="mb-3">
-          <label class="form-label fw-medium small" for="id_username">Correo electrónico institucional</label>
+          <label class="form-label fw-medium small" for="id_username">Usuario o correo</label>
           <div class="input-group">
-            <span class="input-group-text bg-light border-end-0"><i class="bi bi-envelope text-muted"></i></span>
+            <span class="input-group-text bg-light border-end-0"><i class="bi bi-person text-muted"></i></span>
             <input type="text" name="username" id="id_username" class="form-control border-start-0 ps-0"
-                   placeholder="nombre.apellido@m-5.cl" autocomplete="username"
+                   placeholder="usuario o nombre.apellido@m-5.cl" autocomplete="username"
                    value="{{ form.username.value|default:'' }}" required autofocus>
           </div>
         </div>

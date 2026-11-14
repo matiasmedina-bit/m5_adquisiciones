@@ -16,7 +16,7 @@ escrito, y por qué, está en `cambios_para_documento.md`.
 | RNF (14) | 6 / 7 / 1 | **12 / 2 / 0** |
 
 - `manage.py check`: sin errores. `makemigrations --check`: sin cambios pendientes.
-- Tests: **553 tests OK** (antes 396). La línea «OSError: SMTP caído» del log es la
+- Tests: **557 tests OK** (antes 396). La línea «OSError: SMTP caído» del log es la
   falla de correo simulada a propósito en un test de CU-25. Nuevos: matriz de permisos
   (`usuarios/tests_permisos.py`), flujo de punta a punta (`adquisiciones/tests_e2e.py`),
   reglas por módulo (`*/tests_rf.py`, `usuarios/tests_seguridad.py`).
@@ -121,7 +121,7 @@ Contabilidad = `CONTABILIDAD`. `ADMIN` pasa todos los controles de rol.
 
 | ID | Estado | Dónde está | Notas |
 |---|---|---|---|
-| RF-47 | ✅ | `usuarios/backends.py` `CorreoInstitucionalBackend`; `LoginForm` | **Sólo** correo institucional + contraseña; el nombre de usuario no da acceso. |
+| RF-47 | ✅ | `usuarios/backends.py` `CorreoOUsuarioBackend`; `LoginForm` | **Decisión del grupo:** nombre de usuario **o** correo institucional (sin distinguir mayúsculas), más contraseña. Campo «Usuario o correo». El error no dice qué campo falló (CU-48 Exc. 1). |
 | RF-48 | ✅ | `UsuarioCreateView/UpdateView`, `usuario_cambiar_estado` | — |
 | RF-49 | ✅ | `usuarios/correos.py` | — |
 | RF-50 | ✅ | `auditoria/models.py` (`Operacion`, `OPERACION_DE`), `signals.py` | ID de usuario, fecha, hora y Crear/Editar/Eliminar. |
@@ -154,7 +154,7 @@ Contabilidad = `CONTABILIDAD`. `ADMIN` pasa todos los controles de rol.
 | RNF-05 | ✅ | `ArchivoProyecto.CUOTA_PROYECTO_GB`, `TAM_MAX_MB`; `nginx-m5.conf` | 10 GB por proyecto; 2 GB por archivo. |
 | RNF-06 | ✅ | Django PBKDF2-SHA256 | Hash unidireccional SHA-256 (ver stack: no es Bcrypt). |
 | RNF-07 | 🟡 | `USAR_HTTPS` en `settings.py`; `despliegue/nginx-m5.conf` | **Listo en el código**; falta instalar el certificado en el servidor de M5 y poner `USAR_HTTPS=True`. |
-| RNF-08 | ✅ | `usuarios/backends.py`, `IntentoAcceso` | 5 fallos → 15 min, también en el admin. |
+| RNF-08 | ✅ | `usuarios/backends.py`, `IntentoAcceso` | 5 fallos → 15 min, también en el admin. El contador es por cuenta: suman los fallos con usuario y con correo, y el bloqueo cierra ambas entradas. |
 | RNF-09 | ✅ | `usuarios/integridad.py` | OC, proveedores, facturas y movimientos no se borran (instancia, queryset ni admin). |
 | RNF-10 | ✅ | `despliegue/instalar.sh` → `/etc/cron.d/m5-backup` | 00:00 diario (requiere correr `instalar.sh` en el servidor). |
 | RNF-11 | ✅ | `FacturaForm.clean_archivo`, `factura_archivo` | Descarga protegida. |

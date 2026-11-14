@@ -298,7 +298,7 @@ class SolicitudCambioPerfilForm(forms.ModelForm):
 
 class LoginForm(AuthenticationForm):
     """
-    RF-47 / CU-48: correo institucional y contraseña.
+    RF-47 / CU-48: nombre de usuario o correo institucional, y contraseña.
 
     Hereda AuthenticationForm (que es la que llama al backend) y sólo cambia la
     etiqueta del campo y el mensaje cuando la cuenta está bloqueada (RNF-08).
@@ -307,14 +307,14 @@ class LoginForm(AuthenticationForm):
     """
     error_messages = {
         **AuthenticationForm.error_messages,
-        "invalid_login": "Correo o contraseña incorrectos.",
+        "invalid_login": "Usuario o correo, o contraseña incorrectos.",
         "bloqueada": ("Demasiados intentos fallidos. Por seguridad el acceso quedó "
                       "bloqueado hasta las %(hora)s. Vuelve a intentarlo después."),
     }
 
     def __init__(self, request=None, *args, **kwargs):
         super().__init__(request, *args, **kwargs)
-        self.fields["username"].label = "Correo electrónico institucional"
+        self.fields["username"].label = "Usuario o correo"
 
     def clean(self):
         try:

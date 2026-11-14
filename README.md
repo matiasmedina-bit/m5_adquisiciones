@@ -43,9 +43,11 @@ login. `usuarios/tests_permisos.py` lo verifica para cada rol.
 | **Contabilidad** | `CONTABILIDAD` | Recepción de facturas con validación de monto, cuentas por pagar y exportación CSV (RF-37, RF-39, RF-40). Bitácora de auditoría. |
 
 Bodega y Contabilidad pueden **leer** las SM emitidas y las OC (Bodega sin precios). El
-inicio de sesión es con **correo institucional y contraseña** (RF-47); tras 5 intentos
-fallidos la cuenta queda bloqueada 15 minutos (RNF-08) y la sesión se cierra sola tras
-30 minutos sin actividad (RF-52).
+inicio de sesión es con el **nombre de usuario o el correo institucional**, más la
+contraseña (RF-47, decisión del grupo). Tras 5 intentos fallidos la cuenta queda
+bloqueada 15 minutos (RNF-08); los fallos se cuentan por cuenta, así que se suman los
+hechos con el usuario y con el correo, y el bloqueo cierra las dos formas de entrar. La
+sesión se cierra sola tras 30 minutos sin actividad (RF-52).
 
 ---
 
@@ -271,15 +273,15 @@ demostración); en uso normal OC, proveedores, facturas y movimientos no se pued
 ## 7. Usuarios de demostración
 
 `seed_demo` crea una cuenta por rol, todas con la clave **`demo12345`**. Se entra con
-el **correo**:
+el **usuario o con el correo** (cualquiera de las dos columnas):
 
-| Correo | Rol |
-|---|---|
-| `admin@m5.cl` | Administrador |
-| `jefe@m5.cl` | Jefe de Proyecto |
-| `encargado@m5.cl` | Adquisiciones |
-| `bodega@m5.cl` | Bodega |
-| `contador@m5.cl` | Contabilidad |
+| Usuario | Correo | Rol |
+|---|---|---|
+| `admin` | `admin@m5.cl` | Administrador |
+| `jefe` | `jefe@m5.cl` | Jefe de Proyecto |
+| `encargado` | `encargado@m5.cl` | Adquisiciones |
+| `bodega` | `bodega@m5.cl` | Bodega |
+| `contador` | `contador@m5.cl` | Contabilidad |
 
 ---
 
@@ -328,7 +330,7 @@ m5_adquisiciones/
 
 | Síntoma | Solución |
 |---|---|
-| «Correo o contraseña incorrectos» con un usuario que existe | Se entra con el **correo**, no con el nombre de usuario. |
+| «Usuario o correo, o contraseña incorrectos» con una cuenta que existe | Revisar la contraseña. El correo no distingue mayúsculas, pero el nombre de usuario sí (`jefe` ≠ `Jefe`). Una cuenta deshabilitada tampoco entra. |
 | «Demasiados intentos fallidos…» | Esperar 15 minutos (RNF-08), o que el Administrador revise la cuenta. |
 | El JP no ve una obra / recibe 403 | No está asignado a esa obra; el Administrador lo asigna (RF-09). |
 | No aparece ninguna obra al crear una SM | La obra no está «En ejecución» o el JP no está asignado. |

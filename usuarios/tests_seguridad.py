@@ -1,5 +1,5 @@
 """
-Tests de seguridad: RF-47 (login con correo), RNF-08 (bloqueo por intentos)
+Tests de seguridad: RF-47 (login con usuario o correo), RNF-08 (bloqueo por intentos)
 y RNF-09 (sin borrado físico de registros críticos).
 """
 from datetime import timedelta
@@ -32,13 +32,23 @@ class LoginConCorreoTests(TestCase):
 
     def test_cu48_error_no_dice_que_campo_fallo(self):
         r = self._login("jperez@m-5.cl", "mala")
-        self.assertContains(r, "Correo o contraseña incorrectos.")
+        self.assertContains(r, "Usuario o correo, o contraseña incorrectos.")
+        r = self._login("nadie", "mala")
+        self.assertContains(r, "Usuario o correo, o contraseña incorrectos.")
 
-    def test_rf47_el_nombre_de_usuario_ya_no_sirve_para_entrar(self):
+    def test_rf47_entra_con_nombre_de_usuario(self):
         r = self._login("jperez")
+        self.assertRedirects(r, "/", fetch_redirect_response=False)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), self.u.pk)
+
+    def test_rf47_nombre_de_usuario_con_clave_mala_no_entra(self):
+        r = self._login("jperez", "mala")
         self.assertEqual(r.status_code, 200)
-        self.assertContains(r, "Correo o contraseña incorrectos.")
         self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_rf47_etiqueta_del_login(self):
+        r = self.client.get(reverse("login"))
+        self.assertContains(r, "Usuario o correo")
 
     def test_cuenta_deshabilitada_no_entra(self):
         self.u.estado = False
@@ -67,6 +77,23 @@ class BloqueoPorIntentosTests(TestCase):
         self.assertContains(r, "Demasiados intentos fallidos")
         r = self._login(clave="Clave-segura-123")
         self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "bloqueado hasta")
+
+    def test_rnf08_usuario_y_correo_suman_al_mismo_contador(self):
+        for ident in ("ana", "ana@m-5.cl", "ana", "ANA@m-5.cl", "ana"):
+            self._login(ident)
+        self.assertIsNotNone(IntentoAcceso.bloqueado(f"u{self.u.pk}"))
+        # Bloqueada: ninguna de las dos formas entra, ni con la clave correcta
+        for ident in ("ana", "ana@m-5.cl"):
+            r = self._login(ident, clave="Clave-segura-123")
+            self.assertContains(r, "bloqueado hasta")
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_rnf08_bloqueo_por_nombre_de_usuario(self):
+        for _ in range(5):
+            r = self._login("ana")
+        self.assertContains(r, "Demasiados intentos fallidos")
+        r = self._login("ana", clave="Clave-segura-123")
         self.assertContains(r, "bloqueado hasta")
 
     def test_rnf08_el_correo_cuenta_igual_con_mayusculas(self):

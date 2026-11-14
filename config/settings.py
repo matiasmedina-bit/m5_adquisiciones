@@ -106,7 +106,7 @@ AUTH_USER_MODEL = "usuarios.Usuario"
 
 # RF-47 (correo institucional + contraseña) y RNF-08 (bloqueo de 15 minutos
 # tras 5 intentos fallidos). Reemplaza al ModelBackend: ver usuarios/backends.py.
-AUTHENTICATION_BACKENDS = ["usuarios.backends.CorreoInstitucionalBackend"]
+AUTHENTICATION_BACKENDS = ["usuarios.backends.CorreoOUsuarioBackend"]
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

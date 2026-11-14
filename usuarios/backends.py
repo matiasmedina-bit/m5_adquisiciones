@@ -1,14 +1,17 @@
 """
-RF-47 / CU-48 — Autenticación con correo institucional y contraseña.
+RF-47 / CU-48 — Autenticación con nombre de usuario o correo institucional,
+junto con la contraseña (decisión del grupo).
 RNF-08 — Bloqueo temporal de la cuenta tras 5 intentos fallidos (15 minutos).
 
 Se reemplaza el backend por defecto de Django por uno que:
 
-  · acepta como credencial sólo el correo electrónico institucional (RF-47).
-    El nombre de usuario ya no sirve para entrar;
+  · acepta como identificador el correo institucional (sin distinguir mayúsculas)
+    o el nombre de usuario;
   · cuenta los intentos fallidos consecutivos por cuenta y, al quinto, la deja
     bloqueada 15 minutos. Durante el bloqueo ni siquiera la contraseña correcta
     entra: si entrara, el bloqueo no detendría a quien está probando claves.
+    El contador es de la cuenta, no del texto escrito: los fallos con el correo
+    y con el nombre de usuario se suman, y el bloqueo cierra las dos entradas.
 
 Al estar en el backend, el bloqueo aplica a cualquier puerta de entrada: la
 pantalla de login, el admin de Django y ``Client.login`` en los tests.
@@ -19,7 +22,7 @@ from .models import IntentoAcceso, Usuario
 
 
 def clave_de_intentos(identificador):
-    """La cuenta si el correo existe; si no, el texto escrito (en minúsculas)."""
+    """La cuenta si el correo o el usuario existe; si no, el texto escrito (en minúsculas)."""
     identificador = (identificador or "").strip()
     usuario = buscar_usuario(identificador)
     if usuario is not None:
@@ -31,11 +34,15 @@ def buscar_usuario(identificador):
     identificador = (identificador or "").strip()
     if not identificador:
         return None
-    # RF-47: sólo el correo institucional (único en el sistema)
-    return Usuario.objects.filter(email__iexact=identificador).first()
+    # Primero el correo institucional (único en el sistema); si no calza, el
+    # nombre de usuario (único, distingue mayúsculas como en Django).
+    usuario = Usuario.objects.filter(email__iexact=identificador).first()
+    if usuario is None:
+        usuario = Usuario.objects.filter(username=identificador).first()
+    return usuario
 
 
-class CorreoInstitucionalBackend(ModelBackend):
+class CorreoOUsuarioBackend(ModelBackend):
     def authenticate(self, request, username=None, password=None, **kwargs):
         identificador = username if username is not None else kwargs.get("email")
         if not identificador or password is None:

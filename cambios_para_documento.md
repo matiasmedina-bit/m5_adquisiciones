@@ -60,9 +60,24 @@ el mismo formato del documento y se pueden copiar tal cual.
 - **Propuesta:** «… y dejarla en estado "Bloqueada", sin marcar la OC como Facturada, si la diferencia supera …».
 
 ### 1.10 RF-47 — Credencial de acceso
-- **Documento:** correo electrónico institucional y contraseña.
-- **Sistema:** se entra **sólo** con el correo institucional y la contraseña; el nombre de usuario ya no da acceso (se quitó la compatibilidad que existía).
-- **Propuesta:** sin cambios en RF-47. En CU-48, corregir el *Resumen* (ver sección 4, punto 1).
+- **Documento:** RF-47 «El sistema debe requerir autenticación de usuarios mediante credenciales únicas, correo electrónico institucional y contraseña.» CU-48 pide ingresar el correo.
+- **Sistema (decisión del grupo):** se entra con el **nombre de usuario o el correo institucional**, más la contraseña. El campo del login se llama «Usuario o correo». El correo no distingue mayúsculas; el nombre de usuario sí. Ambos son únicos en el sistema, así que cada uno identifica una sola cuenta.
+- **Bloqueo (RNF-08):** se mantiene igual para las dos formas: 5 intentos fallidos dejan la cuenta bloqueada 15 minutos. Los fallos se cuentan por **cuenta**, no por el texto escrito, así que alternar entre usuario y correo no da intentos extra, y mientras dura el bloqueo no se entra de ninguna de las dos formas, ni con la contraseña correcta.
+- **Redacción propuesta RF-47:** «El sistema debe requerir autenticación de usuarios mediante credenciales únicas: nombre de usuario o correo electrónico institucional, y contraseña.»
+
+**CU-48 propuesto — Autenticándose en el sistema**
+- **Nombre:** Autenticándose en el sistema.
+- **Actores:** Usuario.
+- **Requerimiento:** RF-47.
+- **Resumen:** El usuario se autentica con su nombre de usuario o su correo electrónico institucional, y su contraseña, para acceder a las funciones de su rol.
+- **Frecuencia:** Alta.
+- **Precondiciones:** El usuario debe tener una cuenta creada y habilitada en el sistema.
+- **Flujo Principal:** El actor accede a la pantalla de inicio de sesión e ingresa su nombre de usuario o su correo electrónico institucional, y su contraseña. El sistema valida las credenciales ingresadas [Excepción 1] [Excepción 2]. El sistema autentica al actor y lo redirige a la pantalla principal correspondiente a su rol.
+- **Excepciones:**
+  - Excepción 1: Las credenciales ingresadas son incorrectas. El sistema rechaza el acceso y muestra un mensaje de error, sin especificar cuál campo es incorrecto.
+  - Excepción 2: La cuenta acumula 5 intentos fallidos consecutivos, ingresados con el nombre de usuario o con el correo (RNF-08). El sistema bloquea el acceso a esa cuenta durante 15 minutos, por cualquiera de las dos formas, e informa la hora en que podrá volver a intentarlo.
+- **Poscondiciones:** El actor queda autenticado en el sistema, con acceso a las funcionalidades correspondientes a su rol.
+- **Dependencias:** —
 
 ### 1.11 RF-52 / CU-55 — Redirección al vencer la sesión
 - **Sistema:** implementado; además se corrigió que varias pantallas devolvían «403» en vez de llevar al inicio de sesión. Sin cambios en el documento.
@@ -224,7 +239,7 @@ bloqueo por intentos, reducción de imágenes) usa Django y JavaScript nativos.
 
 ## 4. Errores o inconsistencias encontradas en los documentos
 
-1. **CU-48 (Autenticándose):** el *Resumen* es copia del CU-49 («El Administrador crea una nueva cuenta…»). Propuesta: «El usuario se autentica con su correo institucional y contraseña para acceder a las funciones de su rol.»
+1. **CU-48 (Autenticándose):** el *Resumen* es copia del CU-49 («El Administrador crea una nueva cuenta…»). Propuesta: ver el CU-48 completo en el punto 1.10.
 2. **CU-13:** la *Poscondición* contiene una excepción («El actor deja el campo de Justificación vacío. El sistema bloquea…») y *Excepciones* dice «—». Moverla a Excepción 1 y escribir como poscondición «La línea queda registrada con su justificación».
 3. **CU-31 (Préstamo):** la *Precondición* es copia del CU-30 («Se ha confirmado el registro de una entrada o salida»). Propuesta: «La herramienta debe estar disponible en bodega.»
 4. **CU-35:** la *Excepción 1* describe el flujo principal (stock ≤ mínimo → alerta). La excepción real sería «el stock queda sobre el mínimo: no se genera alerta».
