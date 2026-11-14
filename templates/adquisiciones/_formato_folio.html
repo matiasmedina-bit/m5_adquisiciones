@@ -1,0 +1,15 @@
+{% comment %}
+  Pregunta cómo se escribe el folio de la OC que se va a generar:
+  todo junto (13285) o con punto de miles (13.285). Va dentro del <form>.
+{% endcomment %}
+<div class="d-flex flex-wrap align-items-center gap-2 small">
+  <span class="text-muted">Folio N° <strong class="text-body">{{ folio_ejemplo_junto }}</strong> · ¿cómo lo escribo?</span>
+  <div class="btn-group btn-group-sm" role="group" aria-label="Formato del folio">
+    <input type="radio" class="btn-check" name="formato_folio" id="folio-junto{{ sufijo }}" value="junto"
+           {% if not folio_con_punto_preferido %}checked{% endif %}>
+    <label class="btn btn-outline-secondary" for="folio-junto{{ sufijo }}">{{ folio_ejemplo_junto }}</label>
+    <input type="radio" class="btn-check" name="formato_folio" id="folio-punto{{ sufijo }}" value="punto"
+           {% if folio_con_punto_preferido %}checked{% endif %}>
+    <label class="btn btn-outline-secondary" for="folio-punto{{ sufijo }}">{{ folio_ejemplo_punto }}</label>
+  </div>
+</div>

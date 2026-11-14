@@ -18,6 +18,9 @@
     <dl class="row mb-0 small">
       <dt class="col-sm-3 text-muted">Correo</dt><dd class="col-sm-9">{{ proveedor.correo|default:"—" }}</dd>
       <dt class="col-sm-3 text-muted">Teléfono</dt><dd class="col-sm-9">{{ proveedor.telefono|default:"—" }}</dd>
+      <dt class="col-sm-3 text-muted">Dirección</dt>
+      <dd class="col-sm-9">{{ proveedor.direccion|default:"—" }}{% if proveedor.comuna %}, {{ proveedor.comuna }}{% endif %}</dd>
+      <dt class="col-sm-3 text-muted">Giro</dt><dd class="col-sm-9">{{ proveedor.giro|default:"—" }}</dd>
       <dt class="col-sm-3 text-muted">Condición por defecto</dt>
       <dd class="col-sm-9">
         {{ proveedor.get_condicion_pago_display }}
@@ -71,8 +74,19 @@
     </span>
     <a href="{% url 'proveedores:material_agregar' proveedor.pk %}" class="btn btn-sm btn-primary">+ Agregar material</a>
   </div>
+  {% if proveedor.materiales.exists %}
+  <div class="px-3 py-2 border-bottom bg-light">
+    <div class="input-group input-group-sm" style="max-width:480px;">
+      <span class="input-group-text"><i class="bi bi-search"></i></span>
+      <input type="search" id="buscar-material" class="form-control"
+             placeholder="Buscar por código o descripción…" autocomplete="off"
+             aria-label="Buscar material por código o descripción">
+    </div>
+    <small id="buscar-material-resumen" class="text-muted d-none"></small>
+  </div>
+  {% endif %}
   <div class="table-responsive">
-    <table class="table table-hover align-middle mb-0">
+    <table class="table table-hover align-middle mb-0" id="tabla-materiales">
       <thead class="table-light">
         <tr>
           <th>Código</th><th>Descripción</th><th>Unidad</th>
@@ -82,7 +96,8 @@
       </thead>
       <tbody>
       {% for m in proveedor.materiales.all %}
-        <tr class="{% if not m.disponible %}table-secondary{% endif %}">
+        <tr class="fila-material {% if not m.disponible %}table-secondary{% endif %}"
+            data-busqueda="{{ m.codigo }} {{ m.descripcion }}">
           <td class="fw-semibold">{{ m.codigo }}</td>
           <td>{{ m.descripcion }}</td>
           <td class="text-muted">{{ m.unidad_medida }}</td>
@@ -109,10 +124,54 @@
           Carga su planilla arriba o agrégalos uno por uno.
         </td></tr>
       {% endfor %}
+        <tr id="sin-coincidencias" class="d-none"><td colspan="7" class="text-center text-muted py-3">
+          Ningún material coincide con la búsqueda.
+        </td></tr>
       </tbody>
     </table>
   </div>
 </div>
 
 <a href="{% url 'proveedores:lista' %}" class="btn btn-outline-secondary">← Volver al listado</a>
+
+<script>
+// Filtro en vivo de la tabla de materiales. Los precios cambian seguido y el
+// catálogo de un proveedor puede tener cientos de ítems: así se llega al que
+// hay que editar escribiendo parte del código o del nombre.
+(function () {
+  var input = document.getElementById("buscar-material");
+  if (!input) return;
+  var filas = Array.prototype.slice.call(document.querySelectorAll("#tabla-materiales .fila-material"));
+  var vacio = document.getElementById("sin-coincidencias");
+  var resumen = document.getElementById("buscar-material-resumen");
+  var clave = "m5-buscar-material-{{ proveedor.pk }}";
+
+  function normalizar(t) {
+    return (t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  }
+  filas.forEach(function (f) { f._texto = normalizar(f.getAttribute("data-busqueda")); });
+
+  function filtrar() {
+    var palabras = normalizar(input.value).split(/\s+/).filter(Boolean);
+    var visibles = 0;
+    filas.forEach(function (f) {
+      var ok = palabras.every(function (p) { return f._texto.indexOf(p) !== -1; });
+      f.classList.toggle("d-none", !ok);
+      if (ok) visibles++;
+    });
+    vacio.classList.toggle("d-none", visibles > 0);
+    resumen.classList.toggle("d-none", palabras.length === 0);
+    resumen.textContent = visibles + " de " + filas.length + " materiales";
+    // Al volver de «Editar» el filtro sigue puesto, para seguir con el siguiente.
+    try { sessionStorage.setItem(clave, input.value); } catch (e) {}
+  }
+
+  try { input.value = sessionStorage.getItem(clave) || ""; } catch (e) {}
+  input.addEventListener("input", filtrar);
+  input.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { input.value = ""; filtrar(); }
+  });
+  filtrar();
+})();
+</script>
 {% endblock %}

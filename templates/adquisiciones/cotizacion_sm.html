@@ -107,9 +107,10 @@
         Registra la cotización y aprieta «Aprobar» en la fila del proveedor elegido.
       {% endif %}
     </span>
-    <form method="post">
+    <form method="post" class="d-flex flex-column align-items-end gap-2">
       {% csrf_token %}
       <input type="hidden" name="accion" value="generar_oc">
+      {% if puede_generar_oc %}{% include 'adquisiciones/_formato_folio.html' %}{% endif %}
       <button class="btn btn-primary" {% if not puede_generar_oc %}disabled{% endif %}>
         Generar Orden(es) de Compra
       </button>

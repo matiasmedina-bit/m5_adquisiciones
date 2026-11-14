@@ -87,7 +87,8 @@ class OrdenCompraTest(BaseAdq):
 
     def test_rf23_correlativo_automatico(self):
         oc = self._oc_borrador()
-        self.assertTrue(oc.correlativo.startswith("OC-"))
+        self.assertEqual(oc.folio, 1)
+        self.assertEqual(oc.correlativo, "1")
 
     def test_rf24_jefe_aprueba_y_se_envia(self):
         oc = self._oc_borrador()
@@ -1150,3 +1151,83 @@ class CicloSinAdministradorTest(TestCase):
         self.assertEqual(detalle_oc.status_code, 200)
         self.assertTrue(detalle_oc.context["puede_autorizar"],
                         "El otro jefe de la misma obra no puede autorizar la OC")
+
+
+class FolioOrdenCompraTest(BaseAdq):
+    """
+    El folio de la OC empalma con la numeración que M5 ya traía (sobre 12.000),
+    sube solo de a uno, y quien genera la orden elige si va «13285» o «13.285».
+    """
+
+    def _orden(self, con_punto=False):
+        orden = OrdenCompra(proveedor=self.prov1, proyecto=self.proyecto,
+                            creada_por=self.ea, folio_con_punto=con_punto)
+        orden.save()
+        return orden
+
+    def _fijar(self, numero):
+        self.client.login(username="ea", password="clave12345")
+        return self.client.post(reverse("adquisiciones:folio_configurar"),
+                                {"siguiente_folio": str(numero)}, follow=True)
+
+    def test_sigue_desde_el_folio_configurado_y_asciende(self):
+        self._fijar(12395)
+        a, b = self._orden(), self._orden(con_punto=True)
+        self.assertEqual((a.folio, a.correlativo), (12395, "12395"))
+        self.assertEqual((b.folio, b.correlativo), (12396, "12.396"))
+
+    def test_no_acepta_un_folio_ya_usado(self):
+        self._fijar(500)
+        self._orden()
+        resp = self._fijar(500)
+        self.assertContains(resp, "ya fue usado")
+        self.assertEqual(self._orden().folio, 501)
+
+    def test_acepta_el_folio_escrito_con_punto(self):
+        self._fijar("13.285")
+        self.assertEqual(self._orden().folio, 13285)
+
+    def test_jefe_de_proyecto_no_puede_cambiar_el_folio(self):
+        self.client.login(username="jp", password="clave12345")
+        resp = self.client.post(reverse("adquisiciones:folio_configurar"),
+                                {"siguiente_folio": "99999"})
+        self.assertEqual(resp.status_code, 403)
+
+    def test_generar_oc_con_formato_punto(self):
+        self._fijar(13285)
+        CotizacionLinea.objects.create(
+            cotizacion=Cotizacion.objects.create(solicitud=self.sm, proveedor=self.prov1,
+                                                 creada_por=self.ea),
+            solicitud_detalle=self.d_a, valor_unitario=5000).aprobar()
+        Cotizacion.objects.get().lineas.create(solicitud_detalle=self.d_b,
+                                               valor_unitario=9000).aprobar()
+        self.client.post(reverse("adquisiciones:cotizacion_sm", args=[self.sm.pk]),
+                         {"accion": "generar_oc", "formato_folio": "punto"})
+        self.assertEqual(OrdenCompra.objects.get().correlativo, "13.285")
+
+    def test_trazabilidad_encuentra_por_folio_con_o_sin_punto(self):
+        self._fijar(13285)
+        orden = self._orden(con_punto=True)
+        self.client.login(username="ea", password="clave12345")
+        for q in ("13285", "13.285"):
+            resp = self.client.get(reverse("adquisiciones:trazabilidad"), {"q": q})
+            self.assertEqual(resp.context["resultado"]["tipo"], "oc", q)
+            self.assertContains(resp, orden.correlativo)
+
+
+class OrdenPdfFormatoTest(TestCase):
+    def test_monto_en_palabras(self):
+        from .pdf import monto_en_palabras
+        self.assertEqual(monto_en_palabras(29674),
+                         "VEINTINUEVE MIL SEISCIENTOS SETENTA Y CUATRO PESOS.")
+        self.assertEqual(monto_en_palabras(1), "UN PESO.")
+        self.assertEqual(monto_en_palabras(100), "CIEN PESOS.")
+        self.assertEqual(monto_en_palabras(21000), "VEINTIÚN MIL PESOS.")
+        self.assertEqual(monto_en_palabras(1_000_000), "UN MILLÓN DE PESOS.")
+        self.assertEqual(monto_en_palabras(2_500_101),
+                         "DOS MILLONES QUINIENTOS MIL CIENTO UN PESOS.")
+
+    def test_condicion_de_pago_como_en_la_oc_impresa(self):
+        from .pdf import _condicion_pago
+        self.assertEqual(_condicion_pago("30 días"), "O/C A 30 DIAS")
+        self.assertEqual(_condicion_pago("Contado"), "CONTADO")

@@ -19,6 +19,10 @@ class Proveedor(models.Model):
     rut = models.CharField("RUT", max_length=12, unique=True, validators=[validar_rut])
     correo = models.EmailField("Correo electrónico", blank=True)
     telefono = models.CharField("Teléfono", max_length=20, blank=True)
+    # Datos que van impresos en el bloque «Datos proveedor» de la OC.
+    direccion = models.CharField("Dirección", max_length=200, blank=True)
+    comuna = models.CharField("Comuna", max_length=80, blank=True)
+    giro = models.CharField("Giro", max_length=150, blank=True)
     condicion_pago = models.CharField(
         "Condición de pago", max_length=10,
         choices=CondicionPago.choices, default=CondicionPago.CONTADO,

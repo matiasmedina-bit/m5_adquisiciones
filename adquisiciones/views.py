@@ -135,7 +135,8 @@ def cotizacion_sm(request, pk):
             if not _todas_las_lineas_aprobadas(solicitud):
                 messages.error(request, "Faltan materiales por aprobar una línea de cotización.")
                 return redirect("adquisiciones:cotizacion_sm", pk=solicitud.pk)
-            ordenes = _generar_ordenes_compra(solicitud, request.user)
+            ordenes = _generar_ordenes_compra(
+                solicitud, request.user, folio_con_punto=_folio_con_punto(request))
             messages.success(
                 request,
                 f"Se generó {len(ordenes)} orden(es) de compra: "
@@ -162,7 +163,27 @@ def cotizacion_sm(request, pk):
             d.material.nombre for d in detalles
             if d.pk not in detalle_ids_aprobados
         ],
+        **_contexto_folio(),
     })
+
+
+def _folio_con_punto(request):
+    """Lo que eligió el usuario al generar: «13285» (junto) o «13.285» (punto)."""
+    return request.POST.get("formato_folio") == "punto"
+
+
+def _contexto_folio():
+    """Datos para el selector de formato de folio en las pantallas que generan OC."""
+    from usuarios.models import ParametrosSistema
+
+    siguiente = max(ParametrosSistema.actuales().siguiente_folio_oc,
+                    OrdenCompra.ultimo_folio_usado() + 1)
+    return {
+        "folio_siguiente": siguiente,
+        "folio_ejemplo_junto": OrdenCompra.formatear_folio(siguiente, False),
+        "folio_ejemplo_punto": OrdenCompra.formatear_folio(siguiente, True),
+        "folio_con_punto_preferido": OrdenCompra.folio_con_punto_preferido(),
+    }
 
 
 def _todas_las_lineas_aprobadas(solicitud):
@@ -185,7 +206,7 @@ def _refrescar_estado_cotizacion(solicitud):
 
 
 @transaction.atomic
-def _generar_ordenes_compra(solicitud, usuario):
+def _generar_ordenes_compra(solicitud, usuario, folio_con_punto=False):
     """RF-23: un borrador de OC por cada proveedor con líneas aprobadas."""
     aprobadas = (CotizacionLinea.objects
                  .filter(cotizacion__solicitud=solicitud, estado=CotizacionLinea.Estado.APROBADA)
@@ -199,6 +220,7 @@ def _generar_ordenes_compra(solicitud, usuario):
         orden = OrdenCompra.objects.create(
             solicitud=solicitud, proveedor=cotizacion.proveedor, cotizacion=cotizacion,
             costo_despacho=cotizacion.costo_despacho, creada_por=usuario,
+            folio_con_punto=folio_con_punto,
         )
         for cl in lineas:
             d = cl.solicitud_detalle
@@ -250,6 +272,7 @@ def orden_crear(request):
                     orden.solicitud = None
                     orden.creada_por = request.user
                     orden.estado = OrdenCompra.Estado.BORRADOR
+                    orden.folio_con_punto = _folio_con_punto(request)
                     orden.save()
                     for datos in lineas:
                         material = datos["material"]
@@ -273,8 +296,10 @@ def orden_crear(request):
         form = OrdenDirectaForm()
         formset = OrdenDirectaLineaFormSet(queryset=OrdenCompraLinea.objects.none())
 
-    return render(request, "adquisiciones/orden_crear.html",
-                  {"form": form, "formset": formset})
+    contexto = {"form": form, "formset": formset, **_contexto_folio()}
+    if request.method == "POST":
+        contexto["folio_con_punto_preferido"] = _folio_con_punto(request)
+    return render(request, "adquisiciones/orden_crear.html", contexto)
 
 
 @rol_requerido(EA, "JEFE_PROYECTO")
@@ -289,7 +314,52 @@ def orden_lista(request):
     return render(request, "adquisiciones/orden_lista.html", {
         "ordenes": ordenes, "estado_filtro": estado or "",
         "estados": OrdenCompra.Estado.choices,
+        "ultimo_folio": OrdenCompra.ultimo_folio_usado(),
+        **_contexto_folio(),
     })
+
+
+@rol_requerido(EA)
+def folio_configurar(request):
+    """
+    Fija con qué folio sale la próxima OC.
+
+    M5 numeraba sus órdenes a mano antes del sistema; esto permite empalmar
+    con esa numeración (p. ej. seguir desde el 12.395) y, desde ahí, el folio
+    sube solo. No se acepta un número ya usado o menor: dos órdenes con el
+    mismo folio serían dos documentos distintos con la misma identidad.
+    """
+    from usuarios.models import ParametrosSistema
+
+    if request.method != "POST":
+        return redirect("adquisiciones:orden_lista")
+    texto = (request.POST.get("siguiente_folio") or "").replace(".", "").strip()
+    ultimo = OrdenCompra.ultimo_folio_usado()
+    try:
+        numero = int(texto)
+    except ValueError:
+        messages.error(request, "El folio debe ser un número entero, por ejemplo 12395.")
+        return redirect("adquisiciones:orden_lista")
+    if numero < 1 or numero > 999_999_999:
+        messages.error(request, "El folio debe estar entre 1 y 999.999.999.")
+    elif numero <= ultimo:
+        messages.error(
+            request,
+            f"El folio {OrdenCompra.formatear_folio(ultimo, True)} ya fue usado. "
+            f"El próximo tiene que ser mayor.")
+    else:
+        parametros = ParametrosSistema.actuales()
+        anterior = parametros.siguiente_folio_oc
+        parametros.siguiente_folio_oc = numero
+        parametros.actualizado_por = request.user
+        parametros.save()
+        registrar(request.user, RegistroAuditoria.Accion.PARAMETROS_MODIFICADOS,
+                  f"Cambió el próximo folio de OC de {anterior} a {numero}.", "Folio OC")
+        messages.success(
+            request,
+            f"Listo: la próxima orden de compra saldrá con el folio {numero} "
+            f"y desde ahí seguirá en ascenso automático.")
+    return redirect("adquisiciones:orden_lista")
 
 
 @rol_requerido(EA, "JEFE_PROYECTO", "CONTABILIDAD", "BODEGUERO")

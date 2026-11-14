@@ -111,6 +111,13 @@ class OrdenCompra(models.Model):
         NO_RECIBIDA = "NO_RECIBIDA", "No recibida"
 
     correlativo = models.CharField("Correlativo", max_length=20, unique=True, editable=False)
+    # Folio numérico de la OC, el mismo que M5 venía usando en sus órdenes en
+    # Excel. Sale de ParametrosSistema.siguiente_folio_oc y sube de a uno. Las
+    # órdenes antiguas (anteriores a esta numeración) lo tienen vacío y
+    # conservan su correlativo «OC-000123».
+    folio = models.PositiveIntegerField("Folio", unique=True, null=True, blank=True, editable=False)
+    # Cómo se escribe el folio: «13285» o «13.285». Lo elige quien genera la OC.
+    folio_con_punto = models.BooleanField("Folio con punto de miles", default=False)
     # Sin solicitud cuando Adquisiciones se adelanta: compra material antes de
     # que la obra parta, o repone stock de bodega, sin que nadie se lo haya
     # pedido. En ese caso la obra se indica en `proyecto`, para que el gasto
@@ -149,11 +156,48 @@ class OrdenCompra(models.Model):
     def __str__(self):
         return f"{self.correlativo} - {self.proveedor.nombre}"
 
+    @staticmethod
+    def formatear_folio(numero, con_punto=False):
+        """13285 -> «13285» o «13.285»."""
+        if not con_punto:
+            return str(numero)
+        return f"{numero:,}".replace(",", ".")
+
+    @classmethod
+    def ultimo_folio_usado(cls):
+        return cls.objects.aggregate(m=models.Max("folio"))["m"] or 0
+
+    @classmethod
+    def folio_con_punto_preferido(cls):
+        """El formato que se usó en la última OC, para proponerlo en la siguiente."""
+        ultima = cls.objects.filter(folio__isnull=False).order_by("-folio").first()
+        return ultima.folio_con_punto if ultima else False
+
+    def _asignar_folio(self):
+        """
+        Toma el próximo folio de los parámetros y deja el siguiente listo.
+
+        El bloqueo de la fila de parámetros (select_for_update) hace que dos
+        órdenes generadas al mismo tiempo no se lleven el mismo número. Si el
+        folio configurado ya estuviera ocupado, se salta al primero libre en
+        vez de reventar contra la restricción única.
+        """
+        from usuarios.models import ParametrosSistema
+
+        with transaction.atomic():
+            ParametrosSistema.actuales()  # garantiza que la fila exista
+            parametros = ParametrosSistema.objects.select_for_update().get(pk=1)
+            numero = max(parametros.siguiente_folio_oc, 1)
+            while OrdenCompra.objects.filter(folio=numero).exists():
+                numero += 1
+            self.folio = numero
+            self.correlativo = self.formatear_folio(numero, self.folio_con_punto)
+            parametros.siguiente_folio_oc = numero + 1
+            parametros.save(update_fields=["siguiente_folio_oc"])
+
     def save(self, *args, **kwargs):
         if not self.correlativo:
-            ultimo = OrdenCompra.objects.order_by("-id").first()
-            siguiente = (ultimo.id + 1) if ultimo else 1
-            self.correlativo = f"OC-{siguiente:06d}"
+            self._asignar_folio()
         # La obra sale de la solicitud cuando la OC nace de un pedido; así el
         # resto del sistema pregunta siempre por `orden.obra` sin tener que
         # averiguar antes de dónde viene la orden.
@@ -184,7 +228,18 @@ class OrdenCompra(models.Model):
 
     @property
     def total(self):
+        """Total neto (sin IVA): líneas + despacho. Es el que usa facturación."""
         return self.subtotal_lineas + self.costo_despacho
+
+    @property
+    def iva(self):
+        """IVA 19% sobre el neto, redondeado al peso, como en la OC impresa."""
+        tasa = Decimal(str(getattr(settings, "IVA_PORCENTAJE", 19))) / 100
+        return (self.total * tasa).quantize(Decimal("1"), rounding="ROUND_HALF_UP")
+
+    @property
+    def total_con_iva(self):
+        return self.total + self.iva
 
     @property
     def editable(self):

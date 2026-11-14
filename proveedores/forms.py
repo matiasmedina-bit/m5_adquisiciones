@@ -33,12 +33,18 @@ class ProveedorForm(forms.ModelForm):
 
     class Meta:
         model = Proveedor
-        fields = ["nombre", "rut", "correo", "telefono", "condicion_pago", "estado"]
+        fields = ["nombre", "rut", "correo", "telefono", "direccion", "comuna", "giro",
+                  "condicion_pago", "estado"]
         widgets = {
             "nombre": forms.TextInput(attrs={"class": "form-control", "placeholder": "Razón social"}),
             "rut": forms.TextInput(attrs={"class": "form-control", "placeholder": "12.345.678-9"}),
             "correo": forms.EmailInput(attrs={"class": "form-control"}),
             "telefono": forms.TextInput(attrs={"class": "form-control"}),
+            "direccion": forms.TextInput(attrs={"class": "form-control",
+                                                "placeholder": "Av. Pdte. Jorge Alessandri 317"}),
+            "comuna": forms.TextInput(attrs={"class": "form-control", "placeholder": "La Reina"}),
+            "giro": forms.TextInput(attrs={"class": "form-control",
+                                           "placeholder": "Materiales de construcción"}),
             "condicion_pago": forms.Select(attrs={"class": "form-select"}),
             "estado": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }

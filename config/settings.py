@@ -181,6 +181,13 @@ EMPRESA_TELEFONO = os.getenv("EMPRESA_TELEFONO", "(56 2) 227 31 13")
 EMPRESA_EMAIL = os.getenv("EMPRESA_EMAIL", "adquisiciones@m-5.cl")
 EMPRESA_WEB = os.getenv("EMPRESA_WEB", "www.m-5.cl")
 
+# Quien autoriza la OC impresa. Su firma escaneada está en
+# adquisiciones/recursos/firma_representante.png (fuera de /static a propósito:
+# no debe poder descargarse por URL) y sólo se estampa en órdenes aprobadas.
+EMPRESA_REPRESENTANTE_NOMBRE = os.getenv("EMPRESA_REPRESENTANTE_NOMBRE", "Joel Medina Gonzalez")
+EMPRESA_REPRESENTANTE_RUT = os.getenv("EMPRESA_REPRESENTANTE_RUT", "12.187.827-5")
+IVA_PORCENTAJE = int(os.getenv("IVA_PORCENTAJE", "19"))
+
 # --- A dónde responde el proveedor ---
 # El sistema se autentica con una casilla propia (p. ej. sistema@m-5.cl) porque
 # no corresponde que use la cuenta personal de nadie. Pero esa casilla no la lee

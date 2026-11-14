@@ -106,11 +106,20 @@ def buscar(texto):
 
     clave = _correlativo(texto)
 
-    # --- Puerta 1: correlativo de orden de compra ---
-    if clave.startswith("OC"):
-        ordenes = (OrdenCompra.objects
-                   .filter(correlativo__icontains=clave.replace("OC-", "OC"))
-                   .select_related("solicitud"))
+    # El folio se puede escribir «13285», «13.285» u «OC 13285»: todos llevan
+    # a la misma orden, se haya impreso con punto o sin él.
+    solo_digitos = clave.removeprefix("OC").lstrip("-").replace(".", "")
+    por_folio = (OrdenCompra.objects.filter(folio=int(solo_digitos)).select_related("solicitud")
+                 if solo_digitos.isdigit() and len(solo_digitos) <= 9
+                 else OrdenCompra.objects.none())
+
+    # --- Puerta 1: folio / correlativo de orden de compra ---
+    if clave.startswith("OC") or por_folio.exists():
+        ordenes = por_folio
+        if not ordenes:
+            ordenes = (OrdenCompra.objects
+                       .filter(correlativo__icontains=clave.replace("OC-", "OC"))
+                       .select_related("solicitud"))
         if not ordenes:
             ordenes = OrdenCompra.objects.filter(correlativo__icontains=clave)
         cadenas = []

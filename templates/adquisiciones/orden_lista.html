@@ -12,6 +12,28 @@
   {% endif %}
 </div>
 
+{% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
+<div class="card shadow-sm mb-3">
+  <div class="card-body py-2">
+    <form method="post" action="{% url 'adquisiciones:folio_configurar' %}"
+          class="d-flex flex-wrap align-items-center gap-2">
+      {% csrf_token %}
+      <span class="small">
+        <i class="bi bi-hash"></i>
+        La próxima orden de compra sale con el folio <strong>{{ folio_ejemplo_punto }}</strong>.
+        {% if ultimo_folio %}<span class="text-muted">(último usado: {{ ultimo_folio }})</span>{% endif %}
+      </span>
+      <div class="input-group input-group-sm ms-auto" style="max-width:260px;">
+        <span class="input-group-text">Seguir desde</span>
+        <input type="number" name="siguiente_folio" class="form-control" min="{{ ultimo_folio|add:1 }}"
+               value="{{ folio_siguiente }}" required aria-label="Próximo folio de orden de compra">
+        <button type="submit" class="btn btn-outline-primary">Actualizar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 <div class="mb-3 d-flex gap-2 flex-wrap">
   <a href="?" class="btn btn-sm {% if not estado_filtro %}btn-secondary{% else %}btn-outline-secondary{% endif %}">Todas</a>
   {% for val, lbl in estados %}
@@ -23,7 +45,7 @@
   <div class="table-responsive">
     <table class="table table-hover align-middle mb-0">
       <thead class="table-light">
-        <tr><th>Correlativo</th><th>Proveedor</th><th>Solicitud / Proyecto</th>
+        <tr><th>Folio</th><th>Proveedor</th><th>Solicitud / Proyecto</th>
             <th class="text-end">Total</th><th class="text-center">Estado</th>
             <th class="text-center">Facturada</th><th></th></tr>
       </thead>

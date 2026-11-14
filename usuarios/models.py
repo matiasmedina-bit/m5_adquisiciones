@@ -273,6 +273,15 @@ class ParametrosSistema(models.Model):
         validators=[MinValueValidator(1), MaxValueValidator(500)],
         help_text="Sobre este tamaño el sistema advierte antes de completar la carga.",
     )
+    # Folio con que sale la próxima orden de compra. M5 ya venía numerando sus
+    # OC a mano (van sobre el 12.000), así que el sistema no puede partir de 1:
+    # Adquisiciones fija aquí desde dónde sigue y de ahí en adelante el folio
+    # sube solo, de a uno.
+    siguiente_folio_oc = models.PositiveIntegerField(
+        "Próximo folio de orden de compra", default=1,
+        validators=[MinValueValidator(1)],
+        help_text="Número que llevará la próxima orden de compra. Después sigue en ascenso automático.",
+    )
 
     actualizado = models.DateTimeField("Última modificación", auto_now=True)
     actualizado_por = models.ForeignKey(
