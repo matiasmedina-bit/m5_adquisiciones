@@ -1,8 +1,9 @@
 # Cambios para el Documento 0 — alinear documento y sistema
 
-Rama `revision-requerimientos`, 14-11-2026. Cada punto indica qué dice el
-documento, qué hace el sistema y por qué. Las redacciones propuestas usan el
-mismo formato del documento y se pueden copiar tal cual.
+Rama `revision-requerimientos`, 14-11-2026 (incluye los cambios finales decididos
+por el grupo antes del merge: puntos 1.10, 1.14 y 1.18). Cada punto indica
+qué dice el documento, qué hace el sistema y por qué. Las redacciones propuestas usan
+el mismo formato del documento y se pueden copiar tal cual.
 
 ---
 
@@ -60,8 +61,8 @@ mismo formato del documento y se pueden copiar tal cual.
 
 ### 1.10 RF-47 — Credencial de acceso
 - **Documento:** correo electrónico institucional y contraseña.
-- **Sistema:** se entra con el correo institucional; por compatibilidad también se acepta el nombre de usuario de las cuentas existentes. Si se prefiere sólo el correo, es un cambio de una línea en `usuarios/backends.py`.
-- **Propuesta:** dejar el RF como está y anotar la compatibilidad, o eliminar la compatibilidad.
+- **Sistema:** se entra **sólo** con el correo institucional y la contraseña; el nombre de usuario ya no da acceso (se quitó la compatibilidad que existía).
+- **Propuesta:** sin cambios en RF-47. En CU-48, corregir el *Resumen* (ver sección 4, punto 1).
 
 ### 1.11 RF-52 / CU-55 — Redirección al vencer la sesión
 - **Sistema:** implementado; además se corrigió que varias pantallas devolvían «403» en vez de llevar al inicio de sesión. Sin cambios en el documento.
@@ -76,9 +77,13 @@ mismo formato del documento y se pueden copiar tal cual.
 - **Sistema:** lo implementado es el de RF-55/56 (descargar con bloqueo y subir la versión editada) para los **archivos de proyecto**. No hay trabajo offline para SM, bodega ni otras pantallas.
 - **Propuesta RNF-02:** «… e incorporar un mecanismo de descarga con bloqueo y posterior subida (RF-55, RF-56) que permita editar los archivos de trabajo sin conexión al servidor.» Si el grupo quiere mantener el alcance amplio, queda como pendiente.
 
-### 1.14 RF-42 — «Lo realmente consumido»
-- **Sistema:** «comprado» se calcula de las OC (incluidas las compras anticipadas); «consumido» es la cantidad ejecutada que el Administrador mantiene en el itemizado. No se deriva de las salidas de bodega porque una salida no se vincula a una partida.
-- **Propuesta:** aclarar en RF-42 que el consumo es «la cantidad ejecutada registrada por partida», o agregar la partida a RF-28 (salida) para poder calcularlo. Es el único RF que queda 🟡.
+### 1.14 RF-28 / RF-42 — Partida en la salida y «lo realmente consumido»
+- **Documento:** RF-42 compara el itemizado «versus lo realmente comprado y consumido por obra»; RF-28 no pide la partida en la salida de bodega, así que no había cómo saber a qué partida se consumió cada material.
+- **Sistema:** la salida a obra exige la **partida del itemizado** (sólo se ofrecen las de la obra elegida). En el reporte de desviación, «consumido» = suma de las salidas imputadas a cada partida; «comprado» = OC aprobadas o posteriores de la obra, incluidas las compras anticipadas. La cantidad ejecutada que se escribe a mano en el itemizado queda como dato informativo y ya no entra al reporte.
+- **Salidas antiguas sin partida:** una migración les asigna la partida **sólo cuando no hay duda** (en esa obra el material se pidió contra una única partida). Las demás quedan sin partida y el reporte las muestra en una fila aparte «(sin partida)», fuera del gráfico. Así el consumo total de la obra no pierde nada y no se inventa a qué partida correspondía. En la copia de los datos reales: 5 de 7 salidas recibieron partida y 2 quedaron «sin partida».
+- **Integridad:** una partida que ya tiene salidas imputadas no se puede eliminar del itemizado.
+- **Redacción propuesta RF-28:** «El sistema debe permitir al rol Bodega registrar la salida de materiales o herramientas de bodega, exigiendo ingresar material, cantidad, proyecto destino, partida del itemizado del proyecto destino a la que se imputa la salida, jefe de proyecto asignado y número de guía de despacho asociado al traslado.»
+- **Redacción propuesta RF-42:** «El sistema debe generar, para los roles Jefe de Proyecto, Adquisiciones y Administración, un reporte gráfico y tabular de Desviación Presupuestaria que compare, por partida del itemizado de cada proyecto, la cantidad presupuestada con la cantidad comprada en Órdenes de Compra aprobadas y con la cantidad consumida, entendida como la suma de las salidas de bodega imputadas a esa partida (RF-28). Las salidas sin partida se informan por separado.»
 
 ### 1.15 RNF-06 — Algoritmo de hash
 - **Documento:** «por ejemplo, Bcrypt o SHA-256»; en el stack, «Bcrypt».
@@ -91,14 +96,56 @@ mismo formato del documento y se pueden copiar tal cual.
 
 ### 1.17 Actores ajustados al documento (antes el sistema daba más permisos)
 Sin cambio de redacción, pero el sistema ahora sigue el documento:
-- RF-07 a RF-10 (proyectos, itemizado, jefes, estado): sólo Administrador. Antes lo hacía cualquier Jefe de Proyecto.
+- RF-09 y RF-10 (asignar/quitar jefes, cambiar estado) y eliminar obras: sólo Administrador. Antes lo hacía cualquier Jefe de Proyecto. (RF-07 y RF-08: ver 1.18, decisión del grupo.)
 - RF-12 (crear SM): sólo Jefe de Proyecto. Antes también Adquisiciones.
 - RF-26 a RF-33 (movimientos de bodega): sólo Bodega. Antes también Adquisiciones.
 - CU-61 (registrar ítems del catálogo): sólo Administración. Antes también Bodega y Adquisiciones.
 - RF-46 (trazabilidad): Jefe de Proyecto (sus obras), Adquisiciones y Administración. Antes también Bodega y Contabilidad.
 - RF-57 (tipos de documento): sólo Administración. Antes los creaba el Jefe de Proyecto.
 
-### 1.18 Lectura que el documento no menciona
+### 1.18 RF-07 / RF-08 / CU-07 / CU-08 — El Jefe de Proyecto también registra obras (decisión del grupo)
+- **Documento:** RF-07 «permitir al perfil Administrador registrar un nuevo proyecto»; CU-07 y CU-08 tienen como único actor al Administrador.
+- **Sistema (decisión del grupo):**
+  - **Registrar obra:** Administrador y Jefe de Proyecto. El JP que la registra queda asignado automáticamente como jefe de esa obra.
+  - **Editar los datos de la obra y su itemizado:** el Administrador en todas; el JP sólo en las obras donde está asignado. El centro de costo sigue siendo único.
+  - **Asignar o quitar jefes (RF-09) y cambiar el estado (RF-10):** sólo el Administrador. Al JP el formulario no le ofrece esos campos, ni siquiera si los envía a mano.
+  - Un JP nunca ve ni modifica obras a las que no está asignado (403 por URL directa).
+  - Cada alta, cambio o baja de una partida del itemizado queda en el log de auditoría con usuario, fecha y operación.
+- **Redacción propuesta RF-07:** «El sistema debe permitir a los perfiles Administrador y Jefe de Proyecto registrar un nuevo proyecto ingresando nombre de la obra, cliente mandante, centro de costo, fecha de inicio, fecha de término proyectada y presupuesto total, validando que el centro de costo ingresado no se repita en otro proyecto registrado. Cuando lo registra un Jefe de Proyecto, éste queda asignado automáticamente como responsable de la obra. El Administrador puede editar los datos de cualquier proyecto; el Jefe de Proyecto, sólo los de los proyectos a los que está asignado.»
+- **Redacción propuesta RF-08:** «El sistema debe permitir al Administrador, en cualquier proyecto, y al Jefe de Proyecto, en los proyectos a los que está asignado, cargar y modificar el itemizado presupuesto base, requiriendo ingresar: código de partida, descripción del material, cantidad total presupuestada y unidad de medida. Cada alta, modificación o eliminación de una partida debe quedar registrada en el log de auditoría con el usuario y la fecha. No se puede eliminar una partida que tenga salidas de bodega imputadas.»
+- **RF-09 y RF-10:** sin cambios (siguen siendo sólo del Administrador); conviene agregar a RF-09 «El Jefe de Proyecto no puede asignar ni quitar responsables».
+- **RF-50:** agregar «modificaciones del itemizado de los proyectos» a la lista de acciones auditadas.
+
+**CU-07 propuesto — Registrando nuevo proyecto en el sistema**
+- **Nombre:** Registrando nuevo proyecto en el sistema.
+- **Actores:** Administrador o Jefe de Proyecto.
+- **Requerimiento:** RF-07.
+- **Resumen:** El actor registra un nuevo proyecto de obra con sus datos básicos, incluido el centro de costo. Si el actor es Jefe de Proyecto, queda asignado como responsable de la obra.
+- **Frecuencia:** Baja.
+- **Precondiciones:** El usuario debe estar autenticado con rol Administrador o Jefe de Proyecto.
+- **Flujo Principal:** El actor accede al módulo Proyectos y selecciona la opción "Registrar Nuevo Proyecto". El sistema despliega el formulario de ingreso con los campos obligatorios: nombre de la obra, cliente mandante, centro de costo, fecha de inicio, fecha de término proyectada y presupuesto total; si el actor es Administrador, despliega además la selección de Jefes de Proyecto responsables. El actor completa todos los campos obligatorios [Excepción 1], incluyendo el centro de costo, el cual el sistema valida que no se repita en otro proyecto registrado [Excepción 2]. El actor confirma el registro. El sistema almacena el proyecto en estado "En planificación" y, si el actor es Jefe de Proyecto, lo asigna como responsable. El proyecto queda disponible para la carga del itemizado.
+- **Excepciones:**
+  - Excepción 1: Algún campo obligatorio queda vacío. El sistema marca los campos faltantes y bloquea el guardado.
+  - Excepción 2: El centro de costo ya existe en otro proyecto. El sistema bloquea el guardado e informa la duplicidad.
+- **Poscondiciones:** El proyecto queda registrado en estado En planificación, con su responsable asignado si lo registró un Jefe de Proyecto, disponible para la carga del itemizado.
+- **Dependencias:** —
+
+**CU-08 propuesto — Cargando itemizado presupuestado de proyecto**
+- **Nombre:** Cargando itemizado presupuestado de proyecto.
+- **Actores:** Administrador o Jefe de Proyecto.
+- **Requerimiento:** RF-08.
+- **Resumen:** El actor carga o modifica las partidas del presupuesto (itemizado) de un proyecto. El Jefe de Proyecto sólo puede hacerlo en los proyectos a los que está asignado. Cada cambio queda en el log de auditoría.
+- **Frecuencia:** Baja.
+- **Precondiciones:** El proyecto debe estar registrado en el sistema. Si el actor es Jefe de Proyecto, debe estar asignado al proyecto.
+- **Flujo Principal:** El actor accede al proyecto y selecciona la opción "Cargar Itemizado" [Excepción 1]. El sistema despliega una interfaz de ingreso de partidas con los campos: código de partida, descripción del material, cantidad total presupuestada y unidad de medida. El actor ingresa, modifica o elimina partidas completando los campos obligatorios [Excepción 2] [Excepción 3]. El actor confirma la carga. El sistema almacena las partidas vinculadas al proyecto, registra en el log de auditoría cada partida agregada, modificada o eliminada con el usuario y la fecha, y las deja disponibles para el cruce con las Solicitudes de Materiales.
+- **Excepciones:**
+  - Excepción 1: El actor es Jefe de Proyecto y no está asignado al proyecto. El sistema impide el acceso.
+  - Excepción 2: Los campos obligatorios de una partida están incompletos. El sistema impide agregar la línea y marca los campos faltantes.
+  - Excepción 3: El actor intenta eliminar una partida que ya tiene salidas de bodega imputadas. El sistema impide la eliminación e informa el motivo.
+- **Poscondiciones:** El itemizado queda cargado y vinculado al proyecto, con cada cambio registrado en el log de auditoría.
+- **Dependencias:** CU-07.
+
+### 1.19 Lectura que el documento no menciona
 - Bodega y Contabilidad pueden **leer** SM emitidas y OC (Bodega sin precios), para saber qué van a recibir y cruzar facturas. No modifican nada.
 - Adquisiciones puede **consultar** el panel y los movimientos de bodega para cerrar la recepción de la OC (RF-35).
 - **Propuesta:** agregar una línea en RF-26 o en el módulo de seguridad: «Bodega y Contabilidad consultan, sin modificarlas, las Solicitudes y Órdenes de Compra; Bodega lo hace sin precios.»

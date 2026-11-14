@@ -1,6 +1,6 @@
 # Cumplimiento de requerimientos — Sistema de Adquisiciones M5
 
-**Estado final (Fase 2), 14-11-2026 — rama `revision-requerimientos`.**
+**Estado final (Fase 2 + cambios finales del grupo), 14-11-2026 — rama `revision-requerimientos`.**
 La auditoría inicial (antes de las correcciones) quedó en el commit `05412bc`
 (`git show 05412bc:cumplimiento.md`).
 
@@ -12,16 +12,18 @@ escrito, y por qué, está en `cambios_para_documento.md`.
 
 | | Inicial ✅ / 🟡 / ❌ | **Final ✅ / 🟡 / ❌** |
 |---|---|---|
-| RF (60) | 26 / 33 / 1 | **59 / 1 / 0** |
+| RF (60) | 26 / 33 / 1 | **60 / 0 / 0** |
 | RNF (14) | 6 / 7 / 1 | **12 / 2 / 0** |
 
 - `manage.py check`: sin errores. `makemigrations --check`: sin cambios pendientes.
-- Tests: **537 tests OK** (la línea «OSError: SMTP caído» del log es la falla de correo simulada a propósito en un test de CU-25) (antes 396). Nuevos: matriz de permisos
+- Tests: **553 tests OK** (antes 396). La línea «OSError: SMTP caído» del log es la
+  falla de correo simulada a propósito en un test de CU-25. Nuevos: matriz de permisos
   (`usuarios/tests_permisos.py`), flujo de punta a punta (`adquisiciones/tests_e2e.py`),
   reglas por módulo (`*/tests_rf.py`, `usuarios/tests_seguridad.py`).
-- Las 9 migraciones nuevas se aplicaron sin errores sobre una **copia** de la base
+- Las 12 migraciones nuevas se aplicaron sin errores sobre una **copia** de la base
   de desarrollo (sin perder filas: 24 SM, 12 OC, 5 facturas, 13 proveedores,
-  102 registros de bitácora). La base de desarrollo original **no** se migró.
+  102 registros de bitácora; de 7 salidas a obra antiguas, 5 recibieron partida y 2
+  quedan «sin partida»). La base de desarrollo original **no** se migró.
 
 Equivalencia de roles: Administrador/Administración = `ADMIN` · Jefe de Proyecto =
 `JEFE_PROYECTO` · Adquisiciones = `ENCARGADO_ADQUISICIONES` · Bodega = `BODEGUERO` ·
@@ -44,10 +46,10 @@ Contabilidad = `CONTABILIDAD`. `ADMIN` pasa todos los controles de rol.
 
 | ID | Estado | Dónde está | Notas |
 |---|---|---|---|
-| RF-07 | ✅ | `proyectos/views.py` `ProyectoCreateView` (`ROLES_GESTION = []` → sólo ADMIN); `ProyectoForm` | Todos los campos obligatorios; centro de costo único; nace «En planificación». |
-| RF-08 | ✅ | `ItemizadoFormSet`, `itemizado_crear/editar` | Sólo ADMIN. |
-| RF-09 | ✅ | `Proyecto.jefes`; `ProyectoForm` | Único o compartido. CU-09 Exc. 1: aviso + enlace a crear usuario. |
-| RF-10 | ✅ | `proyecto_cambiar_estado`, `CambioEstadoProyectoForm` | Sólo los 3 estados, con confirmación. Se eliminó «Suspendido» (migración). |
+| RF-07 | ✅ | `proyectos/views.py` `ProyectoCreateView` (`ROLES_OBRA`); `ProyectoForm` | **Decisión del grupo:** ADMIN y JEFE_PROYECTO registran obras; el JP que la registra queda asignado. Todos los campos obligatorios; centro de costo único; nace «En planificación». Editar datos: ADMIN en todas, JP sólo en sus obras (`exigir_acceso_proyecto`). |
+| RF-08 | ✅ | `ItemizadoFormSet`, `itemizado_crear/editar`, `auditar_itemizado` | ADMIN en todas las obras; JP sólo en las suyas. Cada alta, cambio o baja de partida queda en la bitácora con usuario, fecha y operación. Una partida con salidas imputadas no se elimina. |
+| RF-09 | ✅ | `Proyecto.jefes`; `ProyectoForm(usuario=…)` | Sólo ADMIN: al JP el formulario no le ofrece el campo (tampoco entra por POST). Único o compartido. CU-09 Exc. 1: aviso + enlace a crear usuario. |
+| RF-10 | ✅ | `proyecto_cambiar_estado`, `CambioEstadoProyectoForm` | Sólo ADMIN. Sólo los 3 estados, con confirmación. Se eliminó «Suspendido» (migración). |
 | RF-11 | ✅ | `SolicitudForm.clean_proyecto`, `solicitud_emitir` | Finalizado bloquea crear y emitir, con mensaje (CU-11 Exc. 1). |
 
 ## Módulo 3 — Solicitud de materiales
@@ -85,7 +87,7 @@ Contabilidad = `CONTABILIDAD`. `ADMIN` pasa todos los controles de rol.
 |---|---|---|---|
 | RF-26 | ✅ | `entrada_crear`, `EntradaForm` | Sólo Bodega; contra OC enviada (CU-26 Exc. 1) o proyecto (CU-27 Exc. 1); ubicación física; sin precios para Bodega (OC, SM, catálogo). |
 | RF-27 | ✅ | `EntradaForm.clean` | No supera lo pendiente de la línea. |
-| RF-28 | ✅ | `SalidaForm` | Material, cantidad, proyecto, JP (obligatorio y asignado a la obra), guía. |
+| RF-28 | ✅ | `SalidaForm`; `MovimientoInventario.partida` | Material, cantidad, proyecto, JP (obligatorio y asignado a la obra), guía y **partida obligatoria de la obra elegida** (selector filtrado por obra). |
 | RF-29 | ✅ | `MovimientoInventario.save` | Stock en tiempo real con bloqueo de fila; nunca negativo (CU-30 Exc. 1); el stock ya no se edita a mano. |
 | RF-30 | ✅ | `prestamo_crear`, `_avisar_administracion` | Valida herramienta en bodega (CU-31 Exc. 1); notifica a Administración. |
 | RF-31 | ✅ | `prestamo_devolver` | — |
@@ -109,7 +111,7 @@ Contabilidad = `CONTABILIDAD`. `ADMIN` pasa todos los controles de rol.
 | ID | Estado | Dónde está | Notas |
 |---|---|---|---|
 | RF-41 | ✅ | `reportes/consultas.py` `consumo_por_proyecto` | JP restringido a sus obras. |
-| RF-42 | 🟡 | `desviacion_presupuestaria` | Gráfico + tabla; «comprado» incluye compras anticipadas. **Pendiente:** «consumido» es la cantidad ejecutada que se mantiene a mano en el itemizado; no se calcula desde las salidas de bodega porque éstas no se vinculan a una partida. |
+| RF-42 | ✅ | `desviacion_presupuestaria`; migración `inventario/0008` | Gráfico + tabla. «Comprado» = OC aprobadas o posteriores (incluye compras anticipadas). «Consumido» = salidas a obra imputadas a cada partida. Salidas antiguas sin partida: se completan si el material se pidió en esa obra contra una sola partida; el resto va en la fila «(sin partida)», fuera del gráfico. |
 | RF-43 | ✅ | `mermas_y_perdidas` | Filtro por proyecto y fechas funcional; valorizado. |
 | RF-44 | ✅ | `compras_por_proveedor` | — |
 | RF-45 | ✅ | `reportes/exportar.py` | XLSX y PDF. |
@@ -119,7 +121,7 @@ Contabilidad = `CONTABILIDAD`. `ADMIN` pasa todos los controles de rol.
 
 | ID | Estado | Dónde está | Notas |
 |---|---|---|---|
-| RF-47 | ✅ | `usuarios/backends.py` `CorreoOUsuarioBackend`; `LoginForm` | Correo institucional + contraseña (también acepta el nombre de usuario). |
+| RF-47 | ✅ | `usuarios/backends.py` `CorreoInstitucionalBackend`; `LoginForm` | **Sólo** correo institucional + contraseña; el nombre de usuario no da acceso. |
 | RF-48 | ✅ | `UsuarioCreateView/UpdateView`, `usuario_cambiar_estado` | — |
 | RF-49 | ✅ | `usuarios/correos.py` | — |
 | RF-50 | ✅ | `auditoria/models.py` (`Operacion`, `OPERACION_DE`), `signals.py` | ID de usuario, fecha, hora y Crear/Editar/Eliminar. |
@@ -170,7 +172,9 @@ Contabilidad = `CONTABILIDAD`. `ADMIN` pasa todos los controles de rol.
 |---|---|---|---|---|---|
 | Usuarios, parámetros, tipos de documento (gestión) | ✅ | ⛔ | ⛔ | ⛔ | ⛔ |
 | Proveedores | ✅ | ⛔ | ✅ | ⛔ | ⛔ |
-| Registrar/editar obra, itemizado, jefes, estado | ✅ | ⛔ | ⛔ | ⛔ | ⛔ |
+| Registrar obra (RF-07) | ✅ | ✅ (queda asignado) | ⛔ | ⛔ | ⛔ |
+| Editar datos de la obra e itemizado (RF-07, RF-08) | ✅ | ✅ (propias) | ⛔ | ⛔ | ⛔ |
+| Asignar/quitar jefes, cambiar estado, eliminar obra (RF-09, RF-10) | ✅ | ⛔ | ⛔ | ⛔ | ⛔ |
 | Consultar obra / archivos de obra | ✅ | ✅ (propias) | ✅ | ⛔ | ✅ |
 | Crear, emitir, adjuntar, corregir SM | ✅ | ✅ (propias) | ⛔ | ⛔ | ⛔ |
 | Ver SM | ✅ | ✅ (propias) | ✅ | ✅ sin precios | ✅ |
@@ -205,7 +209,8 @@ reconstruye la cadena por SM, por folio de OC y por código de material.
 - Sin borrado físico: OC, proveedores, facturas, movimientos (RNF-09).
 - Fecha de última modificación: proveedor y material de proveedor.
 - Bitácora: sólo lectura, con tipo de operación; movimientos de bodega
-  auditados por señal (ninguno queda fuera).
+  auditados por señal (ninguno queda fuera); cambios del itemizado auditados.
+- Partidas con salidas imputadas no se borran (PROTECT).
 - Stock: sólo cambia con movimientos, con bloqueo de fila y sin negativos.
 
 ## Stack
