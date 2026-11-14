@@ -27,7 +27,7 @@
         <table class="table align-middle mb-0">
           <thead class="table-light">
             <tr><th>Material</th><th class="text-end">Cantidad</th><th>Unidad</th>
-                <th class="text-end">V. unitario</th><th class="text-end">V. total</th>
+                {% if not oculta_precios %}<th class="text-end">V. unitario</th><th class="text-end">V. total</th>{% endif %}
                 <th class="text-end">Recibido</th></tr>
           </thead>
           <tbody>
@@ -36,19 +36,27 @@
               <td>{{ l.descripcion }}</td>
               <td class="text-end">{{ l.cantidad }}</td>
               <td class="text-muted">{{ l.unidad_medida }}</td>
+              {% if not oculta_precios %}
               <td class="text-end">${{ l.valor_unitario|floatformat:0 }}</td>
               <td class="text-end">${{ l.valor_total|floatformat:0 }}</td>
+              {% endif %}
               <td class="text-end {% if l.cantidad_recibida >= l.cantidad %}text-success{% endif %}">{{ l.cantidad_recibida }}</td>
             </tr>
           {% endfor %}
+          {% if not oculta_precios %}
           <tr class="table-light">
             <td colspan="4" class="text-end fw-semibold">Despacho</td>
             <td class="text-end">${{ orden.costo_despacho|floatformat:0 }}</td><td></td>
           </tr>
           <tr class="table-light">
-            <td colspan="4" class="text-end fw-bold">TOTAL</td>
-            <td class="text-end fw-bold">${{ orden.total|floatformat:0 }}</td><td></td>
+            <td colspan="4" class="text-end fw-semibold">Neto</td>
+            <td class="text-end">${{ orden.total|floatformat:0 }}</td><td></td>
           </tr>
+          <tr class="table-light">
+            <td colspan="4" class="text-end fw-bold">TOTAL (IVA incluido)</td>
+            <td class="text-end fw-bold">${{ orden.total_con_iva|floatformat:0 }}</td><td></td>
+          </tr>
+          {% endif %}
           </tbody>
         </table>
       </div>
@@ -64,6 +72,7 @@
           <div class="col-md-6">
             <div class="fw-semibold mb-1">Proveedor</div>
             {{ orden.proveedor_razon_social }}<br>RUT: {{ orden.proveedor_rut }}<br>
+            {% if orden.proveedor_direccion %}{{ orden.proveedor_direccion }}<br>{% endif %}
             Condición de pago: {{ orden.proveedor_condicion_pago }}<br>
             Correo: {{ orden.proveedor.correo|default:"— (sin correo registrado)" }}
           </div>
@@ -77,9 +86,32 @@
       <div class="card-header py-2 fw-semibold">Acciones</div>
       <div class="card-body d-grid gap-2">
 
+        {% if puede_pdf %}
         <a href="{% url 'adquisiciones:orden_pdf' orden.pk %}" target="_blank" class="btn btn-outline-secondary">
           <i class="bi bi-file-earmark-pdf me-1"></i>Descargar PDF
         </a>
+        {% elif not orden.autorizada %}
+        <p class="small text-muted mb-0">El PDF se puede exportar cuando la OC esté aprobada.</p>
+        {% endif %}
+
+        {% if orden.estado == 'APROBADA' and puede_gestionar_envio %}
+          {# CU-25 Excepción 1: aprobada pero no salió al proveedor #}
+          <div class="alert alert-warning small mb-0">
+            Esta OC está aprobada pero <strong>no se envió</strong> al proveedor.
+          </div>
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="accion" value="reintentar_envio">
+            <button class="btn btn-outline-primary w-100"><i class="bi bi-envelope me-1"></i>Reintentar envío por correo</button>
+          </form>
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="accion" value="envio_manual">
+            <input type="text" name="medio" class="form-control form-control-sm mb-2" required
+                   placeholder="Cómo se entregó (ej: entregada en mano el 14/11)">
+            <button class="btn btn-outline-success w-100">Registrar entrega manual</button>
+          </form>
+        {% endif %}
 
         {% if orden.estado == 'BORRADOR' and puede_autorizar %}
           <form method="post" onsubmit="return confirm('¿Aprobar esta OC? Se enviará al proveedor.')">
@@ -104,10 +136,11 @@
           </form>
         {% endif %}
 
-        {% if orden.estado == 'ENVIADA' or orden.estado == 'RECEPCION_PARCIAL' %}
+        {% if orden.estado == 'ENVIADA' or orden.estado == 'RECEPCION_PARCIAL' or orden.estado == 'NO_RECIBIDA' %}
           {% if user.rol == 'ENCARGADO_ADQUISICIONES' or user.rol == 'ADMIN' %}
           <hr class="my-1">
           <div class="small fw-semibold">Actualizar recepción</div>
+          <div class="small text-muted">Las cantidades recibidas son las que registró Bodega (columna «Recibido»).</div>
           <form method="post">
             {% csrf_token %}
             <input type="hidden" name="accion" value="recepcion">

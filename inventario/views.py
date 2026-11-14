@@ -202,11 +202,15 @@ def _acumular_recepcion_oc(orden, material, cantidad):
     if linea:
         linea.cantidad_recibida = linea.cantidad_recibida + cantidad
         linea.save(update_fields=["cantidad_recibida"])
+    anterior = orden.estado
     if orden.recepcion_completa:
         orden.estado = OrdenCompra.Estado.RECIBIDA
     elif orden.recepcion_iniciada:
         orden.estado = OrdenCompra.Estado.RECEPCION_PARCIAL
     orden.save(update_fields=["estado"])
+    if orden.estado != anterior:
+        from adquisiciones.views import notificar_recepcion
+        notificar_recepcion(orden, "Actualizado al registrar la entrada en bodega.")
     # Una compra anticipada no tiene solicitud que refrescar: nadie la pidió.
     if orden.solicitud_id:
         from adquisiciones.views import _refrescar_estado_recepcion_sm

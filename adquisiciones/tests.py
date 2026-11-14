@@ -25,8 +25,8 @@ class BaseAdq(TestCase):
         self.proyecto = Proyecto.objects.create(
             nombre="Obra", mandante="M", fecha_inicio=date(2026, 6, 1), estado="EJECUCION")
         self.proyecto.jefes.add(self.jefe)
-        self.prov1 = Proveedor.objects.create(nombre="Prov 1", rut="11111111-1", correo="p1@x.cl")
-        self.prov2 = Proveedor.objects.create(nombre="Prov 2", rut="12345678-5", correo="p2@x.cl")
+        self.prov1 = Proveedor.objects.create(direccion="Av. Los Leones 123", nombre="Prov 1", rut="11111111-1", correo="p1@x.cl")
+        self.prov2 = Proveedor.objects.create(direccion="Av. Los Leones 123", nombre="Prov 2", rut="12345678-5", correo="p2@x.cl")
         self.mat_a = Material.objects.create(nombre="Cemento", unidad_medida="saco", precio_referencia=4500)
         self.mat_b = Material.objects.create(nombre="Fierro", unidad_medida="barra", precio_referencia=8900)
         self.sm = SolicitudMaterial.objects.create(
@@ -282,7 +282,7 @@ class CortesDeFlujoTest(BaseAdq):
     def setUp(self):
         super().setUp()
         from proveedores.models import Proveedor
-        self.sin_correo = Proveedor.objects.create(
+        self.sin_correo = Proveedor.objects.create(direccion="Av. Los Leones 123", 
             nombre="Áridos Sin Correo", rut="22222222-2", correo="")
         self.client.login(username="jp", password="clave12345")
 
@@ -295,26 +295,47 @@ class CortesDeFlujoTest(BaseAdq):
             cantidad=10, unidad_medida="saco", valor_unitario=5000)
         return orden
 
-    # --- Corte 1: proveedor sin correo dejaba la OC congelada en APROBADA ---
+    # --- CU-25 Excepción 1: proveedor sin correo o envío fallido ---
 
-    def test_una_oc_sin_correo_de_proveedor_igual_queda_emitida(self):
+    def test_cu25_sin_correo_la_oc_queda_aprobada_no_enviada(self):
         orden = self._oc(self.sin_correo)
         self.client.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
                          {"accion": "aprobar"})
         orden.refresh_from_db()
-        self.assertEqual(orden.estado, OrdenCompra.Estado.ENVIADA)
-        self.assertIsNotNone(orden.fecha_envio)
+        self.assertEqual(orden.estado, OrdenCompra.Estado.APROBADA)
+        self.assertIsNone(orden.fecha_envio)
 
-    def test_esa_oc_sí_se_puede_recepcionar_despues(self):
-        """Era el síntoma real: bodega no podía recibir el material."""
+    def test_cu25_se_notifica_a_adquisiciones(self):
+        from usuarios.models import Notificacion
+        orden = self._oc(self.sin_correo)
+        self.client.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
+                         {"accion": "aprobar"})
+        aviso = Notificacion.objects.get(usuario=self.ea)
+        self.assertIn("NO enviada", aviso.titulo)
+
+    def test_cu25_registrar_entrega_manual_la_deja_enviada_y_recepcionable(self):
         orden = self._oc(self.sin_correo)
         self.client.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
                          {"accion": "aprobar"})
         self.client.login(username="ea", password="clave12345")
         self.client.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
+                         {"accion": "envio_manual", "medio": "Entregada en mano"})
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado, OrdenCompra.Estado.ENVIADA)
+        orden.lineas.update(cantidad_recibida=10)   # Bodega recibió todo
+        self.client.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
                          {"accion": "recepcion", "estado": OrdenCompra.Estado.RECIBIDA})
         orden.refresh_from_db()
         self.assertEqual(orden.estado, OrdenCompra.Estado.RECIBIDA)
+
+    def test_cu25_envio_que_falla_queda_aprobada(self):
+        from unittest import mock
+        orden = self._oc(self.prov1)
+        with mock.patch("django.core.mail.EmailMessage.send", side_effect=OSError("SMTP caído")):
+            self.client.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
+                             {"accion": "aprobar"})
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado, OrdenCompra.Estado.APROBADA)
 
     def test_el_sistema_avisa_que_hay_que_entregarla_por_otra_via(self):
         orden = self._oc(self.sin_correo)
@@ -327,6 +348,7 @@ class CortesDeFlujoTest(BaseAdq):
 
     def test_una_oc_no_recibida_admite_la_entrega_atrasada(self):
         orden = self._oc(self.prov1, estado=OrdenCompra.Estado.NO_RECIBIDA)
+        orden.lineas.update(cantidad_recibida=10)   # llegó tarde y Bodega la recibió
         self.client.login(username="ea", password="clave12345")
         self.client.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
                          {"accion": "recepcion", "estado": OrdenCompra.Estado.RECIBIDA})
@@ -452,7 +474,7 @@ class FlujoPorRolTest(TestCase):
             nombre="Edificio Los Aromos", mandante="M5",
             fecha_inicio=date(2026, 6, 1), estado="EJECUCION")
         self.obra.jefes.add(self.jefe)
-        self.prov = Proveedor.objects.create(
+        self.prov = Proveedor.objects.create(direccion="Av. Los Leones 123", 
             nombre="Ferretería Central", rut="11111111-1", correo="vende@prov.cl")
         self.material = Material.objects.create(
             nombre="Cemento", unidad_medida="saco", precio_referencia=4500)
@@ -633,7 +655,8 @@ class FlujoPorRolTest(TestCase):
 
     def test_el_pdf_de_una_compra_anticipada_sale_igual(self):
         orden = OrdenCompra.objects.create(
-            proyecto=self.obra, proveedor=self.prov, creada_por=self.ea)
+            proyecto=self.obra, proveedor=self.prov, creada_por=self.ea,
+            estado=OrdenCompra.Estado.APROBADA)
         OrdenCompraLinea.objects.create(
             orden=orden, material=self.material, descripcion="Cemento",
             cantidad=200, unidad_medida="saco", valor_unitario=4400)
@@ -665,9 +688,9 @@ class EncargadoAdquisicionesTest(TestCase):
             nombre="Edificio Central", mandante="M5",
             fecha_inicio=date(2026, 6, 1), estado="EJECUCION")
         self.obra.jefes.add(self.jefe)
-        self.prov = Proveedor.objects.create(
+        self.prov = Proveedor.objects.create(direccion="Av. Los Leones 123", 
             nombre="Ferretería Central", rut="11111111-1", correo="vende@prov.cl")
-        self.otro_prov = Proveedor.objects.create(
+        self.otro_prov = Proveedor.objects.create(direccion="Av. Los Leones 123", 
             nombre="Comercial Sur", rut="12345678-5", correo="sur@prov.cl")
         self.material = Material.objects.create(
             nombre="Cemento", unidad_medida="saco", precio_referencia=4500)
@@ -839,7 +862,8 @@ class EncargadoAdquisicionesTest(TestCase):
             estado=OrdenCompra.Estado.ENVIADA)
         OrdenCompraLinea.objects.create(
             orden=orden, material=self.material, descripcion="Cemento",
-            cantidad=100, unidad_medida="saco", valor_unitario=4500)
+            cantidad=100, unidad_medida="saco", valor_unitario=4500,
+            cantidad_recibida=100)   # Bodega ya registró la entrada
 
         self.c.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
                     {"accion": "recepcion", "estado": OrdenCompra.Estado.RECIBIDA})
@@ -849,7 +873,8 @@ class EncargadoAdquisicionesTest(TestCase):
 
     def test_descarga_el_pdf_de_la_orden(self):
         orden = OrdenCompra.objects.create(
-            proyecto=self.obra, proveedor=self.prov, creada_por=self.ea)
+            proyecto=self.obra, proveedor=self.prov, creada_por=self.ea,
+            estado=OrdenCompra.Estado.ENVIADA)
         OrdenCompraLinea.objects.create(
             orden=orden, material=self.material, descripcion="Cemento",
             cantidad=100, unidad_medida="saco", valor_unitario=4500)
@@ -981,9 +1006,9 @@ class CicloSinAdministradorTest(TestCase):
             nombre="Smart Fit Chillán", mandante="Smart Fit",
             fecha_inicio=date(2026, 6, 1), estado="EJECUCION")
         self.obra.jefes.add(self.jefe_a, self.jefe_b)
-        self.prov = Proveedor.objects.create(
+        self.prov = Proveedor.objects.create(direccion="Av. Los Leones 123", 
             nombre="Carlos Herrera", rut="77201840-1", correo="v@herrera.cl")
-        self.otro_prov = Proveedor.objects.create(
+        self.otro_prov = Proveedor.objects.create(direccion="Av. Los Leones 123", 
             nombre="Sodimac SA", rut="96792430-K", correo="v@sodimac.cl")
         self.material = Material.objects.create(
             nombre="Fierro hormigón 8mm", unidad_medida="un")

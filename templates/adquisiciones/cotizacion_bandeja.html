@@ -4,12 +4,12 @@
 
 <div class="mb-3">
   <h1 class="h3 mb-0">Bandeja de cotización</h1>
-  <small class="text-muted">Solicitudes aprobadas que están esperando cotización</small>
+  <small class="text-muted">Solicitudes emitidas, de la más antigua a la más reciente</small>
 </div>
 
 <div class="card shadow-sm">
   <div class="card-header py-2 fw-semibold d-flex justify-content-between">
-    <span>Solicitudes por cotizar</span>
+    <span>Solicitudes emitidas</span>
     <span class="badge bg-secondary">{{ solicitudes|length }}</span>
   </div>
   <div class="table-responsive">
@@ -37,4 +37,31 @@
     </table>
   </div>
 </div>
+
+{% if en_cotizacion %}
+<div class="card shadow-sm mt-4">
+  <div class="card-header py-2 fw-semibold d-flex justify-content-between">
+    <span>En cotización — listas para generar la orden de compra</span>
+    <span class="badge bg-secondary">{{ en_cotizacion|length }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr><th>Correlativo</th><th>Proyecto</th><th>Fecha</th><th class="text-center">Ítems</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for s in en_cotizacion %}
+        <tr>
+          <td class="fw-semibold">{{ s.correlativo }}</td>
+          <td>{{ s.proyecto.nombre }}</td>
+          <td class="text-muted small">{{ s.fecha|date:"d-m-Y H:i" }}</td>
+          <td class="text-center">{{ s.total_items }}</td>
+          <td class="text-end"><a href="{% url 'adquisiciones:cotizacion_sm' s.pk %}" class="btn btn-sm btn-success">Generar OC</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

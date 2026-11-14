@@ -4,7 +4,7 @@ from django.forms import modelformset_factory
 
 from inventario.models import Material
 from proveedores.models import Proveedor
-from .models import Cotizacion, OrdenCompra, OrdenCompraLinea
+from .models import Cotizacion, OrdenCompra, OrdenCompraLinea, cant
 
 
 class CotizacionForm(forms.ModelForm):
@@ -53,7 +53,12 @@ OrdenLineaFormSet = modelformset_factory(
 
 
 class RecepcionEstadoForm(forms.Form):
-    """RF-38: Adquisiciones actualiza el estado de recepción de una OC enviada."""
+    """
+    RF-35 / CU-36: Adquisiciones actualiza el estado de recepción de una OC
+    enviada. Las cantidades recibidas de cada material son las que Bodega
+    registró al recibir (RF-26): son las que mueven el stock, así que el estado
+    tiene que ser coherente con ellas (ver clean()).
+    """
     ESTADOS = [
         (OrdenCompra.Estado.RECIBIDA, "Recibida"),
         (OrdenCompra.Estado.RECEPCION_PARCIAL, "Recepción parcial"),
@@ -64,6 +69,37 @@ class RecepcionEstadoForm(forms.Form):
         required=False, label="Nota (opcional)",
         widget=forms.Textarea(attrs={"class": "form-control", "rows": 2}),
     )
+
+    def __init__(self, *args, orden=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._orden = orden
+
+    def clean(self):
+        datos = super().clean()
+        estado = datos.get("estado")
+        if self._orden is None or not estado:
+            return datos
+        iniciada = self._orden.recepcion_iniciada
+        completa = self._orden.recepcion_completa
+        if estado == OrdenCompra.Estado.RECEPCION_PARCIAL and not iniciada:
+            # CU-36 Excepción 1
+            raise forms.ValidationError(
+                "Para marcar «Recepción parcial» tiene que haber cantidades recibidas: "
+                "Bodega aún no registra la entrada de ningún material de esta OC.")
+        if estado == OrdenCompra.Estado.RECEPCION_PARCIAL and completa:
+            raise forms.ValidationError(
+                "Bodega ya recibió todo lo de esta OC: corresponde «Recibida».")
+        if estado == OrdenCompra.Estado.RECIBIDA and not completa:
+            pendientes = ", ".join(
+                f"{l.descripcion} ({cant(l.cantidad_recibida)} de {cant(l.cantidad)})"
+                for l in self._orden.lineas.all() if l.cantidad_recibida < l.cantidad)
+            raise forms.ValidationError(
+                f"No se puede marcar «Recibida»: faltan por recibir {pendientes}. "
+                f"Usa «Recepción parcial».")
+        if estado == OrdenCompra.Estado.NO_RECIBIDA and iniciada:
+            raise forms.ValidationError(
+                "Ya se recibió parte de esta OC: corresponde «Recepción parcial».")
+        return datos
 
 
 class OrdenDirectaForm(forms.ModelForm):

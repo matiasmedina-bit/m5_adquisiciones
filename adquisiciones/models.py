@@ -25,6 +25,14 @@ from inventario.models import Material
 from usuarios.integridad import SinBorradoFisicoMixin
 
 
+def cant(valor):
+    """Cantidad legible: Decimal('4.00') -> '4', Decimal('2.50') -> '2.5'."""
+    if valor is None:
+        return "0"
+    texto = f"{Decimal(valor):f}"
+    return texto.rstrip("0").rstrip(".") if "." in texto else texto
+
+
 class Cotizacion(models.Model):
     """RF-20: cotización de un proveedor para una Solicitud de Materiales."""
 
@@ -142,6 +150,9 @@ class OrdenCompra(SinBorradoFisicoMixin):
     proveedor_rut = models.CharField("RUT proveedor", max_length=15, blank=True)
     proveedor_razon_social = models.CharField("Razón social proveedor", max_length=150, blank=True)
     proveedor_condicion_pago = models.CharField("Condición de pago", max_length=20, blank=True)
+    # RF-21: la dirección también se copia, para que la OC emitida no cambie
+    # si mañana el proveedor se muda.
+    proveedor_direccion = models.CharField("Dirección proveedor", max_length=290, blank=True)
 
     creada_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="ordenes_creadas")
     fecha = models.DateTimeField("Fecha de creación", auto_now_add=True)
@@ -209,7 +220,37 @@ class OrdenCompra(SinBorradoFisicoMixin):
             self.proveedor_rut = self.proveedor.rut_formateado
             self.proveedor_razon_social = self.proveedor.nombre
             self.proveedor_condicion_pago = self.proveedor.get_condicion_pago_display()
+            self.proveedor_direccion = ", ".join(
+                p for p in (self.proveedor.direccion, self.proveedor.comuna) if p)
         super().save(*args, **kwargs)
+
+    # Estados en que la OC ya fue autorizada (RF-24: sólo éstas se exportan)
+    ESTADOS_AUTORIZADOS = ("APROBADA", "ENVIADA", "RECEPCION_PARCIAL", "RECIBIDA", "NO_RECIBIDA")
+
+    @property
+    def autorizada(self):
+        return self.estado in self.ESTADOS_AUTORIZADOS
+
+    @staticmethod
+    def datos_faltantes(proveedor):
+        """
+        CU-21 Excepción 1: lo que falta para autocompletar la OC, tanto de la
+        facturación de M5 como del proveedor. Lista vacía = se puede generar.
+        """
+        faltan = []
+        empresa = {
+            "razón social de M5": "EMPRESA_RAZON_SOCIAL", "RUT de M5": "EMPRESA_RUT",
+            "giro de M5": "EMPRESA_GIRO", "dirección de M5": "EMPRESA_DIRECCION",
+        }
+        for etiqueta, clave in empresa.items():
+            if not (getattr(settings, clave, "") or "").strip():
+                faltan.append(etiqueta)
+        campos = {"RUT": proveedor.rut, "razón social": proveedor.nombre,
+                  "dirección": proveedor.direccion, "condición de pago": proveedor.condicion_pago}
+        for etiqueta, valor in campos.items():
+            if not (valor or "").strip():
+                faltan.append(f"{etiqueta} de {proveedor.nombre or 'el proveedor'}")
+        return faltan
 
     @property
     def es_anticipada(self):

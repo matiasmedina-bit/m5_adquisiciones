@@ -15,12 +15,14 @@ from django.core.mail import EmailMessage
 from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 
 from auditoria.models import RegistroAuditoria, registrar
+from usuarios.notificaciones import notificar, usuarios_con_rol
 from usuarios.permisos import rol_requerido
 from solicitudes.models import SolicitudMaterial
-from .models import Cotizacion, CotizacionLinea, OrdenCompra, OrdenCompraLinea  # noqa: F401
+from .models import Cotizacion, CotizacionLinea, OrdenCompra, OrdenCompraLinea, cant  # noqa: F401
 from .forms import (
     CotizacionForm, OrdenDirectaForm, OrdenDirectaLineaFormSet,
     OrdenLineaFormSet, RecepcionEstadoForm,
@@ -35,12 +37,13 @@ EA = "ENCARGADO_ADQUISICIONES"
 # ----------------------------------------------------------------------------
 @rol_requerido(EA)
 def cotizacion_bandeja(request):
-    solicitudes = (SolicitudMaterial.objects
-                   .filter(estado__in=[SolicitudMaterial.Estado.EMITIDA,
-                                       SolicitudMaterial.Estado.EN_COTIZACION])
-                   .select_related("proyecto", "emisor")
-                   .order_by("fecha"))  # cronológico ascendente
-    return render(request, "adquisiciones/cotizacion_bandeja.html", {"solicitudes": solicitudes})
+    base = (SolicitudMaterial.objects
+            .select_related("proyecto", "emisor")
+            .order_by("fecha", "pk"))  # RF-16: cronológico, de la más antigua a la más reciente
+    emitidas = base.filter(estado=SolicitudMaterial.Estado.EMITIDA)
+    en_cotizacion = base.filter(estado=SolicitudMaterial.Estado.EN_COTIZACION)
+    return render(request, "adquisiciones/cotizacion_bandeja.html", {
+        "solicitudes": emitidas, "en_cotizacion": en_cotizacion})
 
 
 # ----------------------------------------------------------------------------
@@ -135,6 +138,15 @@ def cotizacion_sm(request, pk):
             if not _todas_las_lineas_aprobadas(solicitud):
                 messages.error(request, "Faltan materiales por aprobar una línea de cotización.")
                 return redirect("adquisiciones:cotizacion_sm", pk=solicitud.pk)
+            # CU-21 Excepción 1: sin los datos para autocompletar no se genera
+            faltan = _faltantes_para_oc(solicitud)
+            if faltan:
+                messages.error(
+                    request,
+                    "No se puede generar la orden de compra: falta " + "; ".join(faltan)
+                    + ". Complétalo en la ficha del proveedor (o en la configuración de M5) "
+                      "y vuelve a intentarlo.")
+                return redirect("adquisiciones:cotizacion_sm", pk=solicitud.pk)
             ordenes = _generar_ordenes_compra(
                 solicitud, request.user, folio_con_punto=_folio_con_punto(request))
             messages.success(
@@ -184,6 +196,19 @@ def _contexto_folio():
         "folio_ejemplo_punto": OrdenCompra.formatear_folio(siguiente, True),
         "folio_con_punto_preferido": OrdenCompra.folio_con_punto_preferido(),
     }
+
+
+def _faltantes_para_oc(solicitud):
+    """Datos faltantes de cada proveedor con líneas aprobadas (CU-21 Exc. 1)."""
+    proveedores = {cl.cotizacion.proveedor for cl in CotizacionLinea.objects
+                   .filter(cotizacion__solicitud=solicitud, estado=CotizacionLinea.Estado.APROBADA)
+                   .select_related("cotizacion__proveedor")}
+    faltan = []
+    for proveedor in sorted(proveedores, key=lambda p: p.nombre):
+        for dato in OrdenCompra.datos_faltantes(proveedor):
+            if dato not in faltan:
+                faltan.append(dato)
+    return faltan
 
 
 def _todas_las_lineas_aprobadas(solicitud):
@@ -270,8 +295,12 @@ def orden_crear(request):
                 f.cleaned_data for f in formset.forms
                 if f.cleaned_data.get("material") and f.cleaned_data.get("cantidad")
             ]
+            faltan = OrdenCompra.datos_faltantes(form.cleaned_data["proveedor"])
             if not lineas:
                 messages.error(request, "Agrega al menos un material a la orden.")
+            elif faltan:
+                messages.error(
+                    request, "No se puede emitir la orden: falta " + "; ".join(faltan) + ".")
             else:
                 with transaction.atomic():
                     orden = form.save(commit=False)
@@ -404,7 +433,29 @@ def orden_detalle(request, pk):
                 registrar(request.user, RegistroAuditoria.Accion.OC_APROBADA,
                           f"Aprobó la orden de compra a {orden.proveedor.nombre}.",
                           orden.correlativo)
-                _enviar_orden_al_proveedor(request, orden)  # RF-27
+                _enviar_orden_al_proveedor(request, orden)  # RF-25
+            return redirect("adquisiciones:orden_detalle", pk=orden.pk)
+
+        # CU-25 Excepción 1: el envío falló o el proveedor no tiene correo. La OC
+        # sigue "Aprobada"; Adquisiciones reintenta o la entrega por otra vía.
+        if accion in ("reintentar_envio", "envio_manual") and request.user.rol in (EA, "ADMIN"):
+            if orden.estado != OrdenCompra.Estado.APROBADA:
+                messages.error(request, "Solo se gestiona el envío de una OC aprobada que no salió.")
+            elif accion == "reintentar_envio":
+                _enviar_orden_al_proveedor(request, orden)
+            else:
+                medio = (request.POST.get("medio") or "").strip()
+                if not medio:
+                    messages.error(request, "Indica cómo se entregó la OC al proveedor.")
+                else:
+                    orden.estado = OrdenCompra.Estado.ENVIADA
+                    orden.fecha_envio = timezone.now()
+                    orden.save(update_fields=["estado", "fecha_envio"])
+                    registrar(request.user, RegistroAuditoria.Accion.OC_ENVIADA,
+                              f"Registró la entrega manual de la OC a {orden.proveedor.nombre}: {medio}",
+                              orden.correlativo)
+                    _avanzar_sm_por_envio(orden)
+                    messages.success(request, f"OC {orden.correlativo} marcada como enviada ({medio}).")
             return redirect("adquisiciones:orden_detalle", pk=orden.pk)
 
         if accion == "rechazar" and puede_autorizar:
@@ -417,11 +468,14 @@ def orden_detalle(request, pk):
                 orden.estado = OrdenCompra.Estado.RECHAZADA
                 orden.motivo_rechazo = motivo
                 orden.save(update_fields=["estado", "motivo_rechazo"])
-                _notificar(
-                    [orden.creada_por.email],
+                # RF-22: se notifica al usuario de Adquisiciones que generó la OC
+                notificar(
+                    [orden.creada_por],
                     f"OC {orden.correlativo} rechazada",
-                    f"El Jefe de Proyecto rechazó la orden {orden.correlativo}.\nMotivo: {motivo}",
-                )
+                    f"{request.user.get_full_name() or request.user.username} rechazó la orden "
+                    f"{orden.correlativo} a {orden.proveedor.nombre}.\nMotivo: {motivo}\n\n"
+                    f"Puedes corregirla y devolverla a borrador para reenviarla a aprobación.",
+                    url=reverse("adquisiciones:orden_detalle", args=[orden.pk]))
                 messages.warning(request, f"Orden {orden.correlativo} rechazada.")
             return redirect("adquisiciones:orden_detalle", pk=orden.pk)
 
@@ -436,7 +490,7 @@ def orden_detalle(request, pk):
 
         # RF-38: actualizar el estado de recepción
         if accion == "recepcion" and request.user.rol in (EA, "ADMIN"):
-            recepcion_form = RecepcionEstadoForm(request.POST)
+            recepcion_form = RecepcionEstadoForm(request.POST, orden=orden)
             # NO_RECIBIDA se incluye a propósito: es el estado que se pone cuando
             # el proveedor no entregó a tiempo, y la entrega atrasada es el caso
             # normal. Si fuera terminal, una entrega tardía no se podría registrar.
@@ -452,19 +506,12 @@ def orden_detalle(request, pk):
                 orden.save(update_fields=["estado"])
                 if orden.solicitud_id:
                     _refrescar_estado_recepcion_sm(orden.solicitud)
-                # El aviso va a todos los jefes de la obra, no a uno: cualquiera
-                # de ellos puede estar esperando ese despacho.
-                correos = (list(obra.jefes.exclude(email="").values_list("email", flat=True))
-                           if obra else [])
-                if correos:
-                    detalle = "; ".join(
-                        f"{l.descripcion}: {l.cantidad_recibida}/{l.cantidad}" for l in orden.lineas.all())
-                    _notificar(
-                        correos,
-                        f"OC {orden.correlativo}: {orden.get_estado_display()}",
-                        f"La orden {orden.correlativo} cambió a «{orden.get_estado_display()}».\n{detalle}",
-                    )
+                notificar_recepcion(orden, recepcion_form.cleaned_data.get("nota", ""))
                 messages.success(request, f"Recepción actualizada a «{orden.get_estado_display()}».")
+            else:
+                for error in recepcion_form.non_field_errors():
+                    messages.error(request, error)
+                return redirect("adquisiciones:orden_detalle", pk=orden.pk)
             return redirect("adquisiciones:orden_detalle", pk=orden.pk)
 
     return render(request, "adquisiciones/orden_detalle.html", {
@@ -476,6 +523,10 @@ def orden_detalle(request, pk):
             request.user.rol in ("JEFE_PROYECTO", "ADMIN")
             or (orden.es_anticipada and request.user.rol == EA)
         ),
+        # RF-26 / RF-33: Bodega no ve precios unitarios ni totales
+        "oculta_precios": request.user.rol == "BODEGUERO",
+        "puede_gestionar_envio": request.user.rol in (EA, "ADMIN"),
+        "puede_pdf": orden.autorizada and request.user.rol in (EA, "JEFE_PROYECTO", "ADMIN"),
         "empresa": {
             "razon_social": _empresa("EMPRESA_RAZON_SOCIAL"),
             "rut": _empresa("EMPRESA_RUT"),
@@ -515,8 +566,15 @@ def orden_editar(request, pk):
 
 @rol_requerido(EA, "JEFE_PROYECTO")
 def orden_pdf(request, pk):
-    """RF-26: exporta la OC a PDF con el logotipo corporativo."""
+    """RF-24 / CU-24: exporta la OC aprobada a PDF con el logotipo corporativo."""
     orden = get_object_or_404(OrdenCompra, pk=pk)
+    obra = orden.obra
+    if request.user.rol == "JEFE_PROYECTO" and (obra is None or not obra.dirigida_por(request.user)):
+        raise PermissionDenied("Esta orden de compra pertenece a otro proyecto.")
+    if not orden.autorizada:
+        # CU-24 Excepción 1
+        messages.error(request, "La orden de compra debe estar aprobada para exportarla a PDF.")
+        return redirect("adquisiciones:orden_detalle", pk=orden.pk)
     try:
         pdf_bytes = generar_pdf_orden(orden)
     except ReportlabNoInstalado as exc:
@@ -530,68 +588,113 @@ def orden_pdf(request, pk):
 # Helpers de correo / estado
 # ----------------------------------------------------------------------------
 def _notificar(destinatarios, asunto, cuerpo, adjunto=None):
+    """
+    Correo saliente. Devuelve True si el servidor de correo lo aceptó.
+    Las fallas ya no se silencian: el RF-25 depende de saber si salió.
+    """
     destinatarios = [d for d in destinatarios if d]
     if not destinatarios:
-        return
+        return False
+    # Reply-To: el correo sale desde la casilla del sistema, pero las
+    # respuestas del proveedor tienen que llegarle a una persona.
+    responder_a = [settings.EMAIL_REPLY_TO] if settings.EMAIL_REPLY_TO else None
+    msg = EmailMessage(subject=asunto, body=cuerpo, to=destinatarios, reply_to=responder_a)
+    if adjunto:
+        nombre, contenido, mime = adjunto
+        msg.attach(nombre, contenido, mime)
     try:
-        # Reply-To: el correo sale desde la casilla del sistema, pero las
-        # respuestas del proveedor tienen que llegarle a una persona.
-        responder_a = [settings.EMAIL_REPLY_TO] if settings.EMAIL_REPLY_TO else None
-        msg = EmailMessage(
-            subject=asunto, body=cuerpo, to=destinatarios, reply_to=responder_a
-        )
-        if adjunto:
-            nombre, contenido, mime = adjunto
-            msg.attach(nombre, contenido, mime)
-        msg.send(fail_silently=True)
-    except Exception:  # pragma: no cover - el backend de consola no falla
-        pass
+        return msg.send(fail_silently=False) > 0
+    except Exception:
+        return False
 
 
-def _enviar_orden_al_proveedor(request, orden):
-    """RF-27: adjunta el PDF de la OC y la envía al correo del proveedor."""
-    adjunto = None
-    try:
-        adjunto = (f"{orden.correlativo}.pdf", generar_pdf_orden(orden), "application/pdf")
-    except ReportlabNoInstalado:
-        messages.warning(request, "Se envió la OC sin PDF adjunto (falta la librería reportlab).")
-
-    # La OC se da por emitida aunque el correo falle. Antes el cambio de estado
-    # vivía dentro del "if hay correo", así que un proveedor sin correo dejaba la
-    # orden congelada en APROBADA: no se podía recepcionar en bodega, ni facturar,
-    # ni devolver a borrador. El correo es el medio de aviso, no el acto de emitir.
-    orden.estado = OrdenCompra.Estado.ENVIADA
-    orden.fecha_envio = timezone.now()
-    orden.save(update_fields=["estado", "fecha_envio"])
-
-    if orden.proveedor.correo:
-        _notificar(
-            [orden.proveedor.correo],
-            f"Orden de Compra {orden.correlativo} — Constructora M5 SpA",
-            f"Estimado proveedor,\n\nAdjuntamos la Orden de Compra {orden.correlativo} "
-            f"por un total de ${orden.total:,.0f}.\n\nSaludos,\nDepartamento de Adquisiciones — M5 SpA",
-            adjunto=adjunto,
-        )
-        registrar(request.user, RegistroAuditoria.Accion.OC_ENVIADA,
-                  f"Envió la orden de compra a {orden.proveedor.nombre} "
-                  f"({orden.proveedor.correo}).", orden.correlativo)
-        messages.success(request, f"OC {orden.correlativo} aprobada y enviada a {orden.proveedor.correo}.")
-    else:
-        registrar(request.user, RegistroAuditoria.Accion.OC_ENVIADA,
-                  f"Emitió la orden de compra a {orden.proveedor.nombre} sin envío por correo "
-                  f"(el proveedor no tiene correo registrado).", orden.correlativo)
-        messages.warning(
-            request,
-            f"OC {orden.correlativo} emitida, pero {orden.proveedor.nombre} no tiene correo registrado: "
-            f"hay que hacérsela llegar por otra vía. Puedes descargar el PDF desde esta misma pantalla.",
-        )
-
-    # La SM queda con OC generada, haya salido el correo o no. Una compra
-    # anticipada no tiene solicitud que avanzar: nació en Adquisiciones.
+def _avanzar_sm_por_envio(orden):
+    """La SM queda con OC generada cuando su OC sale al proveedor."""
     if orden.solicitud_id and orden.solicitud.estado in (
             SolicitudMaterial.Estado.EN_COTIZACION,
             SolicitudMaterial.Estado.EMITIDA):
         orden.solicitud.cambiar_estado(SolicitudMaterial.Estado.OC_GENERADA)
+
+
+def _enviar_orden_al_proveedor(request, orden):
+    """
+    RF-25 / CU-25: al aprobarse, la OC sale en PDF al correo del proveedor y,
+    completado el envío, pasa a "Enviada".
+
+    Excepción 1: si el proveedor no tiene correo o el envío falla, la OC queda
+    "Aprobada" y se notifica a Adquisiciones para que la gestione a mano
+    (reintentar el envío o registrar que la entregó por otra vía). Así ninguna
+    OC figura como enviada sin haber salido.
+    """
+    adjunto = None
+    try:
+        adjunto = (f"{orden.correlativo}.pdf", generar_pdf_orden(orden), "application/pdf")
+    except ReportlabNoInstalado:
+        adjunto = None
+
+    enviado = False
+    if orden.proveedor.correo and adjunto:
+        total_txt = f"{orden.total_con_iva:,.0f}".replace(",", ".")
+        enviado = _notificar(
+            [orden.proveedor.correo],
+            f"Orden de Compra {orden.correlativo} — Constructora M5 SpA",
+            f"Estimado proveedor,\n\nAdjuntamos la Orden de Compra {orden.correlativo} "
+            f"por un total de ${total_txt} (IVA incluido).\n\n"
+            f"Saludos,\nDepartamento de Adquisiciones — M5 SpA",
+            adjunto=adjunto,
+        )
+
+    if enviado:
+        orden.estado = OrdenCompra.Estado.ENVIADA
+        orden.fecha_envio = timezone.now()
+        orden.save(update_fields=["estado", "fecha_envio"])
+        registrar(request.user, RegistroAuditoria.Accion.OC_ENVIADA,
+                  f"Envió la orden de compra a {orden.proveedor.nombre} "
+                  f"({orden.proveedor.correo}).", orden.correlativo)
+        _avanzar_sm_por_envio(orden)
+        messages.success(request, f"OC {orden.correlativo} aprobada y enviada a {orden.proveedor.correo}.")
+        return True
+
+    if not orden.proveedor.correo:
+        motivo = f"{orden.proveedor.nombre} no tiene correo registrado"
+    elif adjunto is None:
+        motivo = "no se pudo generar el PDF (falta la librería reportlab)"
+    else:
+        motivo = f"el correo a {orden.proveedor.correo} no se pudo enviar"
+    destinatarios = usuarios_con_rol(EA)
+    if orden.creada_por not in destinatarios:
+        destinatarios.append(orden.creada_por)
+    notificar(
+        destinatarios,
+        f"OC {orden.correlativo} aprobada pero NO enviada",
+        f"La orden {orden.correlativo} a {orden.proveedor.nombre} fue aprobada, pero {motivo}. "
+        f"Sigue en estado «Aprobada»: reintenta el envío o entrégala por otra vía y "
+        f"registra la entrega en el sistema.",
+        url=reverse("adquisiciones:orden_detalle", args=[orden.pk]))
+    messages.warning(
+        request,
+        f"OC {orden.correlativo} aprobada, pero no se envió: {motivo}. Queda «Aprobada» y se "
+        f"avisó a Adquisiciones para que gestione el envío.")
+    return False
+
+
+def notificar_recepcion(orden, nota=""):
+    """
+    RF-35: avisa a los Jefes de Proyecto de la obra el nuevo estado de
+    recepción de la OC, con la cantidad recibida de cada material.
+    """
+    obra = orden.obra
+    if obra is None:
+        return
+    detalle = "\n".join(
+        f"· {l.descripcion}: {cant(l.cantidad_recibida)} de {cant(l.cantidad)} {l.unidad_medida}"
+        for l in orden.lineas.all())
+    cuerpo = (f"La orden {orden.correlativo} ({orden.proveedor.nombre}) quedó "
+              f"«{orden.get_estado_display()}».\n\nCantidades recibidas:\n{detalle}")
+    if nota:
+        cuerpo += f"\n\nNota: {nota}"
+    notificar(list(obra.jefes.all()), f"OC {orden.correlativo}: {orden.get_estado_display()}",
+              cuerpo, url=reverse("adquisiciones:orden_detalle", args=[orden.pk]))
 
 
 def _refrescar_estado_recepcion_sm(solicitud):
