@@ -11,11 +11,13 @@
 </div>
 
 <div class="row g-2 mb-4">
+  {% if user.rol == 'BODEGUERO' or user.rol == 'ADMIN' %}
   <div class="col-6 col-md-3"><a href="{% url 'inventario:entrada_crear' %}" class="btn btn-primary w-100"><i class="bi bi-box-arrow-in-down me-1"></i>Entrada</a></div>
   <div class="col-6 col-md-3"><a href="{% url 'inventario:salida_crear' %}" class="btn btn-primary w-100"><i class="bi bi-box-arrow-up me-1"></i>Salida a obra</a></div>
   <div class="col-6 col-md-3"><a href="{% url 'inventario:merma_crear' %}" class="btn btn-outline-danger w-100"><i class="bi bi-exclamation-octagon me-1"></i>Merma / pérdida</a></div>
   <div class="col-6 col-md-3"><a href="{% url 'inventario:devolucion_proveedor_crear' %}" class="btn btn-outline-secondary w-100"><i class="bi bi-arrow-return-left me-1"></i>Devolución a proveedor</a></div>
   <div class="col-6 col-md-3"><a href="{% url 'inventario:prestamo_crear' %}" class="btn btn-outline-primary w-100"><i class="bi bi-tools me-1"></i>Préstamo herramienta</a></div>
+  {% endif %}
   <div class="col-6 col-md-3"><a href="{% url 'inventario:prestamo_lista' %}" class="btn btn-outline-secondary w-100">Préstamos ({{ prestamos_activos.count }})</a></div>
   <div class="col-6 col-md-3"><a href="{% url 'inventario:movimiento_lista' %}" class="btn btn-outline-secondary w-100">Historial de movimientos</a></div>
 </div>

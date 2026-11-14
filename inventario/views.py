@@ -25,14 +25,19 @@ from .forms import (
     DevolucionProveedorForm, PrestamoForm,
 )
 
-ROLES = ["BODEGUERO", "ENCARGADO_ADQUISICIONES"]
-ROLES_BODEGA = ["BODEGUERO", "ENCARGADO_ADQUISICIONES"]
+# CU-61 (RF-58): el catálogo maestro lo administra Administración (ADMIN).
+ROLES_CATALOGO = []
+# RF-26 a RF-33: los movimientos de bodega los registra Bodega.
+ROLES_BODEGA = ["BODEGUERO"]
+# Consulta del panel y los listados de bodega: además Adquisiciones, que
+# necesita ver qué llegó para cerrar la recepción de la OC (RF-35).
+ROLES_CONSULTA_BODEGA = ["BODEGUERO", "ENCARGADO_ADQUISICIONES"]
 
 
 # ---------------------------------------------------------------- catálogo
 class MaterialListView(RolRequeridoMixin, ListView):
     """CU-63 (RF-60): catálogo maestro con búsqueda y filtros."""
-    roles_permitidos = ROLES + ["JEFE_PROYECTO"]
+    roles_permitidos = ["BODEGUERO", "ENCARGADO_ADQUISICIONES", "JEFE_PROYECTO"]
     model = Material
     template_name = "inventario/material_list.html"
     context_object_name = "materiales"
@@ -121,7 +126,8 @@ class MaterialListView(RolRequeridoMixin, ListView):
 
 
 class MaterialCreateView(RolRequeridoMixin, SuccessMessageMixin, CreateView):
-    roles_permitidos = ROLES
+    """CU-61: registrar un ítem en el catálogo maestro (Administración)."""
+    roles_permitidos = ROLES_CATALOGO
     model = Material
     form_class = MaterialForm
     template_name = "inventario/material_form.html"
@@ -130,7 +136,7 @@ class MaterialCreateView(RolRequeridoMixin, SuccessMessageMixin, CreateView):
 
 
 class MaterialUpdateView(RolRequeridoMixin, SuccessMessageMixin, UpdateView):
-    roles_permitidos = ROLES
+    roles_permitidos = ROLES_CATALOGO
     model = Material
     form_class = MaterialForm
     template_name = "inventario/material_form.html"
@@ -139,7 +145,7 @@ class MaterialUpdateView(RolRequeridoMixin, SuccessMessageMixin, UpdateView):
 
 
 # ---------------------------------------------------------------- bodega
-@rol_requerido(*ROLES_BODEGA)
+@rol_requerido(*ROLES_CONSULTA_BODEGA)
 def bodega_panel(request):
     """Panel de bodega: alertas de stock mínimo (RF-37) y accesos a los movimientos."""
     criticos = Material.objects.filter(
@@ -155,7 +161,7 @@ def bodega_panel(request):
     })
 
 
-@rol_requerido(*ROLES_BODEGA)
+@rol_requerido(*ROLES_CONSULTA_BODEGA)
 def movimiento_lista(request):
     movimientos = MovimientoInventario.objects.select_related(
         "material", "registrado_por", "proyecto", "orden_compra")
@@ -249,7 +255,7 @@ def merma_crear(request):
                 tipo=MovimientoInventario.Tipo.MERMA,
                 material=d["material"], cantidad=d["cantidad"],
                 motivo=d["motivo"], observacion=d["observacion"],
-                registrado_por=request.user,
+                proyecto=d.get("proyecto"), registrado_por=request.user,
             )
             messages.success(request, "Merma registrada y descontada del stock.")
             return redirect("inventario:movimiento_lista")
@@ -281,7 +287,7 @@ def devolucion_proveedor_crear(request):
 
 
 # ---------------------------------------------------------------- préstamos
-@rol_requerido(*ROLES_BODEGA)
+@rol_requerido(*ROLES_CONSULTA_BODEGA)
 def prestamo_lista(request):
     prestamos = PrestamoHerramienta.objects.select_related(
         "herramienta", "proyecto", "jefe_proyecto")
@@ -299,12 +305,19 @@ def prestamo_crear(request):
     if request.method == "POST":
         form = PrestamoForm(request.POST)
         if form.is_valid():
-            prestamo = form.save(commit=False)
-            prestamo.registrado_por = request.user
-            prestamo.save()
-            # La herramienta sale de bodega (RF-32)
-            Material.objects.filter(pk=prestamo.herramienta_id).update(
-                stock_actual=F("stock_actual") - 1)
+            from django.db import transaction
+            with transaction.atomic():
+                herramienta = Material.objects.select_for_update().get(pk=form.cleaned_data["herramienta"].pk)
+                if herramienta.stock_actual < 1:
+                    # CU-31 Excepción 1 (otra persona la prestó entre medio)
+                    form.add_error("herramienta", "Esta herramienta no está disponible en bodega.")
+                    return render(request, "inventario/prestamo_form.html", {"form": form})
+                prestamo = form.save(commit=False)
+                prestamo.registrado_por = request.user
+                prestamo.save()
+                # La herramienta sale de bodega (RF-29)
+                Material.objects.filter(pk=prestamo.herramienta_id).update(
+                    stock_actual=F("stock_actual") - 1)
             _avisar_administracion(prestamo)
             messages.success(request, "Préstamo registrado. Se notificó a Administración.")
             return redirect("inventario:prestamo_lista")
@@ -331,22 +344,16 @@ def prestamo_devolver(request, pk):
 
 
 def _avisar_administracion(prestamo):
-    from usuarios.models import usuarios_asignables
-    correos = list(
-        usuarios_asignables("ADMIN").exclude(email="").values_list("email", flat=True)
-    )
-    if not correos:
-        return
-    try:
-        EmailMessage(
-            subject=f"Préstamo de herramienta: {prestamo.herramienta.nombre}",
-            body=(
-                f"Se registró el préstamo de «{prestamo.herramienta.nombre}» "
-                f"a {prestamo.jefe_proyecto.get_full_name() or prestamo.jefe_proyecto.username} "
-                f"para la obra {prestamo.proyecto.nombre}.\n"
-                f"Salida: {prestamo.fecha_salida} · Devolución esperada: {prestamo.fecha_devolucion_esperada}."
-            ),
-            to=correos,
-        ).send(fail_silently=True)
-    except Exception:  # pragma: no cover
-        pass
+    """RF-30: el préstamo se notifica a Administración (en el sistema y por correo)."""
+    from django.urls import reverse
+    from usuarios.notificaciones import notificar, usuarios_con_rol
+    notificar(
+        usuarios_con_rol("ADMIN"),
+        f"Préstamo de herramienta: {prestamo.herramienta.nombre}",
+        f"Se registró el préstamo de «{prestamo.herramienta.nombre}» "
+        f"({prestamo.herramienta.codigo_activo or 's/código'}) a "
+        f"{prestamo.jefe_proyecto.get_full_name() or prestamo.jefe_proyecto.username} "
+        f"para la obra {prestamo.proyecto.nombre}.\n"
+        f"Salida: {prestamo.fecha_salida:%d-%m-%Y} · Devolución esperada: "
+        f"{prestamo.fecha_devolucion_esperada:%d-%m-%Y}.",
+        url=reverse("inventario:prestamo_lista"))

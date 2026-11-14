@@ -20,7 +20,10 @@ class MaterialForm(forms.ModelForm):
     """
     class Meta:
         model = Material
-        fields = ["nombre", "tipo", "categoria", "unidad_medida", "stock_actual",
+        # El stock no está: sólo lo mueven las entradas, salidas, mermas y
+        # devoluciones (RF-29), que quedan en la bitácora (RF-50). Editarlo a
+        # mano desde el catálogo dejaba diferencias sin explicación.
+        fields = ["nombre", "tipo", "categoria", "unidad_medida",
                   "stock_minimo", "ubicacion", "precio_referencia",
                   "codigo_activo", "fecha_vencimiento", "activo"]
         widgets = {
@@ -28,7 +31,6 @@ class MaterialForm(forms.ModelForm):
                                              "placeholder": "Ej: Cemento Portland 25 kg"}),
             "unidad_medida": forms.TextInput(attrs={"class": "form-control",
                                                     "placeholder": "saco, m3, un…"}),
-            "stock_actual": forms.NumberInput(attrs={"class": "form-control"}),
             "stock_minimo": forms.NumberInput(attrs={"class": "form-control"}),
             "ubicacion": forms.TextInput(attrs={"class": "form-control", "placeholder": "Ej: Estante 3 - Bodega central"}),
             "precio_referencia": forms.NumberInput(attrs={"class": "form-control"}),
@@ -92,10 +94,18 @@ class EntradaForm(forms.Form):
         label="Observación", required=False,
         widget=forms.Textarea(attrs={"class": "form-control", "rows": 2}))
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.hay_oc_por_recibir = self.fields["orden_compra"].queryset.exists()
+
     def clean(self):
         cleaned = super().clean()
         origen = cleaned.get("origen")
         oc = cleaned.get("orden_compra")
+        if origen == "OC" and not self.hay_oc_por_recibir:
+            raise forms.ValidationError(
+                "No hay órdenes de compra enviadas por recibir. La recepción desde "
+                "proveedor se registra contra una OC en estado «Enviada».")
         proyecto = cleaned.get("proyecto")
         material = cleaned.get("material")
         cantidad = cleaned.get("cantidad")
@@ -108,6 +118,8 @@ class EntradaForm(forms.Form):
                 linea = oc.lineas.filter(material=material).first()
                 if not linea:
                     self.add_error("material", "Ese material no pertenece a la orden de compra seleccionada.")
+                elif linea.cantidad_pendiente <= 0:
+                    self.add_error("material", "Ese material de la OC ya se recibió completo.")
                 else:
                     pendiente = linea.cantidad - linea.cantidad_recibida
                     if cantidad > pendiente:
@@ -134,7 +146,7 @@ class SalidaForm(forms.Form):
         queryset=Proyecto.objects.exclude(estado=Proyecto.Estado.FINALIZADO),
         widget=forms.Select(attrs={"class": "form-select"}))
     jefe_proyecto = forms.ModelChoiceField(
-        label="Jefe de proyecto asignado", required=False,
+        label="Jefe de proyecto asignado",
         queryset=None, widget=forms.Select(attrs={"class": "form-select"}))
     guia_despacho = forms.CharField(
         label="N° guía de despacho", max_length=40,
@@ -151,9 +163,14 @@ class SalidaForm(forms.Form):
         cleaned = super().clean()
         material = cleaned.get("material")
         cantidad = cleaned.get("cantidad")
+        proyecto = cleaned.get("proyecto")
+        jefe = cleaned.get("jefe_proyecto")
         if material and cantidad is not None and cantidad > material.stock_actual:
             self.add_error("cantidad",
                            f"Stock insuficiente. Disponible: {material.stock_actual}.")
+        if proyecto and jefe and not proyecto.dirigida_por(jefe):
+            self.add_error("jefe_proyecto",
+                           f"{jefe.get_full_name() or jefe.username} no está asignado a {proyecto.nombre}.")
         return cleaned
 
 
@@ -166,7 +183,12 @@ class MermaForm(forms.Form):
         label="Cantidad", min_value=0.01, max_digits=12, decimal_places=2,
         widget=forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}))
     motivo = forms.ChoiceField(
-        label="Motivo", choices=MovimientoInventario.MotivoMerma.choices,
+        label="Motivo", choices=[("", "— Daño o Robo —")] + list(MovimientoInventario.MotivoMerma.choices),
+        error_messages={"required": "Clasifica el motivo: Daño o Robo."},
+        widget=forms.Select(attrs={"class": "form-select"}))
+    proyecto = forms.ModelChoiceField(
+        label="Proyecto donde ocurrió", required=False,
+        queryset=Proyecto.objects.all(), empty_label="— Bodega central —",
         widget=forms.Select(attrs={"class": "form-select"}))
     observacion = forms.CharField(
         label="Observación", required=False,
@@ -186,7 +208,8 @@ class DevolucionProveedorForm(forms.Form):
     """RF-36: devolución de material a un proveedor, asociada a una OC."""
     orden_compra = forms.ModelChoiceField(
         label="Orden de compra de origen",
-        queryset=OrdenCompra.objects.exclude(estado=OrdenCompra.Estado.BORRADOR),
+        # Sólo OC de las que algo se recibió: no se devuelve lo que no llegó.
+        queryset=OrdenCompra.objects.filter(lineas__cantidad_recibida__gt=0).distinct(),
         widget=forms.Select(attrs={"class": "form-select"}))
     material = forms.ModelChoiceField(
         label="Material", queryset=Material.objects.filter(activo=True),
@@ -198,16 +221,34 @@ class DevolucionProveedorForm(forms.Form):
         label="N° guía de despacho", max_length=40,
         widget=forms.TextInput(attrs={"class": "form-control"}))
     motivo = forms.ChoiceField(
-        label="Motivo", choices=MovimientoInventario.MotivoDevolucion.choices,
+        label="Motivo", choices=[("", "— Selecciona el motivo —")] + list(MovimientoInventario.MotivoDevolucion.choices),
+        error_messages={"required": "Clasifica el motivo de la devolución."},
         widget=forms.Select(attrs={"class": "form-select"}))
 
     def clean(self):
         cleaned = super().clean()
         material = cleaned.get("material")
         cantidad = cleaned.get("cantidad")
+        oc = cleaned.get("orden_compra")
         if material and cantidad is not None and cantidad > material.stock_actual:
             self.add_error("cantidad",
                            f"Stock insuficiente para devolver ({material.stock_actual} disponibles).")
+        if oc and material:
+            linea = oc.lineas.filter(material=material).first()
+            if linea is None:
+                self.add_error("material", "Ese material no pertenece a la orden de compra seleccionada.")
+            elif cantidad is not None:
+                from django.db.models import Sum
+                devuelto = (MovimientoInventario.objects
+                            .filter(tipo=MovimientoInventario.Tipo.DEVOLUCION_PROVEEDOR,
+                                    orden_compra=oc, material=material)
+                            .aggregate(t=Sum("cantidad"))["t"] or 0)
+                disponible = linea.cantidad_recibida - devuelto
+                if cantidad > disponible:
+                    self.add_error(
+                        "cantidad",
+                        f"De esta OC se recibieron {linea.cantidad_recibida:g} y ya se devolvieron "
+                        f"{devuelto:g}: puedes devolver hasta {disponible:g}.")
         return cleaned
 
 
@@ -242,4 +283,11 @@ class PrestamoForm(forms.ModelForm):
         herramienta = cleaned.get("herramienta")
         if herramienta and herramienta.herramienta_prestada:
             self.add_error("herramienta", "Esta herramienta ya está prestada.")
+        elif herramienta and herramienta.stock_actual < 1:
+            self.add_error("herramienta", "Esta herramienta no está disponible en bodega.")
+        jefe = cleaned.get("jefe_proyecto")
+        proyecto = cleaned.get("proyecto")
+        if jefe and proyecto and not proyecto.dirigida_por(jefe):
+            self.add_error("jefe_proyecto",
+                           f"{jefe.get_full_name() or jefe.username} no está asignado a {proyecto.nombre}.")
         return cleaned

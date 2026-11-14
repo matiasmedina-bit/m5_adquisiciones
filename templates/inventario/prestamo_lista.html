@@ -5,7 +5,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h1 class="h3 mb-0">Préstamos de herramientas</h1>
   <div class="d-flex gap-2">
-    <a href="{% url 'inventario:prestamo_crear' %}" class="btn btn-primary">+ Registrar préstamo</a>
+    {% if user.rol == 'BODEGUERO' or user.rol == 'ADMIN' %}<a href="{% url 'inventario:prestamo_crear' %}" class="btn btn-primary">+ Registrar préstamo</a>{% endif %}
     <a href="{% url 'inventario:bodega_panel' %}" class="btn btn-outline-secondary">← Bodega</a>
   </div>
 </div>
@@ -37,7 +37,7 @@
             {% else %}<span class="badge bg-success">Devuelta</span>{% endif %}
           </td>
           <td class="text-end">
-            {% if p.estado == 'PRESTADA' %}
+            {% if p.estado == 'PRESTADA' and user.rol == 'BODEGUERO' or p.estado == 'PRESTADA' and user.rol == 'ADMIN' %}
               <form method="post" action="{% url 'inventario:prestamo_devolver' p.pk %}" class="d-inline"
                   onsubmit="return confirm('¿Registrar la devolución de esta herramienta?')">
                 {% csrf_token %}

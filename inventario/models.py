@@ -195,14 +195,26 @@ class MovimientoInventario(SinBorradoFisicoMixin):
         return self.cantidad if self.tipo == self.Tipo.ENTRADA else -self.cantidad
 
     def save(self, *args, **kwargs):
-        nuevo = self._state.adding
-        super().save(*args, **kwargs)
-        if nuevo:
-            # RF-32: actualización del stock en tiempo real
+        from django.core.exceptions import ValidationError
+        from django.db import transaction
+
+        if not self._state.adding:
+            return super().save(*args, **kwargs)
+        # RF-29: el stock se actualiza en tiempo real con cada movimiento.
+        # CU-30 Excepción 1: si el resultado quedaría negativo, el movimiento
+        # no se registra. La fila del material se bloquea mientras tanto, así
+        # dos salidas simultáneas no pueden dejar el stock bajo cero.
+        with transaction.atomic():
+            material = Material.objects.select_for_update().get(pk=self.material_id)
+            if material.stock_actual + self.suma_stock < 0:
+                raise ValidationError(
+                    f"Stock insuficiente de {material.nombre}: hay {material.stock_actual:g} "
+                    f"{material.unidad_medida} y el movimiento descuenta {self.cantidad:g}.")
+            super().save(*args, **kwargs)
             Material.objects.filter(pk=self.material_id).update(
-                stock_actual=models.F("stock_actual") + self.suma_stock
-            )
-            if self.tipo == self.Tipo.ENTRADA and self.ubicacion and not self.material.ubicacion:
+                stock_actual=models.F("stock_actual") + self.suma_stock)
+            # RF-26: la ubicación física registrada en la entrada queda en el material
+            if self.tipo == self.Tipo.ENTRADA and self.ubicacion:
                 Material.objects.filter(pk=self.material_id).update(ubicacion=self.ubicacion)
 
 

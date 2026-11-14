@@ -95,6 +95,7 @@ class PrestamoTest(TestCase):
         self.bod = Usuario.objects.create_user("bod", password="clave12345", email="b@m5.cl", rol="BODEGUERO")
         self.jefe = Usuario.objects.create_user("jp", password="x", email="j@m5.cl", rol="JEFE_PROYECTO")
         self.proy = Proyecto.objects.create(nombre="Obra", mandante="M", fecha_inicio=date(2026, 6, 1))
+        self.proy.jefes.add(self.jefe)   # el préstamo va a un jefe de esa obra
         self.herr = Material.objects.create(nombre="Taladro", unidad_medida="unidad",
                                             tipo="HERRAMIENTA", stock_actual=3, codigo_activo="H-1")
         self.client.login(username="bod", password="clave12345")
