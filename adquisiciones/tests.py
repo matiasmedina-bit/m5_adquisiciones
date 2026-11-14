@@ -40,7 +40,7 @@ class BaseAdq(TestCase):
 class CotizacionTest(BaseAdq):
 
     def test_rf19_bandeja_muestra_sm_aprobadas(self):
-        self.client.login(username="ea", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea").email, password="clave12345")
         resp = self.client.get(reverse("adquisiciones:cotizacion_bandeja"))
         self.assertContains(resp, self.sm.correlativo)
 
@@ -63,7 +63,7 @@ class CotizacionTest(BaseAdq):
         self.assertEqual(l1.estado, CotizacionLinea.Estado.DESCARTADA)
 
     def test_rf23_generar_oc_una_por_proveedor(self):
-        self.client.login(username="ea", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea").email, password="clave12345")
         c1 = Cotizacion.objects.create(solicitud=self.sm, proveedor=self.prov1, creada_por=self.ea)
         c2 = Cotizacion.objects.create(solicitud=self.sm, proveedor=self.prov2, creada_por=self.ea)
         CotizacionLinea.objects.create(cotizacion=c1, solicitud_detalle=self.d_a, valor_unitario=5000).aprobar()
@@ -92,14 +92,14 @@ class OrdenCompraTest(BaseAdq):
 
     def test_rf24_jefe_aprueba_y_se_envia(self):
         oc = self._oc_borrador()
-        self.client.login(username="jp", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jp").email, password="clave12345")
         self.client.post(reverse("adquisiciones:orden_detalle", args=[oc.pk]), {"accion": "aprobar"})
         oc.refresh_from_db()
         self.assertEqual(oc.estado, OrdenCompra.Estado.ENVIADA)  # proveedor tiene correo
 
     def test_rf24_rechazo_exige_motivo(self):
         oc = self._oc_borrador()
-        self.client.login(username="jp", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jp").email, password="clave12345")
         self.client.post(reverse("adquisiciones:orden_detalle", args=[oc.pk]),
                          {"accion": "rechazar", "motivo": ""})
         oc.refresh_from_db()
@@ -113,7 +113,7 @@ class OrdenCompraTest(BaseAdq):
         oc = self._oc_borrador()
         oc.estado = OrdenCompra.Estado.RECHAZADA
         oc.save()
-        self.client.login(username="ea", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea").email, password="clave12345")
         self.client.post(reverse("adquisiciones:orden_detalle", args=[oc.pk]),
                          {"accion": "devolver_borrador"})
         oc.refresh_from_db()
@@ -121,7 +121,7 @@ class OrdenCompraTest(BaseAdq):
 
     def test_paginas_renderizan(self):
         """Smoke test: las plantillas del módulo se renderizan sin error."""
-        self.client.login(username="ea", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea").email, password="clave12345")
         # con la SM aún en APROBADA se puede abrir la pantalla de cotización
         for url in [
             reverse("adquisiciones:cotizacion_bandeja"),
@@ -177,7 +177,7 @@ class TrazabilidadCU47Test(BaseAdq):
             registrado_por=self.ea)
         self.factura.ordenes.add(self.orden)
 
-        self.client.login(username="ea", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea").email, password="clave12345")
 
     def _buscar(self, q):
         return self.client.get(reverse("adquisiciones:trazabilidad"), {"q": q})
@@ -262,7 +262,7 @@ class TrazabilidadCU47Test(BaseAdq):
 
     def test_rf46_bodega_no_usa_el_buscador_de_trazabilidad(self):
         """RF-46 lo da a Jefe de Proyecto, Adquisiciones y Administración."""
-        self.client.login(username="bod47", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="bod47").email, password="clave12345")
         self.assertEqual(self._buscar(self.sm.correlativo).status_code, 403)
 
     def test_la_trazabilidad_exige_sesion(self):
@@ -285,7 +285,7 @@ class CortesDeFlujoTest(BaseAdq):
         from proveedores.models import Proveedor
         self.sin_correo = Proveedor.objects.create(direccion="Av. Los Leones 123", 
             nombre="Áridos Sin Correo", rut="22222222-2", correo="")
-        self.client.login(username="jp", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jp").email, password="clave12345")
 
     def _oc(self, proveedor, estado=None):
         orden = OrdenCompra.objects.create(
@@ -318,7 +318,7 @@ class CortesDeFlujoTest(BaseAdq):
         orden = self._oc(self.sin_correo)
         self.client.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
                          {"accion": "aprobar"})
-        self.client.login(username="ea", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea").email, password="clave12345")
         self.client.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
                          {"accion": "envio_manual", "medio": "Entregada en mano"})
         orden.refresh_from_db()
@@ -350,7 +350,7 @@ class CortesDeFlujoTest(BaseAdq):
     def test_una_oc_no_recibida_admite_la_entrega_atrasada(self):
         orden = self._oc(self.prov1, estado=OrdenCompra.Estado.NO_RECIBIDA)
         orden.lineas.update(cantidad_recibida=10)   # llegó tarde y Bodega la recibió
-        self.client.login(username="ea", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea").email, password="clave12345")
         self.client.post(reverse("adquisiciones:orden_detalle", args=[orden.pk]),
                          {"accion": "recepcion", "estado": OrdenCompra.Estado.RECIBIDA})
         orden.refresh_from_db()
@@ -368,7 +368,7 @@ class SolicitudRechazadaTest(BaseAdq):
     """Una SM rechazada se corrige y se vuelve a emitir, sin rehacerla."""
 
     def _rechazar(self, motivo):
-        self.client.login(username="ea", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea").email, password="clave12345")
         self.client.post(reverse("solicitudes:rechazar", args=[self.sm.pk]), {"motivo": motivo})
 
     def test_el_rechazo_guarda_el_motivo(self):
@@ -379,7 +379,7 @@ class SolicitudRechazadaTest(BaseAdq):
 
     def test_el_jefe_ve_por_que_se_la_rechazaron(self):
         self._rechazar("Falta la justificación de la partida OG-02")
-        self.client.login(username="jp", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jp").email, password="clave12345")
         resp = self.client.get(reverse("solicitudes:detalle", args=[self.sm.pk]))
         self.assertContains(resp, "Falta la justificación")
 
@@ -390,7 +390,7 @@ class SolicitudRechazadaTest(BaseAdq):
         lineas_antes = self.sm.detalles.count()
         correlativo = self.sm.correlativo
 
-        self.client.login(username="jp", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jp").email, password="clave12345")
         self.client.post(reverse("solicitudes:devolver_borrador", args=[self.sm.pk]))
 
         self.sm.refresh_from_db()
@@ -400,7 +400,7 @@ class SolicitudRechazadaTest(BaseAdq):
         self.assertEqual(self.sm.detalles.count(), lineas_antes)
 
     def test_solo_se_devuelve_una_rechazada(self):
-        self.client.login(username="jp", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jp").email, password="clave12345")
         self.client.post(reverse("solicitudes:devolver_borrador", args=[self.sm.pk]))
         self.sm.refresh_from_db()
         self.assertEqual(self.sm.estado, SolicitudMaterial.Estado.EMITIDA)  # sin cambios
@@ -408,7 +408,7 @@ class SolicitudRechazadaTest(BaseAdq):
     def test_el_boton_aparece_en_la_pantalla(self):
         self.sm.estado = SolicitudMaterial.Estado.RECHAZADA
         self.sm.save()
-        self.client.login(username="jp", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jp").email, password="clave12345")
         resp = self.client.get(reverse("solicitudes:detalle", args=[self.sm.pk]))
         self.assertContains(resp, "Corregir y volver a emitir")
 
@@ -430,23 +430,23 @@ class LecturaEntreModulosTest(BaseAdq):
             estado=OrdenCompra.Estado.ENVIADA)
 
     def test_bodega_abre_la_solicitud_desde_la_trazabilidad(self):
-        self.client.login(username="bod_lec", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="bod_lec").email, password="clave12345")
         self.assertEqual(
             self.client.get(reverse("solicitudes:detalle", args=[self.sm.pk])).status_code, 200)
 
     def test_bodega_abre_la_orden_de_compra(self):
-        self.client.login(username="bod_lec", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="bod_lec").email, password="clave12345")
         self.assertEqual(
             self.client.get(reverse("adquisiciones:orden_detalle", args=[self.orden.pk])).status_code, 200)
 
     def test_contabilidad_abre_la_oc_que_tiene_que_validar(self):
-        self.client.login(username="cont_lec", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="cont_lec").email, password="clave12345")
         self.assertEqual(
             self.client.get(reverse("adquisiciones:orden_detalle", args=[self.orden.pk])).status_code, 200)
 
     def test_pero_bodega_no_puede_aprobar_una_oc(self):
         """Abrir para leer no es poder actuar."""
-        self.client.login(username="bod_lec", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="bod_lec").email, password="clave12345")
         self.client.post(reverse("adquisiciones:orden_detalle", args=[self.orden.pk]),
                          {"accion": "aprobar"})
         self.orden.refresh_from_db()
@@ -485,7 +485,7 @@ class FlujoPorRolTest(TestCase):
 
     def _entrar(self, usuario):
         c = Client()
-        self.assertTrue(c.login(username=usuario.username, password="clave12345"))
+        self.assertTrue(c.login(username=Usuario.objects.get(username=usuario.username).email, password="clave12345"))
         return c
 
     # --- Lo que reportó M5: el jefe de obra no podía pedir material ---
@@ -697,7 +697,7 @@ class EncargadoAdquisicionesTest(TestCase):
             nombre="Cemento", unidad_medida="saco", precio_referencia=4500)
 
         self.c = Client()
-        self.assertTrue(self.c.login(username="compras", password="clave12345"))
+        self.assertTrue(self.c.login(username=Usuario.objects.get(username="compras").email, password="clave12345"))
 
     def _solicitud_lista_para_cotizar(self):
         sm = SolicitudMaterial.objects.create(
@@ -1028,7 +1028,7 @@ class CicloSinAdministradorTest(TestCase):
     # --- los dos jefes de la obra trabajan igual ------------------------
     def test_los_dos_jefes_de_la_obra_pueden_emitir_su_solicitud(self):
         for jefe in (self.jefe_a, self.jefe_b):
-            self.client.login(username=jefe.username, password="clave12345")
+            self.client.login(username=Usuario.objects.get(username=jefe.username).email, password="clave12345")
             sm = self._solicitud(jefe, SolicitudMaterial.Estado.BORRADOR)
             resp = self.client.post(reverse("solicitudes:emitir", args=[sm.pk]))
             self.assertEqual(resp.status_code, 302)
@@ -1039,7 +1039,7 @@ class CicloSinAdministradorTest(TestCase):
 
     def test_un_jefe_ve_la_solicitud_que_emitio_el_otro_de_su_obra(self):
         sm = self._solicitud(self.jefe_a, SolicitudMaterial.Estado.BORRADOR)
-        self.client.login(username="jefe_b", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jefe_b").email, password="clave12345")
         resp = self.client.get(reverse("solicitudes:detalle", args=[sm.pk]))
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.context["puede_gestionar"])
@@ -1047,7 +1047,7 @@ class CicloSinAdministradorTest(TestCase):
     # --- adquisiciones resuelve y sigue a cotizar -----------------------
     def test_adquisiciones_ve_cotizar_y_rechazar(self):
         sm = self._solicitud(self.jefe_a)
-        self.client.login(username="adq", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="adq").email, password="clave12345")
         resp = self.client.get(reverse("solicitudes:detalle", args=[sm.pk]))
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.context["puede_cotizar"])
@@ -1056,7 +1056,7 @@ class CicloSinAdministradorTest(TestCase):
 
     def test_adquisiciones_puede_rechazar_con_motivo(self):
         sm = self._solicitud(self.jefe_a)
-        self.client.login(username="adq", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="adq").email, password="clave12345")
         self.client.post(reverse("solicitudes:rechazar", args=[sm.pk]),
                          {"motivo": "la cantidad no calza con el itemizado"})
         sm.refresh_from_db()
@@ -1067,7 +1067,7 @@ class CicloSinAdministradorTest(TestCase):
     def test_una_cotizacion_sin_precios_no_se_guarda(self):
         sm = self._solicitud(self.jefe_a, SolicitudMaterial.Estado.EMITIDA)
         detalle = sm.detalles.first()
-        self.client.login(username="adq", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="adq").email, password="clave12345")
         self.client.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]), {
             "accion": "agregar_cotizacion", "proveedor": self.prov.pk,
             "costo_despacho": "0", "tiempo_entrega_dias": "1",
@@ -1079,7 +1079,7 @@ class CicloSinAdministradorTest(TestCase):
     def test_cotizacion_con_precio_se_guarda_y_deja_generar_la_oc(self):
         sm = self._solicitud(self.jefe_a, SolicitudMaterial.Estado.EMITIDA)
         detalle = sm.detalles.first()
-        self.client.login(username="adq", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="adq").email, password="clave12345")
         self.client.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]), {
             "accion": "agregar_cotizacion", "proveedor": self.prov.pk,
             "costo_despacho": "0", "tiempo_entrega_dias": "1",
@@ -1106,7 +1106,7 @@ class CicloSinAdministradorTest(TestCase):
         cot = Cotizacion.objects.create(
             solicitud=sm, proveedor=self.otro_prov, creada_por=self.ea,
             costo_despacho=0, tiempo_entrega_dias=1)
-        self.client.login(username="adq", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="adq").email, password="clave12345")
         self.client.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]),
                          {"accion": "eliminar_cotizacion", "cotizacion_id": cot.pk})
         self.assertFalse(Cotizacion.objects.filter(pk=cot.pk).exists())
@@ -1119,7 +1119,7 @@ class CicloSinAdministradorTest(TestCase):
         linea = CotizacionLinea.objects.create(
             cotizacion=cot, solicitud_detalle=sm.detalles.first(), valor_unitario=1944)
         linea.aprobar()
-        self.client.login(username="adq", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="adq").email, password="clave12345")
         self.client.post(reverse("adquisiciones:cotizacion_sm", args=[sm.pk]),
                          {"accion": "eliminar_cotizacion", "cotizacion_id": cot.pk})
         self.assertTrue(Cotizacion.objects.filter(pk=cot.pk).exists())
@@ -1127,13 +1127,13 @@ class CicloSinAdministradorTest(TestCase):
     # --- el ciclo entero, de punta a punta ------------------------------
     def test_el_ciclo_completo_lo_cierran_jefe_y_adquisiciones(self):
         """Obra → solicitud del jefe → cotización → OC → envío al proveedor."""
-        self.client.login(username="jefe_a", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jefe_a").email, password="clave12345")
         sm = self._solicitud(self.jefe_a, SolicitudMaterial.Estado.BORRADOR)
         self.client.post(reverse("solicitudes:emitir", args=[sm.pk]))
         sm.refresh_from_db()
         self.assertEqual(sm.estado, SolicitudMaterial.Estado.EMITIDA)
 
-        self.client.login(username="adq", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="adq").email, password="clave12345")
         bandeja = self.client.get(reverse("adquisiciones:cotizacion_bandeja"))
         self.assertIn(sm, list(bandeja.context["solicitudes"]))
 
@@ -1153,7 +1153,7 @@ class CicloSinAdministradorTest(TestCase):
         self.assertEqual(orden.estado, OrdenCompra.Estado.BORRADOR)
         self.assertEqual(orden.obra, self.obra)
         # La OC nacida de una solicitud la autoriza el jefe de la obra
-        self.client.login(username="jefe_b", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jefe_b").email, password="clave12345")
         detalle_oc = self.client.get(reverse("adquisiciones:orden_detalle", args=[orden.pk]))
         self.assertEqual(detalle_oc.status_code, 200)
         self.assertTrue(detalle_oc.context["puede_autorizar"],
@@ -1173,7 +1173,7 @@ class FolioOrdenCompraTest(BaseAdq):
         return orden
 
     def _fijar(self, numero):
-        self.client.login(username="ea", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea").email, password="clave12345")
         return self.client.post(reverse("adquisiciones:folio_configurar"),
                                 {"siguiente_folio": str(numero)}, follow=True)
 
@@ -1195,7 +1195,7 @@ class FolioOrdenCompraTest(BaseAdq):
         self.assertEqual(self._orden().folio, 13285)
 
     def test_jefe_de_proyecto_no_puede_cambiar_el_folio(self):
-        self.client.login(username="jp", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jp").email, password="clave12345")
         resp = self.client.post(reverse("adquisiciones:folio_configurar"),
                                 {"siguiente_folio": "99999"})
         self.assertEqual(resp.status_code, 403)
@@ -1215,7 +1215,7 @@ class FolioOrdenCompraTest(BaseAdq):
     def test_trazabilidad_encuentra_por_folio_con_o_sin_punto(self):
         self._fijar(13285)
         orden = self._orden(con_punto=True)
-        self.client.login(username="ea", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea").email, password="clave12345")
         for q in ("13285", "13.285"):
             resp = self.client.get(reverse("adquisiciones:trazabilidad"), {"q": q})
             self.assertEqual(resp.context["resultado"]["tipo"], "oc", q)

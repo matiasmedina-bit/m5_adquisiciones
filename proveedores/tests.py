@@ -75,7 +75,7 @@ class ProveedorVistaTest(TestCase):
         self.client = Client()
         Usuario.objects.create_user(username="ea", password="clave12345",
                                     email="ea@m5.cl", rol="ENCARGADO_ADQUISICIONES")
-        self.client.login(username="ea", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea").email, password="clave12345")
         self.prov = Proveedor.objects.create(nombre="Test", rut="11111111-1")
 
     def test_inactivar_cambia_estado(self):
@@ -92,7 +92,7 @@ class ProveedorMaterialTest(TestCase):
         self.client = Client()
         Usuario.objects.create_user(username="ea", password="clave12345",
                                     email="ea@m5.cl", rol="ENCARGADO_ADQUISICIONES")
-        self.client.login(username="ea", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea").email, password="clave12345")
         self.prov = Proveedor.objects.create(nombre="Ferretería Test", rut="11111111-1")
 
     def test_rf05_agregar_material(self):
@@ -305,7 +305,7 @@ class CatalogoExcelTest(TestCase):
     def test_descarga_de_plantilla(self):
         Usuario.objects.create_user(username="ea2", password="clave12345",
                                     email="ea2@m5.cl", rol="ENCARGADO_ADQUISICIONES")
-        self.client.login(username="ea2", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea2").email, password="clave12345")
         resp = self.client.get(reverse("proveedores:catalogo_plantilla"))
         self.assertEqual(resp.status_code, 200)
         self.assertIn("spreadsheetml", resp["Content-Type"])
@@ -317,7 +317,7 @@ class CatalogoExcelVistasTest(TestCase):
     def setUp(self):
         Usuario.objects.create_user(username="ea3", password="clave12345",
                                     email="ea3@m5.cl", rol="ENCARGADO_ADQUISICIONES")
-        self.client.login(username="ea3", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea3").email, password="clave12345")
 
     @staticmethod
     def _archivo(filas):

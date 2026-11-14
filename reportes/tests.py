@@ -144,14 +144,14 @@ class ConsumoCU42Test(BaseReportes):
         self.assertIn(self.ajeno, visibles)
 
     def test_el_jefe_no_alcanza_un_proyecto_ajeno_por_la_url(self):
-        self.client.login(username="jp_rep", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jp_rep").email, password="clave12345")
         resp = self.client.get(reverse("reportes:consumo"), {"proyecto": self.ajeno.pk})
         self.assertEqual(resp.status_code, 200)
         self.assertIsNone(resp.context["reporte"])
         self.assertContains(resp, "no está entre los que tienes asignados")
 
     def test_la_pantalla_muestra_el_reporte(self):
-        self.client.login(username="ea_rep", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea_rep").email, password="clave12345")
         resp = self.client.get(reverse("reportes:consumo"), {"proyecto": self.proyecto.pk})
         self.assertContains(resp, "Cemento")
         self.assertContains(resp, "Torre Alfa")
@@ -228,7 +228,7 @@ class DesviacionCU43Test(BaseReportes):
         self.assertIn("no tiene itemizado cargado", r["mensaje_vacio"])
 
     def test_la_pantalla_ofrece_ir_a_cargar_el_itemizado(self):
-        self.client.login(username="ea_rep", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea_rep").email, password="clave12345")
         resp = self.client.get(reverse("reportes:desviacion"), {"proyecto": self.ajeno.pk})
         self.assertContains(resp, "cargar el itemizado")
 
@@ -304,16 +304,16 @@ class ComprasCU45Test(BaseReportes):
         self.assertTrue(compras_por_proveedor(desde=manana)["vacio"])
 
     def test_solo_adquisiciones_y_administracion_entran(self):
-        self.client.login(username="jp_rep", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jp_rep").email, password="clave12345")
         self.assertEqual(self.client.get(reverse("reportes:compras")).status_code, 403)
-        self.client.login(username="ea_rep", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea_rep").email, password="clave12345")
         self.assertEqual(self.client.get(reverse("reportes:compras")).status_code, 200)
 
     # --- Excepción 1 ---
 
     def test_sin_compras_en_el_periodo_lo_dice(self):
         manana = (date.today() + timedelta(days=1)).isoformat()
-        self.client.login(username="ea_rep", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea_rep").email, password="clave12345")
         resp = self.client.get(reverse("reportes:compras"), {"desde": manana})
         self.assertContains(resp, "No hay órdenes de compra emitidas")
 
@@ -326,7 +326,7 @@ class ExportacionCU46Test(BaseReportes):
 
     def setUp(self):
         super().setUp()
-        self.client.login(username="ea_rep", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea_rep").email, password="clave12345")
 
     def _descargar(self, nombre_url, formato, **params):
         params["formato"] = formato
@@ -396,7 +396,7 @@ class ExportacionCU46Test(BaseReportes):
 class PanelReportesTest(BaseReportes):
 
     def test_el_panel_lista_los_reportes(self):
-        self.client.login(username="ea_rep", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea_rep").email, password="clave12345")
         resp = self.client.get(reverse("reportes:panel"))
         self.assertContains(resp, "Consumo consolidado")
         self.assertContains(resp, "Desviación presupuestaria")
@@ -404,17 +404,17 @@ class PanelReportesTest(BaseReportes):
         self.assertContains(resp, "Historial de compras")
 
     def test_al_jefe_no_se_le_ofrece_el_historial_de_compras(self):
-        self.client.login(username="jp_rep", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jp_rep").email, password="clave12345")
         resp = self.client.get(reverse("reportes:panel"))
         self.assertNotContains(resp, reverse("reportes:compras"))
 
     def test_bodega_no_entra_a_reportes(self):
-        self.client.login(username="bod_rep", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="bod_rep").email, password="clave12345")
         self.assertEqual(self.client.get(reverse("reportes:panel")).status_code, 403)
 
     def test_contabilidad_tampoco(self):
         """RF-41 a RF-44 nombran Jefe de Proyecto, Adquisiciones y Administración."""
         contador = Usuario.objects.create_user(
             "cont_rep", password="clave12345", email="c@m5.cl", rol="CONTABILIDAD")
-        self.client.login(username="cont_rep", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="cont_rep").email, password="clave12345")
         self.assertEqual(self.client.get(reverse("reportes:panel")).status_code, 403)

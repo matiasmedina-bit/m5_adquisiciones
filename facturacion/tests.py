@@ -34,7 +34,7 @@ class FacturaTest(TestCase):
                                         cantidad=100, valor_unitario=5000)  # OC: neto 500.000, con IVA 595.000
 
     def _crear(self, monto):
-        self.client.login(username="cont", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="cont").email, password="clave12345")
         return self.client.post(reverse("facturacion:crear"), {
             "numero": f"F-{monto}", "proveedor": self.prov.pk, "ordenes": [self.oc.pk],
             "fecha_emision": date.today().isoformat(),
@@ -59,7 +59,7 @@ class FacturaTest(TestCase):
     def test_rf42_admin_desbloquea(self):
         self._crear(720000)
         f = Factura.objects.get()
-        self.client.login(username="adm", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="adm").email, password="clave12345")
         self.client.post(reverse("facturacion:desbloquear", args=[f.pk]),
                          {"justificacion": "Diferencia autorizada por contrato."})
         f.refresh_from_db(); self.oc.refresh_from_db()
@@ -68,13 +68,13 @@ class FacturaTest(TestCase):
 
     def test_rf43_cuentas_por_pagar_ordena_por_vencimiento(self):
         self._crear(595000)
-        self.client.login(username="cont", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="cont").email, password="clave12345")
         resp = self.client.get(reverse("facturacion:cuentas_por_pagar"))
         self.assertEqual(resp.status_code, 200)
 
     def test_rf44_export_csv(self):
         self._crear(595000)
-        self.client.login(username="cont", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="cont").email, password="clave12345")
         resp = self.client.get(reverse("facturacion:export_csv"))
         self.assertEqual(resp.status_code, 200)
         self.assertIn("text/csv", resp["Content-Type"])
@@ -83,12 +83,12 @@ class FacturaTest(TestCase):
     def test_paginas_renderizan(self):
         self._crear(720000)  # deja una factura bloqueada
         f = Factura.objects.get()
-        self.client.login(username="cont", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="cont").email, password="clave12345")
         for url in [reverse("facturacion:lista"), reverse("facturacion:crear"),
                     reverse("facturacion:cuentas_por_pagar"),
                     reverse("facturacion:detalle", args=[f.pk])]:
             self.assertEqual(self.client.get(url).status_code, 200, url)
-        self.client.login(username="adm", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="adm").email, password="clave12345")
         self.assertEqual(
             self.client.get(reverse("facturacion:detalle", args=[f.pk])).status_code, 200)
 
@@ -125,6 +125,6 @@ class ToleranciaFacturaRF37Test(FacturaTest):
         self.assertNotIn(borrador, opciones)
 
     def test_cu41_exc1_sin_facturas_no_baja_un_csv_vacio(self):
-        self.client.login(username="cont", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="cont").email, password="clave12345")
         resp = self.client.get(reverse("facturacion:export_csv"), follow=True)
         self.assertContains(resp, "No hay facturas registradas")

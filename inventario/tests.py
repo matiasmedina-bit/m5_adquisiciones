@@ -98,7 +98,7 @@ class PrestamoTest(TestCase):
         self.proy.jefes.add(self.jefe)   # el préstamo va a un jefe de esa obra
         self.herr = Material.objects.create(nombre="Taladro", unidad_medida="unidad",
                                             tipo="HERRAMIENTA", stock_actual=3, codigo_activo="H-1")
-        self.client.login(username="bod", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="bod").email, password="clave12345")
 
     def test_paginas_bodega_renderizan(self):
         for name in ["bodega_panel", "movimiento_lista", "entrada_crear", "salida_crear",
@@ -132,7 +132,7 @@ class CatalogoMaestroCU61Test(TestCase):
         self.client = Client()
         self.admin = Usuario.objects.create_user(
             "adm61", password="clave12345", email="a61@m5.cl", rol="ADMIN")
-        self.client.login(username="adm61", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="adm61").email, password="clave12345")
 
     def _datos(self, **extra):
         datos = {"nombre": "Ladrillo fiscal", "tipo": "CONSUMIBLE",
@@ -252,7 +252,7 @@ class BuscadorCatalogoCU63Test(TestCase):
         self.agotado = Material.objects.create(
             nombre="Clavos 2 pulgadas", unidad_medida="kg", tipo="CONSUMIBLE",
             categoria="ALBANILERIA", ubicacion="Estante A1", stock_actual=0)
-        self.client.login(username="bod63", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="bod63").email, password="clave12345")
 
     def _buscar(self, **filtros):
         return self.client.get(reverse("inventario:lista"), filtros)

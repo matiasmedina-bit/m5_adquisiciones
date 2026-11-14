@@ -69,12 +69,12 @@ class RBACTest(TestCase):
         self.assertEqual(resp.status_code, 302)  # redirige a login
 
     def test_bodeguero_sin_permiso(self):
-        self.client.login(username="bode", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="bode").email, password="clave12345")
         resp = self.client.get(reverse("usuarios:lista"))
         self.assertEqual(resp.status_code, 403)  # PermissionDenied
 
     def test_admin_con_permiso(self):
-        self.client.login(username="admin", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="admin").email, password="clave12345")
         resp = self.client.get(reverse("usuarios:lista"))
         self.assertEqual(resp.status_code, 200)
 
@@ -90,7 +90,7 @@ class RevisionSolicitudTest(TestCase):
         self.client = Client()
         Usuario.objects.create_user(
             username="admin1", password="clave12345", email="admin1@m5.cl", rol="ADMIN")
-        self.client.login(username="admin1", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="admin1").email, password="clave12345")
         self.solicitud = Usuario.objects.create_user(
             username="felipeproyecto", password="clave12345",
             email="felipe@gmail.com", first_name="Felipe", last_name="Gutiérrez",
@@ -156,7 +156,7 @@ class RevisionSolicitudTest(TestCase):
     def test_solo_el_administrador_puede_revisar(self):
         Usuario.objects.create_user(
             username="bodega1", password="clave12345", email="b1@m5.cl", rol="BODEGUERO")
-        self.client.login(username="bodega1", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="bodega1").email, password="clave12345")
         resp = self.client.get(self._url())
         self.assertNotEqual(resp.status_code, 200)
 
@@ -196,7 +196,7 @@ class ParametrosSistemaCU60Test(TestCase):
             "adm60", password="clave12345", email="a60@m5.cl", rol="ADMIN")
         self.jefe = Usuario.objects.create_user(
             "jp60", password="clave12345", email="j60@m5.cl", rol="JEFE_PROYECTO")
-        self.client.login(username="adm60", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="adm60").email, password="clave12345")
 
     def test_se_crean_solos_con_valores_por_defecto(self):
         p = ParametrosSistema.actuales()
@@ -258,7 +258,7 @@ class ParametrosSistemaCU60Test(TestCase):
         self.assertContains(resp, "fuera de rango")
 
     def test_solo_el_administrador_entra(self):
-        self.client.login(username="jp60", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jp60").email, password="clave12345")
         self.assertEqual(self.client.get(reverse("usuarios:parametros")).status_code, 403)
 
     def test_la_tolerancia_configurada_manda_sobre_la_facturacion(self):
@@ -275,7 +275,7 @@ class ActivacionDeCuentaCU52Test(TestCase):
         self.client = Client()
         self.admin = Usuario.objects.create_user(
             "adm52", password="clave12345", email="a52@m5.cl", rol="ADMIN")
-        self.client.login(username="adm52", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="adm52").email, password="clave12345")
         mail.outbox = []
 
     def _crear(self, **extra):
@@ -359,7 +359,7 @@ class RecuperacionContrasenaCU56Test(TestCase):
         self.client.post(resp.redirect_chain[-1][0] if resp.redirect_chain else ruta,
                          {"new_password1": "NuevaClave2026", "new_password2": "NuevaClave2026"},
                          follow=True)
-        self.assertTrue(self.client.login(username="recupera", password="NuevaClave2026"))
+        self.assertTrue(self.client.login(username=Usuario.objects.get(username="recupera").email, password="NuevaClave2026"))
 
     # --- Excepción 1: no revelar si el correo existe ---
 
@@ -399,7 +399,7 @@ class SesionPorInactividadCU55Test(TestCase):
         cliente = Client()
         usuario = Usuario.objects.create_user(
             "vence", password="clave12345", email="v@m5.cl", rol="ADMIN")
-        cliente.login(username="vence", password="clave12345")
+        cliente.login(username=Usuario.objects.get(username="vence").email, password="clave12345")
         self.assertEqual(cliente.get(reverse("home")).status_code, 200)
         cliente.cookies.pop("sessionid", None)   # como si hubiera caducado
         resp = cliente.get(reverse("home"))
@@ -472,7 +472,7 @@ class PrepararProduccionTest(TestCase):
     def test_el_administrador_puede_entrar_de_inmediato(self):
         self._correr()
         cliente = Client()
-        self.assertTrue(cliente.login(username="m.medina", password="ObraM5-2026!"))
+        self.assertTrue(cliente.login(username=Usuario.objects.get(username="m.medina").email, password="ObraM5-2026!"))
         # y llega a las dos pantallas que sólo ve un administrador
         self.assertEqual(cliente.get(reverse("usuarios:lista")).status_code, 200)
         self.assertEqual(cliente.get(reverse("usuarios:parametros")).status_code, 200)
@@ -533,7 +533,7 @@ class MiPerfilTest(TestCase):
             rol="BODEGUERO", first_name="Ana", last_name="Soto",
         )
         self.client = Client()
-        self.client.login(username="bodega1", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="bodega1").email, password="clave12345")
 
     def test_la_barra_superior_lleva_al_perfil(self):
         resp = self.client.get(reverse("home"))
@@ -606,7 +606,7 @@ class SolicitudCambioPerfilTest(TestCase):
         self.client = Client()
 
     def _pedir(self, **extra):
-        self.client.login(username="jefe1", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jefe1").email, password="clave12345")
         datos = {"accion": "pedir_cambio", "campo": "email",
                  "valor_solicitado": "luis.perez@m-5.cl", "motivo": "Cambió mi correo"}
         datos.update(extra)
@@ -643,7 +643,7 @@ class SolicitudCambioPerfilTest(TestCase):
         self._pedir()
         solicitud = self.SolicitudCambioPerfil.objects.get()
         self.client.logout()
-        self.client.login(username="admin1", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="admin1").email, password="clave12345")
         self.client.post(reverse("usuarios:resolver_cambio", args=[solicitud.pk]),
                          {"decision": "aprobar"})
         self.usuario.refresh_from_db()
@@ -656,7 +656,7 @@ class SolicitudCambioPerfilTest(TestCase):
         self._pedir()
         solicitud = self.SolicitudCambioPerfil.objects.get()
         self.client.logout()
-        self.client.login(username="admin1", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="admin1").email, password="clave12345")
         self.client.post(reverse("usuarios:resolver_cambio", args=[solicitud.pk]),
                          {"decision": "rechazar", "comentario": "Usa el correo institucional"})
         self.usuario.refresh_from_db()
@@ -674,7 +674,7 @@ class SolicitudCambioPerfilTest(TestCase):
             username="otro", password="clave12345",
             email="luis.perez@m-5.cl", rol="BODEGUERO")
         self.client.logout()
-        self.client.login(username="admin1", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="admin1").email, password="clave12345")
         self.client.post(reverse("usuarios:resolver_cambio", args=[solicitud.pk]),
                          {"decision": "aprobar"})
         self.usuario.refresh_from_db()
@@ -701,7 +701,7 @@ class SolicitudCambioPerfilTest(TestCase):
         self._pedir()
         solicitud = self.SolicitudCambioPerfil.objects.get()
         self.client.logout()
-        self.client.login(username="admin1", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="admin1").email, password="clave12345")
         resp = self.client.post(reverse("usuarios:cancelar_cambio", args=[solicitud.pk]))
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(self.SolicitudCambioPerfil.objects.count(), 1)
@@ -721,7 +721,7 @@ class EliminarCuentaTest(TestCase):
         self.nuevo = Usuario.objects.create_user(
             username="recien", password="clave12345", email="recien@m-5.cl", rol="BODEGUERO")
         self.client = Client()
-        self.client.login(username="admin1", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="admin1").email, password="clave12345")
 
     def test_elimina_una_cuenta_sin_historial(self):
         self.client.post(reverse("usuarios:eliminar", args=[self.nuevo.pk]))
@@ -748,13 +748,13 @@ class EliminarCuentaTest(TestCase):
             username="admin3", password="clave12345", email="admin3@m-5.cl", rol="ADMIN")
         self.admin.estado = False
         self.admin.save()
-        self.client.login(username="admin3", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="admin3").email, password="clave12345")
         self.client.post(reverse("usuarios:eliminar", args=[tercero.pk]))
         self.assertTrue(Usuario.objects.filter(pk=tercero.pk).exists())
 
     def test_solo_el_administrador_elimina(self):
         self.client.logout()
-        self.client.login(username="recien", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="recien").email, password="clave12345")
         resp = self.client.post(reverse("usuarios:eliminar", args=[self.otro_admin.pk]))
         self.assertIn(resp.status_code, (302, 403))
         self.assertTrue(Usuario.objects.filter(pk=self.otro_admin.pk).exists())

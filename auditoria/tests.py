@@ -118,7 +118,7 @@ class AuditoriaDeAccionesTest(TestCase):
         sol = SolicitudMaterial.objects.create(proyecto=self.proyecto, emisor=self.jp)
         SolicitudDetalle.objects.create(
             solicitud=sol, material=self.material, cantidad_solicitada=5, partida=self.partida)
-        self.client.login(username="jp53", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jp53").email, password="clave12345")
         self.client.post(reverse("solicitudes:emitir", args=[sol.pk]))
         sol.refresh_from_db()
         reg = RegistroAuditoria.objects.get(accion=RegistroAuditoria.Accion.SM_EMITIDA)
@@ -129,7 +129,7 @@ class AuditoriaDeAccionesTest(TestCase):
         sol = SolicitudMaterial.objects.create(
             proyecto=self.proyecto, emisor=self.jp,
             estado=SolicitudMaterial.Estado.EMITIDA)
-        self.client.login(username="ea53", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="ea53").email, password="clave12345")
         self.client.post(reverse("solicitudes:rechazar", args=[sol.pk]), {"motivo": "Mal especificada"})
         reg = RegistroAuditoria.objects.get(accion=RegistroAuditoria.Accion.SM_RECHAZADA)
         self.assertEqual(reg.usuario, self.ea)
@@ -137,7 +137,7 @@ class AuditoriaDeAccionesTest(TestCase):
     def test_una_sm_que_no_se_puede_emitir_no_ensucia_la_bitacora(self):
         """Excepción 1 en la práctica: si la acción no ocurre, no hay registro."""
         sol = SolicitudMaterial.objects.create(proyecto=self.proyecto, emisor=self.jp)
-        self.client.login(username="jp53", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jp53").email, password="clave12345")
         self.client.post(reverse("solicitudes:emitir", args=[sol.pk]))  # sin ítems
         self.assertEqual(RegistroAuditoria.objects.count(), 0)
 
@@ -147,7 +147,7 @@ class AuditoriaDeAccionesTest(TestCase):
         pendiente = Usuario.objects.create_user(
             username="nuevo", password="x", email="n@m5.cl",
             rol="BODEGUERO", pendiente_aprobacion=True, estado=False)
-        self.client.login(username="admin53", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="admin53").email, password="clave12345")
         self.client.post(reverse("usuarios:aprobar", args=[pendiente.pk]))
         reg = RegistroAuditoria.objects.get(accion=RegistroAuditoria.Accion.USUARIO_APROBADO)
         self.assertEqual(reg.usuario, self.admin)
@@ -155,7 +155,7 @@ class AuditoriaDeAccionesTest(TestCase):
         self.assertEqual(reg.modulo, RegistroAuditoria.Modulo.USUARIOS)
 
     def test_activar_o_inactivar_una_cuenta_queda_registrado(self):
-        self.client.login(username="admin53", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="admin53").email, password="clave12345")
         self.client.post(reverse("usuarios:cambiar_estado", args=[self.bodeguero.pk]))
         self.assertTrue(RegistroAuditoria.objects.filter(
             accion=RegistroAuditoria.Accion.USUARIO_MODIFICADO).exists())
@@ -179,7 +179,7 @@ class BitacoraPantallaTest(TestCase):
                   "Recibió la factura de Ferretería Andes.", "F-12345")
         registrar(self.bodeguero, RegistroAuditoria.Accion.MOV_INVENTARIO,
                   "Entrada de 50 saco de Cemento.", "Cemento")
-        self.client.login(username="adm", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="adm").email, password="clave12345")
 
     def _url(self, **filtros):
         base = reverse("auditoria:bitacora")
@@ -228,11 +228,11 @@ class BitacoraPantallaTest(TestCase):
         self.assertEqual(len(resp.context["registros"]), 3)
 
     def test_contabilidad_puede_revisar_la_bitacora(self):
-        self.client.login(username="cont", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="cont").email, password="clave12345")
         self.assertEqual(self.client.get(self._url()).status_code, 200)
 
     def test_un_rol_ajeno_no_entra_a_la_bitacora(self):
-        self.client.login(username="bod", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="bod").email, password="clave12345")
         self.assertEqual(self.client.get(self._url()).status_code, 403)
 
     def test_la_bitacora_no_se_puede_editar_desde_el_admin(self):

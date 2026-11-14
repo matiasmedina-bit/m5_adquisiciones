@@ -34,6 +34,12 @@ class LoginConCorreoTests(TestCase):
         r = self._login("jperez@m-5.cl", "mala")
         self.assertContains(r, "Correo o contraseña incorrectos.")
 
+    def test_rf47_el_nombre_de_usuario_ya_no_sirve_para_entrar(self):
+        r = self._login("jperez")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Correo o contraseña incorrectos.")
+        self.assertNotIn("_auth_user_id", self.client.session)
+
     def test_cuenta_deshabilitada_no_entra(self):
         self.u.estado = False
         self.u.save()
@@ -63,8 +69,8 @@ class BloqueoPorIntentosTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "bloqueado hasta")
 
-    def test_rnf08_correo_y_usuario_suman_al_mismo_contador(self):
-        for ident in ("ana", "ana@m-5.cl", "ana", "ana@m-5.cl", "ana"):
+    def test_rnf08_el_correo_cuenta_igual_con_mayusculas(self):
+        for ident in ("ana@m-5.cl", "ANA@m-5.cl", "Ana@M-5.cl", "ana@m-5.cl", "ANA@M-5.CL"):
             self._login(ident)
         self.assertIsNotNone(IntentoAcceso.bloqueado(f"u{self.u.pk}"))
 

@@ -174,7 +174,7 @@ class ProyectoPDFTest(TestCase):
         self.jefe = Usuario.objects.create_user(
             username="jefe_pdf", password="clave12345", email="pdf@m5.cl",
             rol="JEFE_PROYECTO", first_name="Camila", last_name="Rojas")
-        self.client.login(username="jefe_pdf", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jefe_pdf").email, password="clave12345")
         self.proyecto = Proyecto.objects.create(
             nombre="Edificio Aurora", mandante="Inmobiliaria Vista SpA",
             centro_costo="CC-2026-014",
@@ -240,7 +240,7 @@ class ArchivoProyectoCU54Test(TestCase):
         self.proyecto.jefes.add(self.jefe)
         self.tipo = TipoDocumento.objects.create(
             nombre="Plano", descripcion="Planimetría")
-        self.client.login(username="jefe54", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jefe54").email, password="clave12345")
 
     def _pdf(self, nombre="plano.pdf"):
         return SimpleUploadedFile(nombre, b"%PDF-1.4 contenido", content_type="application/pdf")
@@ -298,14 +298,14 @@ class ArchivoProyectoCU54Test(TestCase):
         self.assertContains(resp, "Plano")  # el tipo con que quedó clasificado
 
     def test_contabilidad_tambien_puede_almacenar(self):
-        self.client.login(username="conta54", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="conta54").email, password="clave12345")
         self.client.post(self._url(), {
             "tipo": self.tipo.pk, "nombre": "Factura 1234",
             "archivo": self._pdf("f.pdf")})
         self.assertEqual(ArchivoProyecto.objects.count(), 1)
 
     def test_un_rol_ajeno_no_puede_almacenar(self):
-        self.client.login(username="bod54", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="bod54").email, password="clave12345")
         resp = self.client.post(self._url(), {
             "tipo": self.tipo.pk, "nombre": "X", "archivo": self._pdf()})
         self.assertEqual(resp.status_code, 403)
@@ -410,7 +410,7 @@ class EdicionOfflineTest(TestCase):
             proyecto=self.proyecto, tipo=self.tipo, nombre="Plano estructura",
             archivo=SimpleUploadedFile("plano.dwg", b"contenido dwg"),
             subido_por=self.jefe)
-        self.client.login(username="jp_off", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jp_off").email, password="clave12345")
 
     # --- CU-58 ---
 
@@ -439,7 +439,7 @@ class EdicionOfflineTest(TestCase):
 
     def test_la_ficha_muestra_quien_lo_tiene(self):
         self._bloquear()
-        self.client.login(username="cont_off", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="cont_off").email, password="clave12345")
         resp = self.client.get(reverse("proyectos:detalle", args=[self.proyecto.pk]))
         self.assertContains(resp, "jp_off")
 
@@ -447,7 +447,7 @@ class EdicionOfflineTest(TestCase):
 
     def test_otro_usuario_no_lo_puede_tomar_y_se_le_dice_quien_lo_tiene(self):
         self._bloquear()
-        self.client.login(username="cont_off", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="cont_off").email, password="clave12345")
         resp = self.client.post(
             reverse("proyectos:archivo_bloquear", args=[self.archivo.pk]), follow=True)
         self.assertContains(resp, "jp_off")
@@ -477,7 +477,7 @@ class EdicionOfflineTest(TestCase):
 
     def test_no_se_puede_subir_sobre_el_bloqueo_de_otro(self):
         self._bloquear()
-        self.client.login(username="cont_off", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="cont_off").email, password="clave12345")
         self.client.post(reverse("proyectos:archivo_version", args=[self.archivo.pk]),
                          {"archivo": SimpleUploadedFile("plano.dwg", b"x")})
         self.archivo.refresh_from_db()
@@ -506,14 +506,14 @@ class EdicionOfflineTest(TestCase):
     def test_el_administrador_destraba_un_archivo_ajeno(self):
         """Alguien se fue de la empresa con un archivo tomado: hay que poder soltarlo."""
         self._bloquear()
-        self.client.login(username="adm_off", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="adm_off").email, password="clave12345")
         self.client.post(reverse("proyectos:archivo_liberar", args=[self.archivo.pk]))
         self.archivo.refresh_from_db()
         self.assertFalse(self.archivo.bloqueado)
 
     def test_un_usuario_cualquiera_no_destraba_lo_ajeno(self):
         self._bloquear()
-        self.client.login(username="cont_off", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="cont_off").email, password="clave12345")
         self.client.post(reverse("proyectos:archivo_liberar", args=[self.archivo.pk]))
         self.archivo.refresh_from_db()
         self.assertTrue(self.archivo.bloqueado)
@@ -535,7 +535,7 @@ class UmbralTamanoCU57Test(TestCase):
         parametros = ParametrosSistema.actuales()
         parametros.umbral_archivo_mb = 1
         parametros.save()
-        self.client.login(username="jp57", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="jp57").email, password="clave12345")
 
     def _subir(self, tamano_bytes, **extra):
         datos = {"tipo": self.tipo.pk, "nombre": "Plano pesado",
@@ -595,7 +595,7 @@ class ObraConItemizadoYVariosJefesTest(TestCase):
         # RF-07: la obra la registra el Administrador, no un Jefe de Proyecto
         Usuario.objects.create_user(
             "admin_obra", password="clave12345", email="adm@m5.cl", rol="ADMIN")
-        self.client.login(username="admin_obra", password="clave12345")
+        self.client.login(username=Usuario.objects.get(username="admin_obra").email, password="clave12345")
 
     def _datos(self, **extra):
         datos = {
