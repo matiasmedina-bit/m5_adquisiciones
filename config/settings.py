@@ -265,6 +265,9 @@ if DEBUG and os.getenv("MOSTRAR_SQL", "False").lower() == "true":
         record.msg, record.args = "%s", (_COLUMNAS.sub(_acortar, sql),)
         return True
 
+    # Muestra qué controlador atiende cada petición (config/demo_traza.py)
+    MIDDLEWARE = MIDDLEWARE + ["config.demo_traza.TrazaControladorMiddleware"]
+
     LOGGING = {
         "version": 1,
         "disable_existing_loggers": False,
